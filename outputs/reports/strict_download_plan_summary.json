@@ -1,0 +1,35 @@
+{
+  "manifest_path": "data/processed/strict_download_subset_manifest.parquet",
+  "output_root": "/home/pm97/workspace/sukim/cosmos_distillation/data/raw/physical_ai_av",
+  "cache_root": "/home/pm97/workspace/kjhong/alpamayo_100/.physical_ai_av_cache/datasets--nvidia--PhysicalAI-Autonomous-Vehicles/snapshots/2ae73f49ffd2b5db43b404201beb7b92889f7afc",
+  "unique_chunks": 574,
+  "required_features": [
+    "camera_cross_left_120fov",
+    "camera_front_wide_120fov",
+    "camera_cross_right_120fov",
+    "camera_front_tele_30fov",
+    "egomotion"
+  ],
+  "linked_counts": {
+    "camera_cross_left_120fov": 331,
+    "camera_front_wide_120fov": 4,
+    "camera_cross_right_120fov": 4,
+    "camera_front_tele_30fov": 4,
+    "egomotion": 4
+  },
+  "missing_counts": {
+    "camera_cross_left_120fov": 243,
+    "camera_front_wide_120fov": 570,
+    "camera_cross_right_120fov": 570,
+    "camera_front_tele_30fov": 570,
+    "egomotion": 570
+  },
+  "missing_file_patterns": 2523,
+  "estimated_missing_bytes": 3325618613100,
+  "estimated_missing_gb": 3325.62,
+  "estimated_hours": {
+    "50_MBps": 18.48,
+    "100_MBps": 9.24,
+    "200_MBps": 4.62
+  }
+}

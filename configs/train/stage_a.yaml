@@ -1,0 +1,14 @@
+stage_name: stage_a
+epochs: 0.75
+max_length: 4096
+bf16: true
+gradient_checkpointing: true
+
+loss_weights:
+  hard_ce: 1.0
+  seq_kd: 0.3
+  logit_kd: 0.2
+  feat: 0.05
+  aux: 0.4
+  self_cons: 0.2
+  rank: 0.0

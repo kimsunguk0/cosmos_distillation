@@ -1,0 +1,36 @@
+{
+  "strict_human_coc": true,
+  "requested_train_count": 1400,
+  "available_reasoning_rows": 1740,
+  "available_train_rows": 1450,
+  "available_val_rows": 290,
+  "available_train_candidates_after_filters": 577,
+  "selected_train_count": 577,
+  "selected_val_count": 155,
+  "excluded_train_count": 0,
+  "events_present_total": 732,
+  "events_present_train": 577,
+  "events_present_val": 155,
+  "required_sensor_coverage_train": 1450,
+  "required_sensor_coverage_val": 290,
+  "selected_train_event_cluster_counts": {
+    "WORK_ZONES_TEMP_TRAFFIC_CONTROL": 287,
+    "PEDESTRIAN_DENSITY_OR_CLOSE_PROXIMITY": 168,
+    "SPECIAL_OR_UNCOMMON_VEHICLE_BEHAVIOR": 60,
+    "CYCLISTS_AND_MICROMOBILITY_COMPLEX": 26,
+    "COMPLEX_INTERSECTION_INTERACTION": 13,
+    "EMERGENCY_INCIDENT_SCENE": 11,
+    "ROAD_DEBRIS_OR_SAFETY_TRACES": 7,
+    "ANIMALS_BIRDS_ROADKILL": 3,
+    "OTHER_LONGTAIL": 2
+  },
+  "selected_val_event_cluster_counts": {
+    "WORK_ZONES_TEMP_TRAFFIC_CONTROL": 96,
+    "PEDESTRIAN_DENSITY_OR_CLOSE_PROXIMITY": 32,
+    "SPECIAL_OR_UNCOMMON_VEHICLE_BEHAVIOR": 16,
+    "COMPLEX_INTERSECTION_INTERACTION": 5,
+    "OTHER_LONGTAIL": 3,
+    "CYCLISTS_AND_MICROMOBILITY_COMPLEX": 2,
+    "EMERGENCY_INCIDENT_SCENE": 1
+  }
+}

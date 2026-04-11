@@ -1,0 +1,24 @@
+student_model: nvidia/Cosmos-Reason2-2B
+
+special_tokens:
+  - <|cot_start|>
+  - <|cot_end|>
+  - <|question_start|>
+  - <|question_end|>
+  - <|answer_start|>
+  - <|answer_end|>
+  - <|traj_history_start|>
+  - <|traj_history_end|>
+  - <|traj_future_start|>
+  - <|traj_future_end|>
+  - <|route_start|>
+  - <|route_end|>
+  - <|traj_token_0|>
+
+trainable:
+  token_embeddings: true
+  lm_head: true
+  language_upper_blocks_lora: true
+  multimodal_projector_lora: true
+  vision_lower_blocks_frozen: true
+  vision_upper_blocks_optional_low_lr: true

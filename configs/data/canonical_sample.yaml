@@ -1,0 +1,21 @@
+camera_names:
+  - camera_cross_left_120fov
+  - camera_front_wide_120fov
+  - camera_cross_right_120fov
+  - camera_front_tele_30fov
+
+frame_offsets_sec:
+  - -0.3
+  - -0.2
+  - -0.1
+  - 0.0
+
+ego_history_steps: 16
+ego_future_steps: 64
+ego_frequency_hz: 10
+
+anchor_policy:
+  primary: keyframe_midpoint
+  fallback: clip_midpoint
+
+output_root: data/processed/canonical_samples

@@ -1,0 +1,12 @@
+selection:
+  target_train_clips: 1400
+  prefer_user_clip_list: true
+
+constraints:
+  split_unit: clip
+  prevent_event_cluster_leakage: true
+  spread_collection_conditions: true
+  preserve_official_val_split: true
+
+outputs:
+  manifest_path: data/processed/clip_manifest.parquet

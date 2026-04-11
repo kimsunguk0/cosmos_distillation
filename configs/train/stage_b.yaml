@@ -1,0 +1,14 @@
+stage_name: stage_b
+epochs: 2.0
+max_length: 4096
+bf16: true
+gradient_checkpointing: true
+
+loss_weights:
+  hard_ce: 1.0
+  seq_kd: 0.6
+  logit_kd: 0.5
+  feat: 0.15
+  aux: 0.3
+  self_cons: 0.15
+  rank: 0.1

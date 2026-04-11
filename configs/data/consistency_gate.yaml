@@ -1,0 +1,26 @@
+action_classes:
+  - lane_keep
+  - slow_down
+  - stop
+  - yield
+  - follow_lead
+  - left_turn
+  - right_turn
+  - creep
+  - creep_then_go
+  - change_lane_left
+  - change_lane_right
+  - parked_or_blocked_wait
+  - unknown
+
+levels:
+  - pass
+  - soft_pass
+  - soft_fail
+  - hard_fail
+
+defaults:
+  mixed_pair_generation_enabled: false
+  allow_soft_pass_ablation_only: true
+  allow_pass_ablation_only: true
+  max_mixed_sample_weight: 0.25

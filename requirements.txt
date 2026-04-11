@@ -1,0 +1,15 @@
+physical_ai_av
+huggingface_hub
+pandas
+pyarrow
+numpy
+scipy
+tqdm
+torch
+torchvision
+transformers
+accelerate
+peft
+opencv-python-headless
+PyYAML
+pytest

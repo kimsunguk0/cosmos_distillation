@@ -1,0 +1,34 @@
+teacher_model: nvidia/Alpamayo-1.5-10B
+teacher_cache_root: data/teacher_cache
+
+prompt_families:
+  - name: long_cot_v1
+    output_mode: reasoning
+  - name: concise_json_v1
+    output_mode: rationale_answer
+  - name: strict_schema_v1
+    output_mode: json_only
+
+generation_defaults:
+  deterministic_json:
+    temperature: 0.1
+    top_p: 0.9
+    num_return_sequences: 1
+    max_new_tokens: 256
+  stochastic_reasoning:
+    temperature: 0.6
+    top_p: 0.98
+    num_return_sequences: 3
+    max_new_tokens: 256
+
+selection_score:
+  schema_validity: 0.30
+  agreement_with_human_coc: 0.25
+  no_hallucination: 0.20
+  internal_consistency: 0.15
+  action_class_agreement_with_weak_derived: 0.10
+
+rejection_rules:
+  reject_on_json_parse_failure: true
+  reject_on_missing_meta_action: true
+  reject_on_hard_action_disagreement: true
