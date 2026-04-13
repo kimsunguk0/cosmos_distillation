@@ -11,16 +11,41 @@ PROMPTS = {
         "ordering, why the ego vehicle should act the way it does, and what makes "
         "the situation difficult. Return only the reasoning."
     ),
-    "concise_json_v1": (
-        "You are an AV reasoning teacher. Summarize the key reason for the ego "
-        "vehicle's decision in 2-5 sentences, then provide a short final answer. "
-        "Return JSON with keys: rationale, meta_action, answer."
+    "tagged_triplet_v2": (
+        "You are an AV reasoning teacher. Complete the response using the exact "
+        "special-token format below and do not output JSON, bullet lists, or "
+        "numeric vectors.\n"
+        "<|cot_start|>1-2 sentences explaining the driving situation and why the ego "
+        "vehicle should act that way.<|cot_end|>"
+        "<|meta_action_start|>one action label from "
+        "[keep_lane, yield, stop, slow_down, creep, left_turn, right_turn, "
+        "change_lane_left, change_lane_right, follow_lead, overtake, "
+        "nudge_left, nudge_right, unknown]<|meta_action_end|>"
+        "<|answer_start|>one short final driving answer in natural language."
+        "<|answer_end|>"
     ),
-    "strict_schema_v1": (
-        "You are an AV reasoning teacher. Return valid JSON only. Schema: "
-        '{"scene_summary": str, "meta_action": str, "critical_objects": [{"type": '
-        'str, "why": str}], "temporal_notices": [{"when": str, "what": str}], '
-        '"final_answer": str, "confidence": float}. Do not include markdown.'
+    "tagged_triplet_brief_v2": (
+        "Observe the scene and output exactly three tagged fields. Keep them short "
+        "and concrete.\n"
+        "<|cot_start|>brief causal explanation.<|cot_end|>"
+        "<|meta_action_start|>single action label.<|meta_action_end|>"
+        "<|answer_start|>single-sentence driving answer.<|answer_end|>\n"
+        "If uncertain, still fill all three fields and use unknown only for the "
+        "meta action."
+    ),
+    "short_reason_only_v2": (
+        "Return one short sentence with at most 12 words describing the main "
+        "causal reason for the ego vehicle's decision. Return natural language only."
+    ),
+    "meta_action_only_v2": (
+        "Return only one action label for the ego vehicle. Choose exactly one from "
+        "[keep_lane, yield, stop, slow_down, creep, left_turn, right_turn, "
+        "change_lane_left, change_lane_right, follow_lead, overtake, nudge_left, "
+        "nudge_right, unknown]. Do not add any extra words."
+    ),
+    "answer_only_v2": (
+        "Return one short final driving answer in natural language, ideally under "
+        "10 words. Do not output lists, JSON, or coordinates."
     ),
 }
 

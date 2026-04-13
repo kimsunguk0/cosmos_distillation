@@ -1,0 +1,16 @@
+{
+  "corpus_jsonl": "/home/pm97/workspace/sukim/cosmos_distillation/data/corpus/strict_human_long_cot.jsonl",
+  "teacher_index_jsonl": "/home/pm97/workspace/sukim/cosmos_distillation/data/teacher_cache/text/index.jsonl",
+  "teacher_ready_records": 77,
+  "json_parseability": 1.0,
+  "meta_action_f1": 0.0,
+  "human_coc_overlap": 0.14778866205412328,
+  "hallucination_rate": 0.0,
+  "teacher_human_disagreement_rate": 0.0,
+  "consistency_gate_score": 0.0,
+  "rationale_answer_consistency": 0.14778866205412328,
+  "notes": [
+    "Evaluation stays partial until actual teacher outputs are generated.",
+    "Current metrics focus on available soft-target text alignment only."
+  ]
+}

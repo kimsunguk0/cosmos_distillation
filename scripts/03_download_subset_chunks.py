@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -44,6 +45,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cache-root", type=Path, default=None)
     parser.add_argument("--link-mode", choices=("symlink", "copy"), default="symlink")
     parser.add_argument("--estimate-only", action="store_true")
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=8,
+        help="Concurrent file-download workers passed to snapshot_download.",
+    )
+    parser.add_argument(
+        "--xet-high-performance",
+        action="store_true",
+        help="Enable HF_XET_HIGH_PERFORMANCE=1 for higher download parallelism.",
+    )
     parser.add_argument(
         "--summary-json",
         type=Path,
@@ -134,6 +146,8 @@ def main() -> None:
         "manifest_path": str(args.manifest_path),
         "output_root": str(output_root),
         "cache_root": str(cache_root) if cache_root else None,
+        "max_workers": int(args.max_workers),
+        "xet_high_performance": bool(args.xet_high_performance),
         "unique_chunks": len(chunks),
         "required_features": REQUIRED_FEATURES,
         "linked_counts": linked_counts,
@@ -169,13 +183,18 @@ def main() -> None:
         f"{format_gb(estimated_missing_bytes)} "
         f"(50MB/s ~ {summary['estimated_hours']['50_MBps']}h, "
         f"100MB/s ~ {summary['estimated_hours']['100_MBps']}h, "
-        f"200MB/s ~ {summary['estimated_hours']['200_MBps']}h)"
+        f"200MB/s ~ {summary['estimated_hours']['200_MBps']}h) "
+        f"max_workers={args.max_workers} "
+        f"xet_high_performance={args.xet_high_performance}"
     )
+    if args.xet_high_performance:
+        os.environ["HF_XET_HIGH_PERFORMANCE"] = "1"
     snapshot_download(
         repo_id=args.repo_id,
         repo_type="dataset",
         local_dir=str(output_root),
         allow_patterns=missing_patterns,
+        max_workers=args.max_workers,
     )
     print("[done] missing chunk download complete")
 

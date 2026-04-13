@@ -1,0 +1,14 @@
+{
+  "mode": "train",
+  "student_model": "/home/pm97/workspace/sukim/weights/cosmos-reason-2b",
+  "stage_name": "stage_a",
+  "train_records": 128,
+  "all_train_records": 577,
+  "teacher_ready_records": 106,
+  "global_steps": 8,
+  "learning_rate": 2e-05,
+  "use_lora": true,
+  "elapsed_sec": 23.119,
+  "metrics_path": "outputs/checkpoints/train_stage_a_specfix/metrics.jsonl",
+  "output_dir": "outputs/checkpoints/train_stage_a_specfix"
+}

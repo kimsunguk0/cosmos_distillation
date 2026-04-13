@@ -98,3 +98,83 @@ def self_consistency_penalty(
     weights = consistency_scores.clamp(min=0.0, max=1.0)
     denom = weights.sum().clamp(min=1e-6)
     return (target_loss * weights).sum() / denom
+
+
+def logit_kd_loss(
+    student_logits: torch.Tensor,
+    teacher_logits: torch.Tensor | None,
+    labels: torch.Tensor,
+    sample_weights: torch.Tensor | None = None,
+    temperature: float = 1.0,
+) -> torch.Tensor:
+    """KL distillation over token logits when teacher logits are available."""
+    if teacher_logits is None:
+        return torch.tensor(0.0, device=student_logits.device)
+
+    shift_student = student_logits[:, :-1, :].contiguous()
+    shift_teacher = teacher_logits[:, :-1, :].contiguous()
+    shift_labels = labels[:, 1:].contiguous()
+    valid_mask = shift_labels != -100
+    if not valid_mask.any():
+        return torch.tensor(0.0, device=student_logits.device)
+
+    student_log_probs = F.log_softmax(shift_student / temperature, dim=-1)
+    teacher_probs = F.softmax(shift_teacher / temperature, dim=-1)
+    token_kl = F.kl_div(student_log_probs, teacher_probs, reduction="none").sum(dim=-1)
+    token_kl = token_kl * valid_mask.float()
+    per_sample = token_kl.sum(dim=1) / valid_mask.float().sum(dim=1).clamp(min=1.0)
+    if sample_weights is None:
+        return per_sample.mean()
+    denom = sample_weights.sum().clamp(min=1e-6)
+    return (per_sample * sample_weights).sum() / denom
+
+
+def feature_alignment_loss(
+    student_hidden: torch.Tensor,
+    teacher_hidden: torch.Tensor | None,
+    attention_mask: torch.Tensor | None = None,
+    sample_weights: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Align pooled hidden states when teacher features are available."""
+    if teacher_hidden is None:
+        return torch.tensor(0.0, device=student_hidden.device)
+
+    if attention_mask is None:
+        student_pooled = student_hidden.mean(dim=1)
+    else:
+        mask = attention_mask.unsqueeze(-1).to(student_hidden.dtype)
+        student_pooled = (student_hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
+
+    teacher_pooled = teacher_hidden.mean(dim=1)
+    per_sample = F.mse_loss(student_pooled, teacher_pooled, reduction="none").mean(dim=-1)
+    if sample_weights is None:
+        return per_sample.mean()
+    denom = sample_weights.sum().clamp(min=1e-6)
+    return (per_sample * sample_weights).sum() / denom
+
+
+def ranking_consistency_loss(
+    meta_action_logits: torch.Tensor,
+    teacher_action_labels: torch.Tensor,
+    teacher_action_present_mask: torch.Tensor,
+    selection_scores: torch.Tensor,
+    sample_weights: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Encourage the teacher-selected action class to outrank alternatives."""
+    valid = teacher_action_present_mask.bool()
+    if not valid.any():
+        return torch.tensor(0.0, device=meta_action_logits.device)
+
+    chosen_logits = meta_action_logits[valid, teacher_action_labels[valid]]
+    all_logits = meta_action_logits[valid]
+    competitor_logits = all_logits.masked_fill(
+        F.one_hot(teacher_action_labels[valid], num_classes=all_logits.shape[-1]).bool(),
+        float("-inf"),
+    ).max(dim=-1).values
+    margin = 0.2
+    per_sample = F.relu(margin - (chosen_logits - competitor_logits))
+    weights = selection_scores[valid].clamp(min=0.0, max=1.0)
+    if sample_weights is not None:
+        weights = weights * sample_weights[valid]
+    denom = weights.sum().clamp(min=1e-6)
+    return (per_sample * weights).sum() / denom

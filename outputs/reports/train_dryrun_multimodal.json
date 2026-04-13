@@ -1,0 +1,27 @@
+{
+  "mode": "data_only_dry_run",
+  "corpus_jsonl": "/home/pm97/workspace/sukim/cosmos_distillation/data/corpus/strict_human_long_cot.jsonl",
+  "train_records": 2,
+  "teacher_ready_records": 2,
+  "stage_name": "stage_b",
+  "batch_size": 1,
+  "max_length": 4096,
+  "first_batch_shapes": {
+    "input_ids": [
+      1,
+      3264
+    ],
+    "labels": [
+      1,
+      3264
+    ],
+    "pixel_values": [
+      11520,
+      1536
+    ],
+    "image_grid_thw": [
+      16,
+      3
+    ]
+  }
+}

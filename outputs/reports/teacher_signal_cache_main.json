@@ -1,0 +1,11 @@
+{
+  "teacher_index_jsonl": "/home/pm97/workspace/sukim/cosmos_distillation/data/teacher_cache/text/index.jsonl",
+  "processed_records": 105,
+  "succeeded": 105,
+  "failed": 0,
+  "logit_topk": 32,
+  "hidden_dir": "/home/pm97/workspace/sukim/cosmos_distillation/data/teacher_cache/text/hidden",
+  "logits_dir": "/home/pm97/workspace/sukim/cosmos_distillation/data/teacher_cache/text/logits",
+  "failures": [],
+  "elapsed_sec": 251.494
+}

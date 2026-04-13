@@ -1,0 +1,72 @@
+{
+  "manifest_path": "/home/pm97/workspace/sukim/cosmos_distillation/data/processed/strict_download_subset_manifest.parquet",
+  "dataset_root": "/home/pm97/workspace/sukim/cosmos_distillation/data/raw/physical_ai_av",
+  "output_root": "/home/pm97/workspace/sukim/cosmos_distillation/data/processed/canonical_samples",
+  "requested_rows": 732,
+  "materialized_rows": 224,
+  "skipped_missing_chunks": 508,
+  "decoder_failure_rows": 224,
+  "decoder_failure_examples": [
+    {
+      "camera_cross_left_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_wide_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_cross_right_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_tele_30fov": "failed:PyAV is required for frame extraction but is not installed."
+    },
+    {
+      "camera_cross_left_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_wide_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_cross_right_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_tele_30fov": "failed:PyAV is required for frame extraction but is not installed."
+    },
+    {
+      "camera_cross_left_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_wide_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_cross_right_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_tele_30fov": "failed:PyAV is required for frame extraction but is not installed."
+    },
+    {
+      "camera_cross_left_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_wide_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_cross_right_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_tele_30fov": "failed:PyAV is required for frame extraction but is not installed."
+    },
+    {
+      "camera_cross_left_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_wide_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_cross_right_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_tele_30fov": "failed:PyAV is required for frame extraction but is not installed."
+    },
+    {
+      "camera_cross_left_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_wide_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_cross_right_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_tele_30fov": "failed:PyAV is required for frame extraction but is not installed."
+    },
+    {
+      "camera_cross_left_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_wide_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_cross_right_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_tele_30fov": "failed:PyAV is required for frame extraction but is not installed."
+    },
+    {
+      "camera_cross_left_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_wide_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_cross_right_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_tele_30fov": "failed:PyAV is required for frame extraction but is not installed."
+    },
+    {
+      "camera_cross_left_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_wide_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_cross_right_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_tele_30fov": "failed:PyAV is required for frame extraction but is not installed."
+    },
+    {
+      "camera_cross_left_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_wide_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_cross_right_120fov": "failed:PyAV is required for frame extraction but is not installed.",
+      "camera_front_tele_30fov": "failed:PyAV is required for frame extraction but is not installed."
+    }
+  ],
+  "skip_images": false
+}

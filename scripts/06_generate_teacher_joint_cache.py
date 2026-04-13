@@ -67,7 +67,7 @@ def main() -> None:
             blockers.append("gt_future_path_missing")
         if teacher_text_record is None:
             blockers.append("teacher_text_index_missing")
-        elif teacher_text_record.get("status") != "ready_request_bundle":
+        elif teacher_text_record.get("status") not in {"ready_request_bundle", "ok"}:
             blockers.append(f"teacher_text_not_ready:{teacher_text_record.get('status')}")
 
         status = "ready_joint_request_bundle" if not blockers else "blocked"

@@ -7,7 +7,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from src.data.consistency import grade_action_pair
 from src.data.local_dataset import CAMERA_NAMES
+from src.data.parsers import action_record_from_text, critical_object_records_from_text
 from src.data.teacher_prompts import get_prompt
 
 
@@ -170,3 +172,142 @@ def write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as handle:
         for record in records:
             handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+
+
+def extract_json_object(text: str | None) -> dict[str, Any] | None:
+    """Best-effort JSON extraction from a model answer string."""
+    if not text:
+        return None
+    candidate = str(text).strip()
+    candidates = [candidate]
+    left = candidate.find("{")
+    right = candidate.rfind("}")
+    if left != -1 and right != -1 and right > left:
+        candidates.append(candidate[left : right + 1])
+    for attempt in candidates:
+        try:
+            value = json.loads(attempt)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def summarize_json_candidate(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Summarize parse status and field coverage for a JSON payload."""
+    if payload is None:
+        return {
+            "is_valid": False,
+            "field_count": 0,
+            "has_meta_action": False,
+            "has_answer": False,
+        }
+    answer = payload.get("answer") or payload.get("final_answer")
+    return {
+        "is_valid": True,
+        "field_count": len(payload),
+        "has_meta_action": bool(payload.get("meta_action")),
+        "has_answer": bool(answer),
+    }
+
+
+def selection_score_from_outputs(
+    *,
+    long_cot: str | None,
+    json_payload: dict[str, Any] | None,
+    meta_action: str | None,
+    answer: str | None,
+) -> float:
+    """Score candidate teacher outputs for downstream use."""
+    score = 0.0
+    if long_cot:
+        score += 0.25
+    summary = summarize_json_candidate(json_payload)
+    if summary["is_valid"]:
+        score += 0.4
+        score += min(summary["field_count"], 6) * 0.03
+    if meta_action:
+        score += 0.15
+    if answer:
+        score += 0.1
+    return round(min(score, 1.0), 4)
+
+
+def normalize_teacher_action_class(
+    *,
+    meta_action: str | None,
+    answer: str | None,
+    short_reason: str | None,
+    long_cot: str | None,
+) -> dict[str, Any]:
+    """Derive a normalized teacher action-class record from available text fields."""
+    for text, source in (
+        (meta_action, "teacher_meta_action"),
+        (answer, "teacher_answer"),
+        (short_reason, "teacher_short_reason"),
+        (long_cot, "teacher_long_cot"),
+    ):
+        record = action_record_from_text(text)
+        if record and record["value"] != "unknown":
+            record["source_field"] = source
+            return record
+    fallback = action_record_from_text(meta_action or answer or short_reason or long_cot)
+    if fallback is None:
+        return {
+            "value": "unknown",
+            "confidence": 0.0,
+            "method": "keyword_parser_v1",
+            "source_field": "missing",
+        }
+    fallback["source_field"] = "fallback"
+    return fallback
+
+
+def build_hallucination_flags(
+    *,
+    long_cot: str | None,
+    json_payload: dict[str, Any] | None,
+    meta_action: str | None,
+    answer: str | None,
+) -> list[str]:
+    """Emit conservative heuristic flags for under-specified teacher outputs."""
+    flags: list[str] = []
+    if json_payload is None:
+        flags.append("structured_json_parse_failed")
+    if not answer:
+        flags.append("answer_missing")
+    elif not any(char.isalpha() for char in str(answer)):
+        flags.append("answer_nonlinguistic")
+    if not meta_action:
+        flags.append("meta_action_missing")
+    if long_cot and len(long_cot.split()) < 4:
+        flags.append("cot_too_short")
+    if not critical_object_records_from_text(long_cot or answer or ""):
+        flags.append("critical_objects_missing")
+    return flags
+
+
+def pair_level_to_score(level: str | None) -> float:
+    """Convert pair levels into a numeric consistency score."""
+    mapping = {
+        "pass": 1.0,
+        "soft_pass": 0.75,
+        "soft_fail": 0.25,
+        "hard_fail": 0.0,
+    }
+    return mapping.get(str(level), 0.0)
+
+
+def compare_teacher_to_reference(teacher_action: str | None, reference_action: str | None) -> dict[str, Any] | None:
+    """Grade a teacher action class against a reference action class."""
+    if not teacher_action or not reference_action:
+        return None
+    pair = grade_action_pair(teacher_action, reference_action)
+    return {
+        "teacher_action_class": pair.reason_action_class,
+        "reference_action_class": pair.path_action_class,
+        "consistency_level": pair.consistency_level,
+        "consistency_score": pair_level_to_score(pair.consistency_level),
+        "notes": pair.notes,
+    }

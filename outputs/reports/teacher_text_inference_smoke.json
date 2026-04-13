@@ -1,0 +1,16 @@
+{
+  "teacher_index_jsonl": "/home/pm97/workspace/sukim/cosmos_distillation/data/teacher_cache/text/index.jsonl",
+  "model_path": "/home/pm97/workspace/sukim/weights/alpamayo15_vlm_weights",
+  "processed_records": 4,
+  "succeeded": 4,
+  "failed": 0,
+  "skipped": 728,
+  "final_status_counts": {
+    "ok": 4,
+    "awaiting_canonical_sample": 508,
+    "ready_request_bundle": 34,
+    "blocked": 186
+  },
+  "failures": [],
+  "elapsed_sec": 277.294
+}
