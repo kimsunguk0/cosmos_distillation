@@ -110,6 +110,12 @@ If you want the same training path as the current server, also make sure these w
 - otherwise fall back to `attn_implementation="eager"` or `"sdpa"` only if the model supports it
 - `tmux`
 
+Important current note for the local Alpamayo 1.5 weights:
+
+- our probe on this server did **not** work with `sdpa`
+- the reliable fallback for `alpamayo15_vlm_weights` was `attn_implementation="eager"`
+- do not assume Flash Attention 2 or SDPA will work on the new server without a quick smoke test first
+
 If you already have a working venv, point the scripts to it. On the old machine we used:
 
 - `/home/pm97/workspace/kjhong/alpamayo_100/ar1_venv/bin/python`
