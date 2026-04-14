@@ -42,6 +42,17 @@ def parse_args() -> argparse.Namespace:
         help="Optional downloader pid to report liveness.",
     )
     parser.add_argument(
+        "--pid-file",
+        type=Path,
+        default=None,
+        help="Optional file containing the current downloader pid.",
+    )
+    parser.add_argument(
+        "--pid-cmd-substring",
+        default=None,
+        help="Optional substring that must appear in the process cmdline for the pid to count as alive.",
+    )
+    parser.add_argument(
         "--watch-seconds",
         type=float,
         default=0.0,
@@ -58,13 +69,37 @@ def local_chunk_path(output_root: Path, feature: str, chunk: int) -> Path:
     return output_root / feature_prefix(feature) / feature / f"{feature}.chunk_{int(chunk):04d}.zip"
 
 
-def process_alive(pid: int | None) -> bool | None:
+def resolve_pid(args: argparse.Namespace) -> int | None:
+    if args.pid_file is not None:
+        try:
+            text = args.pid_file.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            return None
+        if not text:
+            return None
+        try:
+            return int(text)
+        except ValueError:
+            return None
+    return args.pid
+
+
+def process_alive(pid: int | None, cmd_substring: str | None = None) -> bool | None:
     if pid is None:
         return None
     try:
         os.kill(pid, 0)
     except OSError:
         return False
+    if cmd_substring:
+        try:
+            cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\x00", b" ").decode(
+                "utf-8", errors="replace"
+            )
+        except OSError:
+            return False
+        if cmd_substring not in cmdline:
+            return False
     return True
 
 
@@ -95,6 +130,7 @@ def count_active_incomplete(cache_root: Path, feature: str, recent_within_sec: i
 
 def build_snapshot(args: argparse.Namespace) -> dict:
     summary = json.loads(args.summary_json.read_text(encoding="utf-8"))
+    resolved_pid = resolve_pid(args)
     output_root = Path(summary["output_root"])
     selected_chunks = [int(chunk) for chunk in summary["selected_chunks"]]
     preferred_features = list(summary["preferred_features"])
@@ -143,8 +179,8 @@ def build_snapshot(args: argparse.Namespace) -> dict:
 
     return {
         "summary_json": str(args.summary_json),
-        "pid": args.pid,
-        "pid_alive": process_alive(args.pid),
+        "pid": resolved_pid,
+        "pid_alive": process_alive(resolved_pid, args.pid_cmd_substring),
         "log_path": str(args.log_path) if args.log_path else None,
         "log_last_progress_line": read_last_progress_line(args.log_path),
         "selected_chunk_count": len(selected_chunks),

@@ -9,6 +9,7 @@ import os
 import shutil
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -52,6 +53,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--xet-high-performance", action="store_true")
     parser.add_argument("--estimate-only", action="store_true")
     parser.add_argument(
+        "--selected-chunks-json",
+        type=Path,
+        default=None,
+        help="Optional existing priority summary JSON whose selected_chunks should be resumed exactly.",
+    )
+    parser.add_argument(
         "--summary-json",
         type=Path,
         default=PROJECT_ROOT / "outputs" / "reports" / "priority_download_plan.json",
@@ -83,14 +90,34 @@ def main() -> None:
     output_root = (args.output_dir or metadata_root(PROJECT_ROOT)).resolve()
     cache_root = args.cache_root.resolve() if args.cache_root else existing_cache_root()
 
-    plan = build_priority_plan(
-        manifest,
-        output_root=output_root,
-        cache_root=cache_root,
-        anchor_feature=args.anchor_feature,
-        preferred_features=args.preferred_features,
-        target_chunks=args.target_chunks,
-    )
+    if args.selected_chunks_json is not None:
+        existing_summary = json.loads(args.selected_chunks_json.read_text(encoding="utf-8"))
+        selected_chunks = [int(chunk) for chunk in existing_summary["selected_chunks"]]
+        preferred_features = list(existing_summary.get("preferred_features", args.preferred_features))
+        anchor_feature = str(existing_summary.get("anchor_feature", args.anchor_feature))
+        selected_sample_count = int(
+            manifest[manifest["chunk"].astype(int).isin(selected_chunks)].shape[0]
+        )
+        plan = SimpleNamespace(
+            selected_chunks=selected_chunks,
+            ready_chunk_count_now=int(existing_summary.get("ready_chunk_count_now", 0)),
+            ready_sample_count_now=int(existing_summary.get("ready_sample_count_now", 0)),
+            selected_sample_count=selected_sample_count,
+            selected_missing_counts={feature: len(selected_chunks) for feature in preferred_features},
+            estimated_selected_missing_bytes=int(existing_summary.get("estimated_remaining_bytes", 0)),
+            chunk_table=pd.DataFrame({"chunk": selected_chunks}),
+        )
+        args.preferred_features = preferred_features
+        args.anchor_feature = anchor_feature
+    else:
+        plan = build_priority_plan(
+            manifest,
+            output_root=output_root,
+            cache_root=cache_root,
+            anchor_feature=args.anchor_feature,
+            preferred_features=args.preferred_features,
+            target_chunks=args.target_chunks,
+        )
 
     linked_from_cache = {feature: 0 for feature in args.preferred_features}
     remaining_patterns: list[str] = []
@@ -114,6 +141,7 @@ def main() -> None:
         "anchor_feature": args.anchor_feature,
         "preferred_features": args.preferred_features,
         "target_chunks": int(args.target_chunks),
+        "selected_chunks_json": str(args.selected_chunks_json) if args.selected_chunks_json else None,
         "max_workers": int(args.max_workers),
         "xet_high_performance": bool(args.xet_high_performance),
         "ready_chunk_count_now": plan.ready_chunk_count_now,

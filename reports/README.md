@@ -36,6 +36,7 @@ Current issue list:
 - [018-runtime-bundle-and-grounded-selection-v2.md](./018-runtime-bundle-and-grounded-selection-v2.md)
 - [019-true-kd-smoke-and-shared-vocab-guard.md](./019-true-kd-smoke-and-shared-vocab-guard.md)
 - [020-spec-design-issues-so-far.md](./020-spec-design-issues-so-far.md)
+- [021-alpamayo-base-vs-1p5-teacher-contract.md](./021-alpamayo-base-vs-1p5-teacher-contract.md)
 
 Latest known high-level state:
 
