@@ -27,4 +27,5 @@ def test_ensure_special_tokens_adds_missing_items() -> None:
     tokenizer = _DummyTokenizer()
     added = ensure_special_tokens(tokenizer)
     assert "<|cot_start|>" in added
+    assert "<|meta_action_start|>" in added
     assert tokenizer.pad_token == "</s>"

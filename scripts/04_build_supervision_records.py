@@ -31,6 +31,11 @@ def parse_args() -> argparse.Namespace:
         default=PROJECT_ROOT / "data" / "processed" / "supervision_records",
     )
     parser.add_argument(
+        "--canonical-root",
+        type=Path,
+        default=PROJECT_ROOT / "data" / "processed" / "canonical_samples",
+    )
+    parser.add_argument(
         "--summary-json",
         type=Path,
         default=PROJECT_ROOT / "outputs" / "reports" / "supervision_summary.json",
@@ -45,9 +50,10 @@ def main() -> None:
 
     action_counts: dict[str, int] = {}
     missing_human_coc = 0
+    gt_action_counts: dict[str, int] = {}
     with (args.output_dir / "records.jsonl").open("w", encoding="utf-8") as handle:
         for _, row in manifest.iterrows():
-            record = build_supervision_record(row)
+            record = build_supervision_record(row, args.canonical_root)
             handle.write(json.dumps(record, ensure_ascii=True) + "\n")
             meta_action = record["weak_derived"]["meta_action_from_human"]
             if meta_action is None:
@@ -55,6 +61,10 @@ def main() -> None:
             else:
                 action = meta_action["value"]
                 action_counts[action] = action_counts.get(action, 0) + 1
+            gt_action = record["weak_derived"]["action_class_from_gt_path"]
+            if gt_action is not None:
+                action = gt_action["value"]
+                gt_action_counts[action] = gt_action_counts.get(action, 0) + 1
 
     summary = {
         "manifest_path": str(args.manifest_path),
@@ -62,6 +72,7 @@ def main() -> None:
         "num_records": int(len(manifest)),
         "missing_human_coc_records": missing_human_coc,
         "meta_action_counts": action_counts,
+        "gt_action_class_counts": gt_action_counts,
     }
     args.summary_json.parent.mkdir(parents=True, exist_ok=True)
     args.summary_json.write_text(json.dumps(summary, indent=2), encoding="utf-8")

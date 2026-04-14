@@ -10,7 +10,15 @@ from typing import Any
 from src.data.consistency import grade_action_pair
 from src.data.local_dataset import CAMERA_NAMES
 from src.data.parsers import action_record_from_text, critical_object_records_from_text
-from src.data.teacher_prompts import get_prompt
+from src.data.schema_versions import (
+    CANONICAL_LOCALIZATION_VERSION,
+    KD_SCHEMA_VERSION,
+    TEACHER_RUNTIME_BUNDLE_VERSION,
+    TEACHER_SELECTION_POLICY_VERSION,
+    active_versions,
+    stable_payload_hash,
+)
+from src.data.teacher_prompts import get_prompt_config, prompt_family_version
 
 
 CAMERA_NAME_TO_INDEX = {
@@ -18,6 +26,17 @@ CAMERA_NAME_TO_INDEX = {
     "camera_front_wide_120fov": 1,
     "camera_cross_right_120fov": 2,
     "camera_front_tele_30fov": 6,
+}
+
+FORBIDDEN_RUNTIME_INPUT_KEYS = {
+    "ego_future_xyz_path",
+    "ego_future_rot_path",
+    "human_coc",
+    "human_refined_coc",
+    "meta_action_from_human",
+    "action_class_from_gt_path",
+    "turn_direction_from_gt_path",
+    "stop_profile_from_gt_path",
 }
 
 
@@ -56,12 +75,17 @@ def prompt_bundle_for_sample(
     prompt_names: list[str],
     question: str,
 ) -> dict[str, Any]:
-    """Build a teacher request bundle without leaking hard labels into the prompt."""
+    """Build a runtime-only teacher request bundle without future/human leakage."""
     sample_meta_path = canonical_sample_path / "sample_meta.json"
     sample_meta = json.loads(sample_meta_path.read_text(encoding="utf-8")) if sample_meta_path.exists() else {}
 
-    return {
+    bundle = {
         "sample_id": sample_id,
+        "bundle_type": "teacher_runtime_request",
+        "teacher_runtime_bundle_version": TEACHER_RUNTIME_BUNDLE_VERSION,
+        "teacher_prompt_family_version": prompt_family_version(),
+        "teacher_selection_policy_version": TEACHER_SELECTION_POLICY_VERSION,
+        "kd_schema_version": KD_SCHEMA_VERSION,
         "canonical_sample_path": str(canonical_sample_path),
         "camera_names": list(CAMERA_NAMES),
         "camera_indices": [CAMERA_NAME_TO_INDEX[name] for name in CAMERA_NAMES],
@@ -69,15 +93,21 @@ def prompt_bundle_for_sample(
         "prompt_families": [
             {
                 "name": prompt_name,
-                "prompt": get_prompt(prompt_name),
+                "prompt": get_prompt_config(prompt_name).prompt,
+                "generation": {
+                    "temperature": get_prompt_config(prompt_name).generation.temperature,
+                    "top_p": get_prompt_config(prompt_name).generation.top_p,
+                    "max_generation_length": get_prompt_config(prompt_name).generation.max_generation_length,
+                    "num_candidates": get_prompt_config(prompt_name).generation.num_candidates,
+                    "input_builder": get_prompt_config(prompt_name).generation.input_builder,
+                    "deterministic_second_pass": get_prompt_config(prompt_name).generation.deterministic_second_pass,
+                },
             }
             for prompt_name in prompt_names
         ],
         "inputs": {
             "ego_history_xyz_path": str(canonical_sample_path / "ego_history_xyz.npy"),
             "ego_history_rot_path": str(canonical_sample_path / "ego_history_rot.npy"),
-            "ego_future_xyz_path": str(canonical_sample_path / "ego_future_xyz.npy"),
-            "ego_future_rot_path": str(canonical_sample_path / "ego_future_rot.npy"),
             "relative_timestamps_path": str(canonical_sample_path / "rel_timestamps.json"),
             "absolute_timestamps_path": str(canonical_sample_path / "abs_timestamps.json"),
             "frame_dir": str(canonical_sample_path / "frames"),
@@ -89,6 +119,57 @@ def prompt_bundle_for_sample(
         },
         "sample_meta": sample_meta,
     }
+    validate_teacher_runtime_bundle(bundle)
+    return bundle
+
+
+def diagnostics_bundle_for_sample(
+    *,
+    sample_id: str,
+    canonical_sample_path: Path,
+    manifest_row: dict[str, Any],
+    supervision_record: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Build a diagnostics bundle that is never consumed by runtime teacher inference."""
+    weak = (supervision_record or {}).get("weak_derived") or {}
+    hard = (supervision_record or {}).get("hard_human") or {}
+    return {
+        "sample_id": sample_id,
+        "bundle_type": "teacher_diagnostics",
+        "versions": active_versions(),
+        "canonical_sample_path": str(canonical_sample_path),
+        "manifest": {
+            "clip_uuid": manifest_row.get("clip_uuid"),
+            "split": manifest_row.get("subset_split", manifest_row.get("split")),
+            "event_cluster": manifest_row.get("event_cluster"),
+            "num_events": manifest_row.get("num_events"),
+            "t0_us": manifest_row.get("t0_us"),
+            "parsed_events_json": manifest_row.get("parsed_events_json"),
+            "keyframe_timestamps_us_json": manifest_row.get("keyframe_timestamps_us_json"),
+        },
+        "hard_human": {
+            "human_coc": hard.get("human_coc"),
+            "keyframes": hard.get("keyframes"),
+            "keyframe_timestamps_us": hard.get("keyframe_timestamps_us"),
+        },
+        "weak_derived": weak,
+        "paths": {
+            "ego_future_xyz_path": str(canonical_sample_path / "ego_future_xyz.npy"),
+            "ego_future_rot_path": str(canonical_sample_path / "ego_future_rot.npy"),
+            "ego_future_xyz_local_t0_path": str(canonical_sample_path / "ego_future_xyz_local_t0.npy"),
+            "ego_history_xyz_local_t0_path": str(canonical_sample_path / "ego_history_xyz_local_t0.npy"),
+        },
+    }
+
+
+def validate_teacher_runtime_bundle(bundle: dict[str, Any]) -> None:
+    """Fail fast when runtime teacher inputs include forbidden leakage keys."""
+    inputs = bundle.get("inputs", {})
+    forbidden = sorted(key for key in FORBIDDEN_RUNTIME_INPUT_KEYS if key in inputs)
+    top_level_forbidden = sorted(key for key in FORBIDDEN_RUNTIME_INPUT_KEYS if key in bundle)
+    if forbidden or top_level_forbidden:
+        joined = ", ".join(forbidden + top_level_forbidden)
+        raise ValueError(f"Runtime teacher bundle contains forbidden keys: {joined}")
 
 
 def _frame_paths_for_sample(sample_dir: Path, frame_offsets_sec: list[float]) -> dict[str, list[str]]:
@@ -127,6 +208,8 @@ def inspect_teacher_sample(sample_id: str, canonical_root: Path) -> TeacherSampl
     frame_paths = _frame_paths_for_sample(sample_dir, frame_offsets_sec)
 
     blockers: list[str] = []
+    if sample_meta.get("canonical_localization_version") != CANONICAL_LOCALIZATION_VERSION:
+        blockers.append("canonical_version_stale")
     required_files = [
         sample_dir / "ego_history_xyz.npy",
         sample_dir / "ego_history_rot.npy",
@@ -218,20 +301,72 @@ def selection_score_from_outputs(
     json_payload: dict[str, Any] | None,
     meta_action: str | None,
     answer: str | None,
+    human_action_class: str | None = None,
+    weak_gt_action_class: str | None = None,
+    hallucination_flags: list[str] | None = None,
+    internal_consistency: float | None = None,
 ) -> float:
-    """Score candidate teacher outputs for downstream use."""
-    score = 0.0
+    """Score candidate teacher outputs with structure plus groundedness terms."""
+    structure_score = 0.0
     if long_cot:
-        score += 0.25
+        structure_score += 0.25
     summary = summarize_json_candidate(json_payload)
     if summary["is_valid"]:
-        score += 0.4
-        score += min(summary["field_count"], 6) * 0.03
+        structure_score += 0.4
+        structure_score += min(summary["field_count"], 6) * 0.03
     if meta_action:
-        score += 0.15
+        structure_score += 0.15
     if answer:
-        score += 0.1
-    return round(min(score, 1.0), 4)
+        structure_score += 0.1
+
+    action_record = normalize_teacher_action_class(
+        meta_action=meta_action,
+        answer=answer,
+        short_reason=(json_payload or {}).get("rationale") or (json_payload or {}).get("scene_summary"),
+        long_cot=long_cot,
+    )
+    teacher_action = action_record["value"]
+
+    grounded_score = 0.0
+    if human_action_class:
+        human_cmp = compare_teacher_to_reference(teacher_action, human_action_class)
+        grounded_score += 0.25 * float((human_cmp or {}).get("consistency_score", 0.0))
+    no_hallucination = 1.0 if not (hallucination_flags or []) else 0.0
+    grounded_score += 0.20 * no_hallucination
+    grounded_score += 0.15 * float(0.0 if internal_consistency is None else internal_consistency)
+    if weak_gt_action_class:
+        weak_cmp = compare_teacher_to_reference(teacher_action, weak_gt_action_class)
+        grounded_score += 0.10 * float((weak_cmp or {}).get("consistency_score", 0.0))
+
+    total = min(structure_score + grounded_score, 1.0)
+    return round(total, 4)
+
+
+def internal_consistency_score(
+    *,
+    long_cot: str | None,
+    meta_action: str | None,
+    answer: str | None,
+    json_payload: dict[str, Any] | None,
+) -> float:
+    """Estimate internal agreement between action-bearing teacher fields."""
+    candidates = [
+        normalize_teacher_action_class(meta_action=meta_action, answer=None, short_reason=None, long_cot=None)["value"],
+        normalize_teacher_action_class(meta_action=None, answer=answer, short_reason=None, long_cot=None)["value"],
+        normalize_teacher_action_class(
+            meta_action=(json_payload or {}).get("meta_action"),
+            answer=(json_payload or {}).get("answer") or (json_payload or {}).get("final_answer"),
+            short_reason=(json_payload or {}).get("rationale") or (json_payload or {}).get("scene_summary"),
+            long_cot=None,
+        )["value"],
+        normalize_teacher_action_class(meta_action=None, answer=None, short_reason=None, long_cot=long_cot)["value"],
+    ]
+    usable = [value for value in candidates if value and value != "unknown"]
+    if not usable:
+        return 0.0
+    reference = usable[0]
+    passes = sum(1 for value in usable if value == reference)
+    return round(passes / len(usable), 4)
 
 
 def normalize_teacher_action_class(
@@ -311,3 +446,18 @@ def compare_teacher_to_reference(teacher_action: str | None, reference_action: s
         "consistency_score": pair_level_to_score(pair.consistency_level),
         "notes": pair.notes,
     }
+
+
+def versions_match(record: dict[str, Any] | None) -> bool:
+    """Return True when an existing cache record matches the active pipeline versions."""
+    if not record:
+        return False
+    record_versions = (record.get("versions") or {}) if isinstance(record, dict) else {}
+    return all(record_versions.get(key) == value for key, value in active_versions().items())
+
+
+def field_text_hash(text: str | None) -> str | None:
+    """Return a stable hash for a teacher field value."""
+    if not text:
+        return None
+    return stable_payload_hash({"text": str(text).strip()})

@@ -15,7 +15,8 @@ if str(PROJECT_ROOT) not in sys.path:
 import pandas as pd
 
 from src.data.corpus_builder import validate_task_type
-from src.data.teacher_cache import load_jsonl_by_key
+from src.data.schema_versions import KD_SCHEMA_VERSION
+from src.data.teacher_cache import load_jsonl_by_key, versions_match
 
 
 def parse_args() -> argparse.Namespace:
@@ -90,11 +91,20 @@ def main() -> None:
             weak_derived = supervision["weak_derived"]
             teacher_record = teacher_index.get(str(sample_id))
             teacher_output = teacher_record.get("output", {}) if teacher_record else {}
+            teacher_versions_ok = versions_match(teacher_record)
+            signal_schema = teacher_output.get("teacher_signal_schema") or {}
             consistency_row = consistency_df.loc[sample_id] if sample_id in consistency_df.index else None
             teacher_ready = bool(
                 teacher_record
+                and teacher_versions_ok
                 and teacher_record.get("status") == "ok"
-                and teacher_output.get("teacher_short_reason")
+                and signal_schema.get("kd_schema_version") == KD_SCHEMA_VERSION
+                and (
+                    teacher_output.get("teacher_long_cot")
+                    or teacher_output.get("teacher_short_reason")
+                    or teacher_output.get("teacher_answer")
+                    or teacher_output.get("teacher_structured_json")
+                )
             )
             teacher_pair_level = None if consistency_row is None else consistency_row.get("teacher_text__gt_path")
             teacher_consistency_score = 0.0 if consistency_row is None else float(consistency_row.get("consistency_score", 0.0))
@@ -103,9 +113,54 @@ def main() -> None:
             hallucination_flags = list(teacher_output.get("teacher_hallucination_flags") or [])
             text_quality = str(teacher_output.get("teacher_text_quality") or "unknown")
             structured_quality = str(teacher_output.get("teacher_structured_quality") or "unknown")
-            soft_target_allowed = teacher_ready and teacher_pair_level != "hard_fail"
-            seq_weight = 0.6 * selection_score * quality_multiplier if soft_target_allowed else 0.0
-            rank_weight = 0.1 * quality_multiplier if soft_target_allowed and teacher_output.get("teacher_action_class") else 0.0
+            supervision_mode = str(teacher_output.get("sample_supervision_mode") or "partial_soft_target")
+            soft_target_allowed = teacher_ready and teacher_pair_level != "hard_fail" and text_quality != "reject"
+            effective_selection_score = selection_score
+            long_cot_only_mode = supervision_mode == "long_cot_only_fallback"
+            if (
+                soft_target_allowed
+                and long_cot_only_mode
+                and teacher_output.get("teacher_long_cot")
+                and bool(teacher_output.get("teacher_long_cot_direct"))
+            ):
+                effective_selection_score = max(effective_selection_score, 0.25)
+            base_seq_weight = 0.45 * effective_selection_score * quality_multiplier if soft_target_allowed else 0.0
+            rank_weight = (
+                0.1 * effective_selection_score * quality_multiplier
+                if soft_target_allowed and teacher_output.get("teacher_action_class")
+                else 0.0
+            )
+            signal_targets = teacher_output.get("teacher_signal_targets") or {}
+            teacher_target_weights = {
+                "teacher_long_cot": round(base_seq_weight, 4)
+                if soft_target_allowed and teacher_output.get("teacher_long_cot")
+                else 0.0,
+                "teacher_answer": round(0.12 * selection_score * quality_multiplier, 4)
+                if soft_target_allowed
+                and not long_cot_only_mode
+                and bool(teacher_output.get("teacher_answer_direct"))
+                and teacher_output.get("teacher_answer")
+                else 0.0,
+                "teacher_short_reason": round(0.08 * selection_score * quality_multiplier, 4)
+                if soft_target_allowed
+                and not long_cot_only_mode
+                and bool(teacher_output.get("teacher_short_reason_direct"))
+                and teacher_output.get("teacher_short_reason")
+                else 0.0,
+                "teacher_structured_json": round(0.0, 4)
+                if False
+                else 0.0,
+            }
+            if long_cot_only_mode and soft_target_allowed and teacher_output.get("teacher_long_cot"):
+                teacher_target_weights["teacher_long_cot"] = round(
+                    (0.3 if teacher_output.get("teacher_long_cot_direct") else 0.2) * quality_multiplier,
+                    4,
+                )
+            signal_ready = any(
+                teacher_target_weights.get(field_name, 0.0) > 0.0
+                and (signal_targets.get(field_name) or {}).get("signal_ready")
+                for field_name in ("teacher_short_reason", "teacher_answer", "teacher_long_cot")
+            )
             task = {
                 "sample_id": f"{sample_id}__human_long_cot",
                 "source_sample_id": sample_id,
@@ -125,11 +180,14 @@ def main() -> None:
                 },
                 "soft_target": {
                     "teacher_long_cot": teacher_output.get("teacher_long_cot"),
+                    "teacher_structured_json": teacher_output.get("teacher_structured_json"),
                     "teacher_short_reason": teacher_output.get("teacher_short_reason"),
                     "teacher_meta_action": teacher_output.get("teacher_meta_action"),
                     "teacher_answer": teacher_output.get("teacher_answer"),
                     "teacher_long_cot_source": teacher_output.get("teacher_long_cot_source"),
                     "teacher_long_cot_direct": teacher_output.get("teacher_long_cot_direct"),
+                    "teacher_structured_json_source": teacher_output.get("teacher_structured_json_source"),
+                    "teacher_structured_json_direct": teacher_output.get("teacher_structured_json_direct"),
                     "teacher_short_reason_source": teacher_output.get("teacher_short_reason_source"),
                     "teacher_short_reason_direct": teacher_output.get("teacher_short_reason_direct"),
                     "teacher_meta_action_source": teacher_output.get("teacher_meta_action_source"),
@@ -145,14 +203,18 @@ def main() -> None:
                     "teacher_action_class": teacher_output.get("teacher_action_class"),
                     "teacher_parse_status": teacher_output.get("teacher_parse_status"),
                     "teacher_selection_prompt": teacher_output.get("teacher_selection_prompt"),
-                    "teacher_selection_score": selection_score,
+                    "selected_direct_prompt_family": teacher_output.get("selected_direct_prompt_family"),
+                    "selected_normalization_mode": teacher_output.get("selected_normalization_mode"),
+                    "sample_supervision_mode": supervision_mode,
+                    "teacher_selection_score": effective_selection_score,
+                    "teacher_raw_selection_score": selection_score,
                     "teacher_hallucination_flags": hallucination_flags,
                     "teacher_json_path": teacher_output.get("teacher_structured_json_path"),
-                    "teacher_logit_cache_path": teacher_output.get("teacher_logit_cache_path"),
-                    "teacher_hidden_path": teacher_output.get("teacher_hidden_path"),
-                    "teacher_signal_target_field": teacher_output.get("teacher_signal_target_field"),
-                    "teacher_signal_target_source": teacher_output.get("teacher_signal_target_source"),
-                    "teacher_signal_cache_stale": teacher_output.get("teacher_signal_cache_stale"),
+                    "teacher_signal_schema": teacher_output.get("teacher_signal_schema"),
+                    "teacher_signal_targets": signal_targets,
+                    "teacher_target_weights": teacher_target_weights,
+                    "teacher_vs_human_consistency": teacher_output.get("teacher_vs_human_consistency"),
+                    "teacher_vs_weak_gt_consistency": teacher_output.get("teacher_vs_weak_gt_consistency"),
                 },
                 "provenance": {
                     "hard": "human",
@@ -161,9 +223,9 @@ def main() -> None:
                 },
                 "weights": {
                     "hard_ce": 1.0,
-                    "seq_kd": round(seq_weight, 4),
-                    "logit_kd": round(0.5 * quality_multiplier, 4) if soft_target_allowed and teacher_output.get("teacher_logit_cache_path") else 0.0,
-                    "feat": round(0.15 * quality_multiplier, 4) if soft_target_allowed and teacher_output.get("teacher_hidden_path") else 0.0,
+                    "seq_kd": round(sum(teacher_target_weights.values()), 4),
+                    "logit_kd": round(0.25 * quality_multiplier, 4) if soft_target_allowed and signal_ready else 0.0,
+                    "feat": 0.0,
                     "rank": round(rank_weight, 4),
                 },
                 "derived": weak_derived,
@@ -192,6 +254,8 @@ def main() -> None:
         else 0.0,
         "teacher_index_jsonl": str(args.teacher_index_jsonl),
         "consistency_parquet": str(args.consistency_parquet),
+        "teacher_versions_ok_required": True,
+        "kd_schema_version": KD_SCHEMA_VERSION,
         "forbidden_tasks_checked": [
             "teacher_reasoning_plus_gt_path",
             "human_reasoning_plus_teacher_path",

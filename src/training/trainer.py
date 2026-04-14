@@ -37,6 +37,16 @@ def move_batch_to_device(batch: dict[str, Any], device: torch.device) -> dict[st
             moved[key] = value.to(device)
         elif isinstance(value, dict):
             moved[key] = move_batch_to_device(value, device)
+        elif isinstance(value, list):
+            converted = []
+            for item in value:
+                if isinstance(item, torch.Tensor):
+                    converted.append(item.to(device))
+                elif isinstance(item, dict):
+                    converted.append(move_batch_to_device(item, device))
+                else:
+                    converted.append(item)
+            moved[key] = converted
         else:
             moved[key] = value
     return moved
@@ -73,31 +83,46 @@ def run_train_step(
     seq_kd = torch.tensor(0.0, device=batch["input_ids"].device)
     logit_kd = torch.tensor(0.0, device=batch["input_ids"].device)
     feat_align = torch.tensor(0.0, device=batch["input_ids"].device)
-    teacher_batch = batch.get("teacher_batch")
-    if teacher_batch is not None:
-        teacher_outputs = model(
-            input_ids=teacher_batch["input_ids"],
-            attention_mask=teacher_batch["attention_mask"],
-            pixel_values=teacher_batch.get("pixel_values"),
-            image_grid_thw=teacher_batch.get("image_grid_thw"),
-        )
-        seq_kd, _ = weighted_causal_ce(
-            teacher_outputs["logits"],
-            teacher_batch["labels"],
-            batch["seq_kd_weights"][teacher_batch["present_mask"]],
-        )
-        logit_kd = logit_kd_loss(
-            teacher_outputs["logits"],
-            teacher_batch.get("teacher_logits"),
-            teacher_batch["labels"],
-            batch["logit_kd_weights"][teacher_batch["present_mask"]],
-        )
-        feat_align = feature_alignment_loss(
-            teacher_outputs["hidden_states"],
-            teacher_batch.get("teacher_hidden_states"),
-            teacher_batch["attention_mask"],
-            batch["feat_weights"][teacher_batch["present_mask"]],
-        )
+    teacher_target_batches = batch.get("teacher_target_batches") or []
+    if teacher_target_batches:
+        seq_losses = []
+        logit_losses = []
+        feat_losses = []
+        for teacher_batch in teacher_target_batches:
+            teacher_outputs = model(
+                input_ids=teacher_batch["input_ids"],
+                attention_mask=teacher_batch["attention_mask"],
+                pixel_values=teacher_batch.get("pixel_values"),
+                image_grid_thw=teacher_batch.get("image_grid_thw"),
+            )
+            target_weights = teacher_batch["weights"].to(batch["input_ids"].device)
+            seq_loss, _ = weighted_causal_ce(
+                teacher_outputs["logits"],
+                teacher_batch["labels"],
+                target_weights,
+            )
+            seq_losses.append(seq_loss)
+            logit_losses.append(
+                logit_kd_loss(
+                    teacher_outputs["logits"],
+                    teacher_batch.get("teacher_topk_indices"),
+                    teacher_batch.get("teacher_topk_logits"),
+                    teacher_batch.get("teacher_topk_mask"),
+                    teacher_batch["labels"],
+                    target_weights,
+                )
+            )
+            feat_losses.append(
+                feature_alignment_loss(
+                    teacher_outputs["hidden_states"],
+                    teacher_batch.get("teacher_pooled_hidden"),
+                    teacher_batch["attention_mask"],
+                    target_weights,
+                )
+            )
+        seq_kd = torch.stack(seq_losses).mean()
+        logit_kd = torch.stack(logit_losses).mean()
+        feat_align = torch.stack(feat_losses).mean()
 
     rank = ranking_consistency_loss(
         hard_outputs["meta_action_logits"],

@@ -24,6 +24,36 @@ class ExtractedObject:
 def extract_action_from_text(text: str) -> ExtractedAction:
     """Very small keyword-based parser for bootstrap tests."""
     lowered = text.lower()
+    if (
+        "nudge left" in lowered
+        or "slight left" in lowered
+        or "slightly left" in lowered
+        or "move left" in lowered
+        or "shift left" in lowered
+        or "veer left" in lowered
+    ):
+        return ExtractedAction("nudge_left", 0.82, "keyword_parser_v2")
+    if (
+        "nudge right" in lowered
+        or "slight right" in lowered
+        or "slightly right" in lowered
+        or "move right" in lowered
+        or "shift right" in lowered
+        or "veer right" in lowered
+    ):
+        return ExtractedAction("nudge_right", 0.82, "keyword_parser_v2")
+    if (
+        ("blocked" in lowered or "blocking" in lowered or "encroach" in lowered or "encroaching" in lowered)
+        and "right" in lowered
+        and any(token in lowered for token in ("left", "avoid", "around", "nudge", "shift", "move"))
+    ):
+        return ExtractedAction("nudge_left", 0.88, "keyword_parser_v2")
+    if (
+        ("blocked" in lowered or "blocking" in lowered or "encroach" in lowered or "encroaching" in lowered)
+        and "left" in lowered
+        and any(token in lowered for token in ("right", "avoid", "around", "nudge", "shift", "move"))
+    ):
+        return ExtractedAction("nudge_right", 0.88, "keyword_parser_v2")
     if "lane change" in lowered and "left" in lowered:
         return ExtractedAction("change_lane_left", 0.8, "keyword_parser_v1")
     if "lane change" in lowered and "right" in lowered:
@@ -34,6 +64,15 @@ def extract_action_from_text(text: str) -> ExtractedAction:
         return ExtractedAction("right_turn", 0.7, "keyword_parser_v1")
     if "follow" in lowered and "lead vehicle" in lowered:
         return ExtractedAction("follow_lead", 0.75, "keyword_parser_v1")
+    if (
+        "keep lane" in lowered
+        or "stay in lane" in lowered
+        or "maintain lane" in lowered
+        or ("lane is clear" in lowered and "ahead" in lowered)
+        or ("no lead vehicle" in lowered and "ahead" in lowered)
+        or ("lane is clear" in lowered and "no lead vehicle" in lowered)
+    ):
+        return ExtractedAction("keep_lane", 0.86, "keyword_parser_v2")
     if "creep" in lowered:
         return ExtractedAction("creep", 0.7, "keyword_parser_v1")
     if "yield" in lowered:

@@ -26,6 +26,14 @@ STAGE_DEFAULTS = {
 }
 
 
+def _apply_sample_weights(values: torch.Tensor, sample_weights: torch.Tensor | None) -> torch.Tensor:
+    """Scale losses by sample weights while preserving magnitude for batch_size=1."""
+    if sample_weights is None:
+        return values.mean()
+    weights = sample_weights.to(values.device, dtype=values.dtype)
+    return (values * weights).mean()
+
+
 def get_stage_weights(stage_name: str) -> DistillationLossWeights:
     """Look up a predefined stage weight schedule."""
     try:
@@ -56,10 +64,7 @@ def weighted_causal_ce(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Return weighted CE loss and per-sample token counts."""
     loss_per_sample, token_count = _token_losses(logits, labels)
-    if sample_weights is None:
-        return loss_per_sample.mean(), token_count
-    weight_sum = sample_weights.sum().clamp(min=1e-6)
-    return (loss_per_sample * sample_weights).sum() / weight_sum, token_count
+    return _apply_sample_weights(loss_per_sample, sample_weights), token_count
 
 
 def masked_token_accuracy(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
@@ -82,10 +87,7 @@ def auxiliary_action_loss(
 ) -> torch.Tensor:
     """Cross-entropy loss over the meta-action head."""
     per_sample = F.cross_entropy(meta_action_logits, action_labels, reduction="none")
-    if sample_weights is None:
-        return per_sample.mean()
-    denom = sample_weights.sum().clamp(min=1e-6)
-    return (per_sample * sample_weights).sum() / denom
+    return _apply_sample_weights(per_sample, sample_weights)
 
 
 def self_consistency_penalty(
@@ -96,37 +98,76 @@ def self_consistency_penalty(
     """Encourage agreement on samples that already have higher consistency confidence."""
     target_loss = F.cross_entropy(meta_action_logits, action_labels, reduction="none")
     weights = consistency_scores.clamp(min=0.0, max=1.0)
-    denom = weights.sum().clamp(min=1e-6)
-    return (target_loss * weights).sum() / denom
+    return _apply_sample_weights(target_loss, weights)
 
 
 def logit_kd_loss(
     student_logits: torch.Tensor,
-    teacher_logits: torch.Tensor | None,
+    teacher_topk_indices: torch.Tensor | None,
+    teacher_topk_logits: torch.Tensor | None,
+    teacher_topk_mask: torch.Tensor | None,
     labels: torch.Tensor,
     sample_weights: torch.Tensor | None = None,
     temperature: float = 1.0,
 ) -> torch.Tensor:
-    """KL distillation over token logits when teacher logits are available."""
-    if teacher_logits is None:
+    """KL distillation over sparse top-k teacher logits when available."""
+    if teacher_topk_indices is None or teacher_topk_logits is None or teacher_topk_mask is None:
         return torch.tensor(0.0, device=student_logits.device)
 
     shift_student = student_logits[:, :-1, :].contiguous()
-    shift_teacher = teacher_logits[:, :-1, :].contiguous()
     shift_labels = labels[:, 1:].contiguous()
     valid_mask = shift_labels != -100
     if not valid_mask.any():
         return torch.tensor(0.0, device=student_logits.device)
 
-    student_log_probs = F.log_softmax(shift_student / temperature, dim=-1)
-    teacher_probs = F.softmax(shift_teacher / temperature, dim=-1)
-    token_kl = F.kl_div(student_log_probs, teacher_probs, reduction="none").sum(dim=-1)
-    token_kl = token_kl * valid_mask.float()
-    per_sample = token_kl.sum(dim=1) / valid_mask.float().sum(dim=1).clamp(min=1.0)
-    if sample_weights is None:
-        return per_sample.mean()
-    denom = sample_weights.sum().clamp(min=1e-6)
-    return (per_sample * sample_weights).sum() / denom
+    gather_indices = teacher_topk_indices.to(student_logits.device)
+    gather_values = teacher_topk_logits.to(student_logits.device)
+    sparse_mask = teacher_topk_mask.to(student_logits.device)
+
+    vocab_size = shift_student.shape[-1]
+    per_sample_losses = []
+    per_sample_weights = []
+    for sample_index in range(shift_student.shape[0]):
+        student_target_logits = shift_student[sample_index][valid_mask[sample_index]]
+        teacher_target_indices = gather_indices[sample_index][sparse_mask[sample_index]]
+        teacher_target_values = gather_values[sample_index][sparse_mask[sample_index]]
+        aligned_tokens = min(student_target_logits.shape[0], teacher_target_indices.shape[0])
+        if aligned_tokens <= 0:
+            continue
+        student_target_logits = student_target_logits[:aligned_tokens]
+        teacher_target_indices = teacher_target_indices[:aligned_tokens]
+        teacher_target_values = teacher_target_values[:aligned_tokens]
+        token_losses = []
+        for token_index in range(aligned_tokens):
+            token_teacher_indices = teacher_target_indices[token_index]
+            token_teacher_values = teacher_target_values[token_index]
+            keep = (token_teacher_indices >= 0) & (token_teacher_indices < vocab_size)
+            if not keep.any():
+                continue
+            token_teacher_indices = token_teacher_indices[keep]
+            token_teacher_values = token_teacher_values[keep]
+            gathered_student = torch.gather(
+                student_target_logits[token_index],
+                dim=-1,
+                index=token_teacher_indices,
+            )
+            student_log_probs = F.log_softmax(gathered_student / temperature, dim=-1)
+            teacher_probs = F.softmax(token_teacher_values / temperature, dim=-1)
+            token_losses.append(F.kl_div(student_log_probs, teacher_probs, reduction="sum"))
+        if not token_losses:
+            continue
+        per_sample_losses.append(torch.stack(token_losses).mean())
+        if sample_weights is None:
+            per_sample_weights.append(torch.tensor(1.0, device=student_logits.device))
+        else:
+            per_sample_weights.append(sample_weights[sample_index])
+
+    if not per_sample_losses:
+        return torch.tensor(0.0, device=student_logits.device)
+
+    losses = torch.stack(per_sample_losses)
+    weights_tensor = torch.stack(per_sample_weights).to(student_logits.device)
+    return _apply_sample_weights(losses, None if sample_weights is None else weights_tensor)
 
 
 def feature_alignment_loss(
@@ -145,12 +186,11 @@ def feature_alignment_loss(
         mask = attention_mask.unsqueeze(-1).to(student_hidden.dtype)
         student_pooled = (student_hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
 
-    teacher_pooled = teacher_hidden.mean(dim=1)
+    teacher_pooled = teacher_hidden.mean(dim=1) if teacher_hidden.ndim == 3 else teacher_hidden
+    if teacher_pooled.shape[-1] != student_pooled.shape[-1]:
+        return torch.tensor(0.0, device=student_hidden.device)
     per_sample = F.mse_loss(student_pooled, teacher_pooled, reduction="none").mean(dim=-1)
-    if sample_weights is None:
-        return per_sample.mean()
-    denom = sample_weights.sum().clamp(min=1e-6)
-    return (per_sample * sample_weights).sum() / denom
+    return _apply_sample_weights(per_sample, sample_weights)
 
 
 def ranking_consistency_loss(
@@ -176,5 +216,4 @@ def ranking_consistency_loss(
     weights = selection_scores[valid].clamp(min=0.0, max=1.0)
     if sample_weights is not None:
         weights = weights * sample_weights[valid]
-    denom = weights.sum().clamp(min=1e-6)
-    return (per_sample * weights).sum() / denom
+    return _apply_sample_weights(per_sample, weights)

@@ -31,6 +31,7 @@ from src.training.collator import DistillationCollator
 from src.training.losses import DistillationLossWeights, get_stage_weights
 from src.training.trainer import TrainerConfig, move_batch_to_device, run_train_step
 from src.utils.seeds import set_seed
+from src.data.schema_versions import active_versions
 
 
 def parse_args() -> argparse.Namespace:
@@ -88,12 +89,24 @@ def load_jsonl(path: Path) -> list[dict]:
 def has_materialized_canonical_sample(record: dict) -> bool:
     """Return True when the record's canonical sample artifacts exist locally."""
     sample_path = PROJECT_ROOT / str(record["input"]["canonical_sample_path"])
+    sample_meta_path = sample_path / "sample_meta.json"
     required = [
         sample_path / "ego_history_xyz.npy",
         sample_path / "ego_history_rot.npy",
         sample_path / "frames",
     ]
-    return all(path.exists() for path in required)
+    if not all(path.exists() for path in required) or not sample_meta_path.exists():
+        return False
+    sample_meta = json.loads(sample_meta_path.read_text(encoding="utf-8"))
+    if sample_meta.get("canonical_localization_version") != active_versions()["canonical_localization_version"]:
+        return False
+    decoder_status = sample_meta.get("decoder_status", {})
+    return all(str(decoder_status.get(camera_name)) == "decoded" for camera_name in [
+        "camera_cross_left_120fov",
+        "camera_front_wide_120fov",
+        "camera_cross_right_120fov",
+        "camera_front_tele_30fov",
+    ])
 
 
 def stage_weights_from_yaml(path: Path) -> tuple[TrainerConfig, DistillationLossWeights]:
@@ -130,6 +143,15 @@ def main() -> None:
         records = records[: args.max_train_samples]
 
     trainer_cfg, loss_weights = stage_weights_from_yaml(args.stage_config)
+    loss_weights = DistillationLossWeights(
+        hard_ce=loss_weights.hard_ce,
+        seq_kd=loss_weights.seq_kd,
+        logit_kd=loss_weights.logit_kd,
+        feat=0.0,
+        aux=loss_weights.aux,
+        self_cons=loss_weights.self_cons,
+        rank=loss_weights.rank,
+    )
     trainer_cfg.batch_size = args.batch_size
     trainer_cfg.learning_rate = args.learning_rate or trainer_cfg.learning_rate
     wrapper_cfg = StudentWrapperConfig(
@@ -147,7 +169,19 @@ def main() -> None:
     )
     dataloader = DataLoader(records, batch_size=args.batch_size, shuffle=not args.data_only_dry_run, collate_fn=collator)
 
-    teacher_ready = sum(1 for record in records if record.get("soft_target", {}).get("teacher_short_reason"))
+    teacher_ready = sum(
+        1
+        for record in records
+        if (
+            record.get("soft_target", {}).get("teacher_long_cot")
+            or record.get("soft_target", {}).get("teacher_signal_schema", {}).get("signal_fields")
+            == ["teacher_long_cot"]
+            or record.get("soft_target", {}).get("sample_supervision_mode") == "long_cot_only_fallback"
+            or record.get("soft_target", {}).get("teacher_short_reason")
+            or record.get("soft_target", {}).get("teacher_answer")
+            or record.get("soft_target", {}).get("teacher_structured_json")
+        )
+    )
     if args.data_only_dry_run:
         first_batch = next(iter(dataloader), None)
         summary = {
@@ -234,10 +268,48 @@ def main() -> None:
         "global_steps": global_step,
         "learning_rate": trainer_cfg.learning_rate,
         "use_lora": not args.disable_lora,
+        "versions": active_versions(),
         "elapsed_sec": round(time.time() - started_at, 3),
         "metrics_path": str(metrics_path),
         "output_dir": str(args.output_dir),
     }
+    checkpoint_dir = args.output_dir / "final"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    torch.save(model.state_dict(), checkpoint_dir / "student_state.pt")
+    tokenizer.save_pretrained(checkpoint_dir / "tokenizer")
+    try:
+        processor.save_pretrained(checkpoint_dir / "processor")
+    except Exception:  # noqa: BLE001
+        pass
+    (checkpoint_dir / "train_config.json").write_text(
+        json.dumps(
+            {
+                "args": vars(args),
+                "trainer_config": {
+                    "stage_name": trainer_cfg.stage_name,
+                    "max_length": trainer_cfg.max_length,
+                    "bf16": trainer_cfg.bf16,
+                    "learning_rate": trainer_cfg.learning_rate,
+                    "batch_size": trainer_cfg.batch_size,
+                    "max_steps": trainer_cfg.max_steps,
+                },
+                "loss_weights": {
+                    "hard_ce": loss_weights.hard_ce,
+                    "seq_kd": loss_weights.seq_kd,
+                    "logit_kd": loss_weights.logit_kd,
+                    "feat": loss_weights.feat,
+                    "aux": loss_weights.aux,
+                    "self_cons": loss_weights.self_cons,
+                    "rank": loss_weights.rank,
+                },
+                "versions": active_versions(),
+            },
+            indent=2,
+            default=str,
+        ),
+        encoding="utf-8",
+    )
+    summary["checkpoint_dir"] = str(checkpoint_dir)
     args.summary_json.parent.mkdir(parents=True, exist_ok=True)
     args.summary_json.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))

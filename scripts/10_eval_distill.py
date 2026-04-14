@@ -61,9 +61,11 @@ def main() -> None:
     overlap_scores = []
     teacher_present = 0
     json_ready = 0
+    structured_ready = 0
     hallucination_flags = 0
     teacher_human_levels = []
     gate_scores = []
+    signal_ready = 0
     for sample in corpus:
         source_sample_id = str(sample.get("source_sample_id", sample["sample_id"]))
         teacher_record = teacher_index.get(source_sample_id)
@@ -81,7 +83,12 @@ def main() -> None:
             overlap_scores.append(jaccard_overlap(teacher_reason, human_reason))
         if output.get("teacher_parse_status") == "json_valid":
             json_ready += 1
+        if output.get("teacher_structured_json"):
+            structured_ready += 1
         hallucination_flags += int(bool(output.get("teacher_hallucination_flags")))
+        signal_targets = output.get("teacher_signal_targets") or {}
+        if any((signal_targets.get(field_name) or {}).get("signal_ready") for field_name in ("teacher_short_reason", "teacher_answer")):
+            signal_ready += 1
         consistency_row = consistency_map.get(source_sample_id, {})
         if consistency_row.get("teacher_text__human_reasoning"):
             teacher_human_levels.append(str(consistency_row["teacher_text__human_reasoning"]))
@@ -94,6 +101,8 @@ def main() -> None:
         "consistency_parquet": str(args.consistency_parquet),
         "teacher_ready_records": teacher_present,
         "json_parseability": (json_ready / teacher_present) if teacher_present else 0.0,
+        "structured_target_coverage": (structured_ready / teacher_present) if teacher_present else 0.0,
+        "signal_cache_coverage": (signal_ready / teacher_present) if teacher_present else 0.0,
         "meta_action_f1": exact_match_rate(meta_action_pairs),
         "human_coc_overlap": (sum(overlap_scores) / len(overlap_scores)) if overlap_scores else 0.0,
         "hallucination_rate": (hallucination_flags / teacher_present) if teacher_present else 0.0,

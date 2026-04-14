@@ -31,11 +31,22 @@ Current issue list:
 - [013-stage-b-retune-after-consistency-refresh.md](./013-stage-b-retune-after-consistency-refresh.md)
 - [014-teacher-slot-prompt-recovery.md](./014-teacher-slot-prompt-recovery.md)
 - [015-teacher-cache-provenance-and-quality-weighting.md](./015-teacher-cache-provenance-and-quality-weighting.md)
+- [016-priority-next-40-progress-reporting-gap.md](./016-priority-next-40-progress-reporting-gap.md)
+- [017-t0-anchor-localization-bug.md](./017-t0-anchor-localization-bug.md)
+- [018-runtime-bundle-and-grounded-selection-v2.md](./018-runtime-bundle-and-grounded-selection-v2.md)
+- [019-true-kd-smoke-and-shared-vocab-guard.md](./019-true-kd-smoke-and-shared-vocab-guard.md)
+- [020-spec-design-issues-so-far.md](./020-spec-design-issues-so-far.md)
 
 Latest known high-level state:
 
-- Strict human CoC subset is `577 train / 105 val / 50 test`.
-- Teacher index currently has `106` recovered/generated `ok` samples and `118` additional `ready_request_bundle` samples.
-- Teacher text cache is being re-applied with slot-specific prompts to improve `meta_action` and `answer` quality.
-- Materialized train samples currently used for multimodal distillation: `195`.
-- Refreshed consistency-aware Stage B and tuned Stage B runs have completed on the current local sample budget.
+- Teacher v2 pipeline now targets the `262` usable canonical samples.
+- Runtime bundle split, explicit `t0` anchoring, weak GT semantics wiring, and grounded teacher selection are implemented.
+- Smoke validation has confirmed:
+  - `t0` anchor gate pass
+  - runtime bundle forbidden-key gate pass
+  - nonzero `logit_kd`
+  - nonzero `self_cons`
+  - checkpoint saving
+- Full `teacher262` background pipeline is currently running from `teacher overwrite -> signal cache -> consistency -> corpus -> train -> eval`.
+- Consolidated design/spec issue summary:
+  - [020-spec-design-issues-so-far.md](./020-spec-design-issues-so-far.md)

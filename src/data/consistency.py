@@ -24,6 +24,8 @@ ACTION_CLASSES = (
     "creep_then_go",
     "change_lane_left",
     "change_lane_right",
+    "nudge_left",
+    "nudge_right",
     "parked_or_blocked_wait",
     "unknown",
 )
@@ -31,6 +33,10 @@ ACTION_CLASSES = (
 SOFT_PASS_PAIRS = {
     ("yield", "creep_then_go"),
     ("creep_then_go", "yield"),
+    ("nudge_left", "change_lane_left"),
+    ("change_lane_left", "nudge_left"),
+    ("nudge_right", "change_lane_right"),
+    ("change_lane_right", "nudge_right"),
 }
 
 HARD_FAIL_PAIRS = {

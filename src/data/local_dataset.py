@@ -89,10 +89,17 @@ def interpolate_egomotion(egomotion_df: pd.DataFrame, target_timestamps_us: np.n
 def localize_trajectory(
     xyz_world: np.ndarray,
     quat_world_xyzw: np.ndarray,
+    *,
+    anchor_xyz_world: np.ndarray | None = None,
+    anchor_quat_xyzw: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Transform world-frame poses into the local t0 ego frame."""
-    t0_xyz = xyz_world[-1].copy()
-    t0_rot = Rotation.from_quat(quat_world_xyzw[-1].copy())
+    t0_xyz = np.asarray(anchor_xyz_world if anchor_xyz_world is not None else xyz_world[-1], dtype=np.float64).copy()
+    t0_quat = np.asarray(
+        anchor_quat_xyzw if anchor_quat_xyzw is not None else quat_world_xyzw[-1],
+        dtype=np.float64,
+    ).copy()
+    t0_rot = Rotation.from_quat(t0_quat)
     t0_rot_inv = t0_rot.inv()
 
     xyz_local = t0_rot_inv.apply(xyz_world - t0_xyz)

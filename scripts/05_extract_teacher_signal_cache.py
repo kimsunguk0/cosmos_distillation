@@ -21,6 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.data.teacher_cache import CAMERA_NAME_TO_INDEX, load_jsonl_by_key, write_jsonl
+from src.data.schema_versions import TEACHER_SIGNAL_CACHE_VERSION
 
 
 DEFAULT_ALPAMAYO_SRC = Path("/home/pm97/workspace/sukim/alpamayo1.5/src")
@@ -54,6 +55,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--logit-topk", type=int, default=32)
     parser.add_argument(
+        "--fields",
+        nargs="+",
+        default=["teacher_long_cot", "teacher_short_reason", "teacher_answer"],
+    )
+    parser.add_argument(
         "--summary-json",
         type=Path,
         default=PROJECT_ROOT / "outputs" / "reports" / "teacher_signal_cache_summary.json",
@@ -70,12 +76,18 @@ def load_teacher_model(args: argparse.Namespace):
     from alpamayo1_5.models.alpamayo1_5 import Alpamayo1_5
 
     config = Alpamayo1_5Config.from_pretrained(str(args.model_path / "alpamayo_1.5_config.json"))
+    model_kwargs = {
+        "config": config,
+        "dtype": torch.bfloat16,
+        "attn_implementation": "eager",
+    }
+    if str(args.device).startswith("cuda") and torch.cuda.is_available():
+        model_kwargs["low_cpu_mem_usage"] = True
     model = Alpamayo1_5.from_pretrained(
         str(args.model_path),
-        config=config,
-        dtype=torch.bfloat16,
-        attn_implementation="eager",
-    ).to(args.device)
+        **model_kwargs,
+    )
+    model = model.to(args.device)
     model.eval()
     processor = helper.get_processor(model.tokenizer)
     return helper, model, processor
@@ -105,8 +117,25 @@ def load_image_frames(sample_dir: Path) -> tuple[torch.Tensor, torch.Tensor]:
     return torch.stack(frames_by_camera, dim=0), torch.tensor(camera_indices, dtype=torch.int64)
 
 
-def build_messages(sample_dir: Path, target_text: str, *, helper_module) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def load_sample_inputs(sample_dir: Path) -> dict[str, torch.Tensor]:
+    """Load reusable sample tensors once for multiple field passes."""
     image_frames, camera_indices = load_image_frames(sample_dir)
+    return {
+        "image_frames": image_frames,
+        "camera_indices": camera_indices,
+    }
+
+
+def build_messages(
+    sample_dir: Path,
+    target_text: str,
+    *,
+    helper_module,
+    sample_inputs: dict[str, torch.Tensor] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    sample_inputs = sample_inputs or load_sample_inputs(sample_dir)
+    image_frames = sample_inputs["image_frames"]
+    camera_indices = sample_inputs["camera_indices"]
     prompt_messages = helper_module.create_message(
         frames=image_frames.flatten(0, 1),
         camera_indices=camera_indices,
@@ -135,8 +164,14 @@ def extract_teacher_signals(
     model,
     device: str,
     logit_topk: int,
+    sample_inputs: dict[str, torch.Tensor] | None = None,
 ) -> dict[str, Any]:
-    prompt_messages, full_messages = build_messages(sample_dir, target_text, helper_module=helper_module)
+    prompt_messages, full_messages = build_messages(
+        sample_dir,
+        target_text,
+        helper_module=helper_module,
+        sample_inputs=sample_inputs,
+    )
     prompt_batch = helper_module.to_device(encode_messages(prompt_messages, processor), device)
     full_batch = helper_module.to_device(encode_messages(full_messages, processor), device)
 
@@ -183,20 +218,26 @@ def extract_teacher_signals(
     }
 
 
-def select_records(records: list[dict[str, Any]], overwrite: bool) -> list[dict[str, Any]]:
+def select_records(records: list[dict[str, Any]], overwrite: bool, fields: list[str]) -> list[dict[str, Any]]:
     selected: list[dict[str, Any]] = []
     for record in records:
         output = record.get("output") or {}
         if record.get("status") != "ok":
             continue
-        if not output.get("teacher_short_reason"):
-            continue
-        if (
-            not overwrite
-            and output.get("teacher_hidden_path")
-            and output.get("teacher_logit_cache_path")
-            and not output.get("teacher_signal_cache_stale")
-        ):
+        record_fields = (
+            list((output.get("teacher_signal_schema") or {}).get("signal_fields") or [])
+            or list(fields)
+        )
+        signal_targets = output.get("teacher_signal_targets") or {}
+        usable = False
+        for field_name in record_fields:
+            target = signal_targets.get(field_name) or {}
+            if not output.get(field_name):
+                continue
+            if overwrite or not target.get("signal_ready") or target.get("signal_cache_stale", True):
+                usable = True
+                break
+        if not usable:
             continue
         selected.append(record)
     return selected
@@ -206,7 +247,7 @@ def main() -> None:
     args = parse_args()
     started_at = time.time()
     records = list(load_jsonl_by_key(args.teacher_index_jsonl).values())
-    selected = select_records(records, overwrite=args.overwrite)
+    selected = select_records(records, overwrite=args.overwrite, fields=args.fields)
     if args.max_samples is not None:
         selected = selected[: args.max_samples]
 
@@ -216,6 +257,16 @@ def main() -> None:
     logits_dir.mkdir(parents=True, exist_ok=True)
 
     helper, model, processor = load_teacher_model(args)
+    print(
+        json.dumps(
+            {
+                "event": "teacher_signal_model_ready",
+                "selected_records": len(selected),
+                "fields": list(args.fields),
+            }
+        ),
+        flush=True,
+    )
 
     processed = 0
     succeeded = 0
@@ -230,37 +281,99 @@ def main() -> None:
         processed += 1
         output = record.setdefault("output", {})
         sample_dir = Path(record["canonical_sample_path"])
-        hidden_path = hidden_dir / f"{sample_id}.pooled_hidden.npy"
-        logits_path = logits_dir / f"{sample_id}.topk_logits.npz"
         try:
-            signals = extract_teacher_signals(
-                sample_dir=sample_dir,
-                target_text=str(output["teacher_short_reason"]),
-                helper_module=helper,
-                processor=processor,
-                model=model,
-                device=args.device,
-                logit_topk=args.logit_topk,
+            sample_inputs = load_sample_inputs(sample_dir)
+            signal_targets = output.setdefault("teacher_signal_targets", {})
+            record_fields = (
+                list((output.get("teacher_signal_schema") or {}).get("signal_fields") or [])
+                or list(args.fields)
             )
-            np.save(hidden_path, signals["pooled_hidden"])
-            np.savez_compressed(
-                logits_path,
-                topk_indices=signals["topk_indices"],
-                topk_logits=signals["topk_logits"],
-                target_token_ids=signals["target_token_ids"],
-                target_token_count=np.asarray(signals["target_token_count"], dtype=np.int32),
-                hidden_dim=np.asarray(signals["hidden_dim"], dtype=np.int32),
-                topk=np.asarray(signals["topk"], dtype=np.int32),
-            )
-            output["teacher_hidden_path"] = str(hidden_path)
-            output["teacher_logit_cache_path"] = str(logits_path)
-            output["teacher_signal_target_field"] = "teacher_short_reason"
-            output["teacher_signal_target_source"] = output.get("teacher_short_reason_source")
-            output["teacher_signal_cache_stale"] = False
+            for field_name in record_fields:
+                target_text = output.get(field_name)
+                if not target_text:
+                    continue
+                target_meta = signal_targets.setdefault(
+                    field_name,
+                    {
+                        "field_name": field_name,
+                        "source": output.get(f"{field_name}_source", "missing"),
+                        "signal_ready": False,
+                        "signal_cache_stale": True,
+                    },
+                )
+                if (
+                    not args.overwrite
+                    and target_meta.get("signal_ready")
+                    and not target_meta.get("signal_cache_stale", True)
+                    and target_meta.get("logits_path")
+                    and target_meta.get("hidden_path")
+                ):
+                    continue
+                hidden_path = hidden_dir / f"{sample_id}.{field_name}.pooled_hidden.npy"
+                logits_path = logits_dir / f"{sample_id}.{field_name}.topk_logits.npz"
+                signals = extract_teacher_signals(
+                    sample_dir=sample_dir,
+                    target_text=str(target_text),
+                    helper_module=helper,
+                    processor=processor,
+                    model=model,
+                    device=args.device,
+                    logit_topk=args.logit_topk,
+                    sample_inputs=sample_inputs,
+                )
+                np.save(hidden_path, signals["pooled_hidden"])
+                np.savez_compressed(
+                    logits_path,
+                    topk_indices=signals["topk_indices"],
+                    topk_logits=signals["topk_logits"],
+                    target_token_ids=signals["target_token_ids"],
+                    target_token_count=np.asarray(signals["target_token_count"], dtype=np.int32),
+                    hidden_dim=np.asarray(signals["hidden_dim"], dtype=np.int32),
+                    topk=np.asarray(signals["topk"], dtype=np.int32),
+                    field_name=np.asarray(field_name),
+                    cache_version=np.asarray(TEACHER_SIGNAL_CACHE_VERSION),
+                    deterministic_second_pass=np.asarray(True),
+                )
+                target_meta["hidden_path"] = str(hidden_path)
+                target_meta["logits_path"] = str(logits_path)
+                target_meta["signal_ready"] = True
+                target_meta["signal_cache_stale"] = False
+                target_meta["cache_version"] = TEACHER_SIGNAL_CACHE_VERSION
+                target_meta["deterministic_second_pass"] = True
+            primary = {}
+            for field_name in record_fields:
+                candidate = signal_targets.get(field_name) or {}
+                if candidate.get("hidden_path") and candidate.get("logits_path"):
+                    primary = candidate
+                    break
+            output["teacher_hidden_path"] = primary.get("hidden_path")
+            output["teacher_logit_cache_path"] = primary.get("logits_path")
             succeeded += 1
+            print(
+                json.dumps(
+                    {
+                        "event": "teacher_signal_record_done",
+                        "sample_id": sample_id,
+                        "processed": processed,
+                        "selected_records": len(selected),
+                    }
+                ),
+                flush=True,
+            )
         except Exception as exc:  # noqa: BLE001
             failed += 1
             failures.append({"sample_id": sample_id, "error": f"{type(exc).__name__}: {exc}"})
+            print(
+                json.dumps(
+                    {
+                        "event": "teacher_signal_record_failed",
+                        "sample_id": sample_id,
+                        "processed": processed,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                ),
+                flush=True,
+            )
 
     write_jsonl(args.teacher_index_jsonl, records)
     summary = {

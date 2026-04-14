@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from src.data.schema_versions import PATH_SEMANTICS_VERSION
+
 
 @dataclass(slots=True)
 class PathSemantics:
@@ -19,6 +21,48 @@ class PathSemantics:
     reaccelerates_after_stop: bool
     initial_speed_mps: float
     final_speed_mps: float
+
+
+def turn_direction_from_semantics(semantics: PathSemantics) -> dict[str, object]:
+    """Convert path semantics into a compact turn-direction record."""
+    if semantics.action_class == "left_turn":
+        value = "left"
+        confidence = semantics.confidence
+    elif semantics.action_class == "right_turn":
+        value = "right"
+        confidence = semantics.confidence
+    else:
+        value = "straight_or_none"
+        confidence = max(0.4, min(0.75, 1.0 - abs(semantics.heading_delta_deg) / 90.0))
+    return {
+        "value": value,
+        "confidence": round(float(confidence), 4),
+        "method": PATH_SEMANTICS_VERSION,
+    }
+
+
+def stop_profile_from_semantics(semantics: PathSemantics) -> dict[str, object]:
+    """Convert path semantics into a compact stop-profile record."""
+    if semantics.action_class == "stop":
+        value = "full_stop"
+        confidence = semantics.confidence
+    elif semantics.action_class == "creep_then_go":
+        value = "stop_then_go"
+        confidence = semantics.confidence
+    elif semantics.action_class == "creep":
+        value = "creep"
+        confidence = semantics.confidence
+    elif semantics.action_class == "slow_down":
+        value = "rolling_slow"
+        confidence = semantics.confidence
+    else:
+        value = "no_stop_signature"
+        confidence = 0.55
+    return {
+        "value": value,
+        "confidence": round(float(confidence), 4),
+        "method": PATH_SEMANTICS_VERSION,
+    }
 
 
 def _heading_degrees(vectors_xy: np.ndarray) -> np.ndarray:

@@ -11,3 +11,9 @@ def test_turn_conflict_hard_fails() -> None:
     result = grade_action_pair("left_turn", "right_turn")
     assert result.consistency_level == "hard_fail"
     assert result.is_consistent is False
+
+
+def test_nudge_left_soft_passes_change_lane_left() -> None:
+    result = grade_action_pair("nudge_left", "change_lane_left")
+    assert result.consistency_level == "soft_pass"
+    assert result.is_consistent is True

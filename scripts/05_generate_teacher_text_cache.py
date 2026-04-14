@@ -16,14 +16,19 @@ import pandas as pd
 
 from src.data.teacher_cache import (
     build_hallucination_flags,
+    diagnostics_bundle_for_sample,
     dump_json,
+    field_text_hash,
     inspect_teacher_sample,
     load_jsonl_by_key,
     normalize_teacher_action_class,
     prompt_bundle_for_sample,
     selection_score_from_outputs,
+    validate_teacher_runtime_bundle,
+    versions_match,
     write_jsonl,
 )
+from src.data.schema_versions import KD_SCHEMA_VERSION, TEACHER_SIGNAL_CACHE_VERSION, active_versions
 
 
 def parse_args() -> argparse.Namespace:
@@ -78,6 +83,9 @@ def attach_teacher_metadata_defaults(output: dict) -> dict:
         "legacy_recovered_output" if long_cot else "missing",
     )
     recovered_output.setdefault("teacher_long_cot_direct", False)
+    recovered_output.setdefault("teacher_structured_json", None)
+    recovered_output.setdefault("teacher_structured_json_source", "missing")
+    recovered_output.setdefault("teacher_structured_json_direct", False)
     recovered_output.setdefault(
         "teacher_short_reason_source",
         "legacy_recovered_output" if short_reason else "missing",
@@ -105,39 +113,67 @@ def attach_teacher_metadata_defaults(output: dict) -> dict:
     )
     recovered_output.setdefault(
         "teacher_text_quality",
-        "accept" if long_cot and short_reason and answer else "downweight",
+        "downweight" if long_cot else "reject",
     )
     recovered_output.setdefault(
         "teacher_structured_quality",
-        "downweight" if (meta_action or answer) else "reject",
+        "reject",
     )
     recovered_output.setdefault("teacher_direct_slot_reliability", "low")
     recovered_output.setdefault("teacher_answer_short_reason_overlap", overlap)
+    recovered_output.setdefault("selected_direct_prompt_family", "long_cot_v1" if long_cot else None)
+    recovered_output.setdefault("selected_normalization_mode", "legacy_recovered_output")
+    recovered_output.setdefault(
+        "sample_supervision_mode",
+        "long_cot_only_fallback" if long_cot else "fallback_text_only",
+    )
 
     quality_multiplier = 1.0
     if meta_action and not recovered_output.get("teacher_meta_action_direct"):
-        quality_multiplier *= 0.85
+        quality_multiplier *= 0.75
     if answer and not recovered_output.get("teacher_answer_direct"):
-        quality_multiplier *= 0.9
+        quality_multiplier *= 0.8
     if recovered_output["slot_channel_behavior"].get("channel_collapse_detected"):
-        quality_multiplier *= 0.9
+        quality_multiplier *= 0.5
     if overlap:
         quality_multiplier *= 0.95
+    if recovered_output.get("teacher_parse_status") == "json_synthesized_fallback":
+        quality_multiplier = min(quality_multiplier, 0.25)
     recovered_output.setdefault("teacher_quality_multiplier", round(quality_multiplier, 4))
-    recovered_output.setdefault("teacher_signal_target_field", "teacher_short_reason")
+    recovered_signal_fields = ["teacher_short_reason", "teacher_answer"]
+    if recovered_output.get("sample_supervision_mode") == "long_cot_only_fallback":
+        recovered_signal_fields = ["teacher_long_cot"] if long_cot else []
     recovered_output.setdefault(
-        "teacher_signal_target_source",
-        recovered_output.get("teacher_short_reason_source"),
+        "teacher_signal_schema",
+        {
+            "kd_schema_version": KD_SCHEMA_VERSION,
+            "teacher_signal_cache_version": TEACHER_SIGNAL_CACHE_VERSION,
+            "signal_fields": recovered_signal_fields,
+            "seq_only_fields": [
+                field_name
+                for field_name, field_value in (
+                    ("teacher_structured_json", recovered_output.get("teacher_structured_json")),
+                    ("teacher_long_cot", long_cot),
+                )
+                if field_value and field_name not in recovered_signal_fields
+            ],
+            "label_only_fields": ["teacher_meta_action"] if recovered_output.get("teacher_meta_action") else [],
+        },
     )
-    recovered_output.setdefault("teacher_signal_cache_stale", False)
+    recovered_output.setdefault("teacher_signal_targets", {})
+    recovered_output.setdefault("teacher_logit_cache_path", None)
+    recovered_output.setdefault("teacher_hidden_path", None)
     return recovered_output
 
 
 def recover_existing_output(sample_id: str, cache_root: Path, existing_record: dict | None) -> tuple[str | None, dict | None]:
     """Recover an already-generated teacher output from index or raw cache artifacts."""
-    if existing_record:
+    if existing_record and versions_match(existing_record):
         output = existing_record.get("output") or {}
-        if existing_record.get("status") == "ok" and output.get("teacher_short_reason"):
+        if existing_record.get("status") == "ok" and any(
+            output.get(field_name)
+            for field_name in ("teacher_long_cot", "teacher_short_reason", "teacher_answer", "teacher_structured_json")
+        ):
             action_record = normalize_teacher_action_class(
                 meta_action=output.get("teacher_meta_action"),
                 answer=output.get("teacher_answer"),
@@ -174,6 +210,9 @@ def recover_existing_output(sample_id: str, cache_root: Path, existing_record: d
         return None, None
 
     raw_payload = json.loads(raw_output_path.read_text(encoding="utf-8"))
+    raw_versions = raw_payload.get("versions") or {}
+    if any(raw_versions.get(key) != value for key, value in active_versions().items()):
+        return None, None
     normalized = raw_payload.get("normalized_output") or {}
     action_record = normalize_teacher_action_class(
         meta_action=normalized.get("teacher_meta_action"),
@@ -186,10 +225,14 @@ def recover_existing_output(sample_id: str, cache_root: Path, existing_record: d
         "teacher_short_reason": normalized.get("teacher_short_reason") or normalized.get("teacher_long_cot"),
         "teacher_meta_action": normalized.get("teacher_meta_action") or (action_record["value"] if action_record["value"] != "unknown" else None),
         "teacher_answer": normalized.get("teacher_answer") or normalized.get("teacher_short_reason") or normalized.get("teacher_long_cot"),
+        "teacher_structured_json": normalized.get("teacher_structured_json"),
         "teacher_action_class": normalized.get("teacher_action_class") or action_record["value"],
         "teacher_action_confidence": normalized.get("teacher_action_confidence") or action_record["confidence"],
         "teacher_action_source_field": normalized.get("teacher_action_source_field") or action_record.get("source_field"),
         "teacher_selection_prompt": normalized.get("teacher_selection_prompt"),
+        "selected_direct_prompt_family": normalized.get("selected_direct_prompt_family"),
+        "selected_normalization_mode": normalized.get("selected_normalization_mode"),
+        "sample_supervision_mode": normalized.get("sample_supervision_mode"),
         "teacher_selection_score": normalized.get("teacher_selection_score")
         or selection_score_from_outputs(
             long_cot=normalized.get("teacher_long_cot"),
@@ -206,10 +249,11 @@ def recover_existing_output(sample_id: str, cache_root: Path, existing_record: d
             answer=normalized.get("teacher_answer"),
         ),
         "teacher_structured_json_path": str(raw_output_path),
+        "teacher_signal_targets": {},
         "teacher_logit_cache_path": None,
         "teacher_hidden_path": None,
     }
-    if recovered_output["teacher_short_reason"]:
+    if any(recovered_output.get(field_name) for field_name in ("teacher_long_cot", "teacher_short_reason", "teacher_answer", "teacher_structured_json")):
         return "ok", attach_teacher_metadata_defaults(recovered_output)
     return None, attach_teacher_metadata_defaults(recovered_output)
 
@@ -221,13 +265,14 @@ def main() -> None:
     existing_index = load_jsonl_by_key(args.cache_root / "index.jsonl")
 
     requests_dir = args.cache_root / "requests"
+    diagnostics_dir = args.cache_root / "diagnostics"
     requests_dir.mkdir(parents=True, exist_ok=True)
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
     prompt_names = [
         "long_cot_v1",
-        "short_reason_only_v2",
-        "meta_action_only_v2",
-        "answer_only_v2",
+        "answer_vqa_v1",
+        "meta_action_vqa_v1",
     ]
     records: list[dict] = []
     status_counts: dict[str, int] = {}
@@ -243,14 +288,23 @@ def main() -> None:
             blockers.append("supervision_record_missing")
             status = "blocked"
 
-        bundle_path = requests_dir / f"{sample_id}.request.json"
+        runtime_bundle_path = requests_dir / f"{sample_id}.runtime_request.json"
+        diagnostics_bundle_path = diagnostics_dir / f"{sample_id}.diagnostics.json"
         bundle = prompt_bundle_for_sample(
             sample_id=sample_id,
             canonical_sample_path=args.canonical_root / sample_id,
             prompt_names=prompt_names,
             question=args.question,
         )
-        dump_json(bundle_path, bundle)
+        validate_teacher_runtime_bundle(bundle)
+        diagnostics_bundle = diagnostics_bundle_for_sample(
+            sample_id=sample_id,
+            canonical_sample_path=args.canonical_root / sample_id,
+            manifest_row=row.to_dict(),
+            supervision_record=supervision,
+        )
+        dump_json(runtime_bundle_path, bundle)
+        dump_json(diagnostics_bundle_path, diagnostics_bundle)
 
         existing_record = existing_index.get(sample_id)
         recovered_status, recovered_output = recover_existing_output(sample_id, args.cache_root, existing_record)
@@ -264,15 +318,20 @@ def main() -> None:
             "split": str(row["subset_split"] if "subset_split" in row else row["split"]),
             "status": recovered_status or ("ready_request_bundle" if status == "ready" else status),
             "blockers": blockers,
-            "request_bundle_path": str(bundle_path),
+            "runtime_request_path": str(runtime_bundle_path),
+            "diagnostics_bundle_path": str(diagnostics_bundle_path),
             "canonical_sample_path": str(args.canonical_root / sample_id),
+            "versions": active_versions(),
             "output": recovered_output or {
                 "teacher_long_cot": None,
+                "teacher_structured_json": None,
                 "teacher_short_reason": None,
                 "teacher_meta_action": None,
                 "teacher_answer": None,
                 "teacher_long_cot_source": "missing",
                 "teacher_long_cot_direct": False,
+                "teacher_structured_json_source": "missing",
+                "teacher_structured_json_direct": False,
                 "teacher_short_reason_source": "missing",
                 "teacher_short_reason_direct": False,
                 "teacher_meta_action_source": "missing",
@@ -291,9 +350,14 @@ def main() -> None:
                 "teacher_direct_slot_reliability": "low",
                 "teacher_answer_short_reason_overlap": False,
                 "teacher_quality_multiplier": 1.0,
-                "teacher_signal_target_field": "teacher_short_reason",
-                "teacher_signal_target_source": "missing",
-                "teacher_signal_cache_stale": False,
+                "teacher_signal_schema": {
+                    "kd_schema_version": KD_SCHEMA_VERSION,
+                    "teacher_signal_cache_version": TEACHER_SIGNAL_CACHE_VERSION,
+                    "signal_fields": ["teacher_short_reason", "teacher_answer"],
+                    "seq_only_fields": ["teacher_structured_json", "teacher_long_cot"],
+                    "label_only_fields": ["teacher_meta_action"],
+                },
+                "teacher_signal_targets": {},
                 "teacher_structured_json_path": None,
                 "teacher_logit_cache_path": None,
                 "teacher_hidden_path": None,
@@ -304,6 +368,21 @@ def main() -> None:
                 "teacher_is_gt": False,
             },
         }
+        if record["status"] == "ok":
+            for field_name in ("teacher_short_reason", "teacher_answer", "teacher_structured_json", "teacher_long_cot"):
+                field_value = record["output"].get(field_name)
+                if not field_value:
+                    continue
+                record["output"]["teacher_signal_targets"].setdefault(
+                    field_name,
+                    {
+                        "field_name": field_name,
+                        "text_hash": field_text_hash(field_value),
+                        "signal_ready": False,
+                        "signal_cache_stale": True,
+                        "source": record["output"].get(f"{field_name}_source", "missing"),
+                    },
+                )
         records.append(record)
         status_counts[record["status"]] = status_counts.get(record["status"], 0) + 1
 

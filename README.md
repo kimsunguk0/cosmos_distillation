@@ -45,3 +45,13 @@ The project follows the spec in:
 2. Implement metadata fetch in `src/data/hf_download.py`
 3. Build the first clip manifest in `scripts/02_build_clip_manifest.py`
 4. Keep provenance separation enforced in the corpus builder
+
+## Known Limitation
+
+- v1 currently follows the spec's clip-level anchor design: one `clip_uuid__anchor0`
+  sample per clip, even when the clip contains multiple parsed reasoning events.
+- This is spec-compliant, but it can weaken input-target alignment on multi-event clips
+  because the canonical visual window is centered on one representative `t0`.
+- We keep `num_events`, `parsed_events_json`, and `keyframe_timestamps_us_json` in the
+  manifest so event-level ablations can be added later without losing the original
+  event structure.

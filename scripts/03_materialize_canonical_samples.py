@@ -44,6 +44,11 @@ def parse_args() -> argparse.Namespace:
         help="Materialize timestamps and ego tensors only, without frame decoding.",
     )
     parser.add_argument(
+        "--reuse-existing-frames",
+        action="store_true",
+        help="Reuse already-decoded JPG frames when they exist in the output sample directory.",
+    )
+    parser.add_argument(
         "--summary-json",
         type=Path,
         default=PROJECT_ROOT / "outputs" / "reports" / "canonical_materialization_summary.json",
@@ -78,19 +83,34 @@ def main() -> None:
     materialized = 0
     skipped_missing_chunks = 0
     decoder_failures = 0
+    materialization_failures = 0
     status_examples: list[dict[str, str]] = []
+    materialization_failure_examples: list[dict[str, str]] = []
 
     for _, row in manifest.iterrows():
         if not required_paths_exist(dataset_root, row):
             skipped_missing_chunks += 1
             continue
 
-        meta = materialize_sample(
-            row,
-            dataset_root=dataset_root,
-            sample_root=args.output_root,
-            extract_images=not args.skip_images,
-        )
+        try:
+            meta = materialize_sample(
+                row,
+                dataset_root=dataset_root,
+                sample_root=args.output_root,
+                extract_images=not args.skip_images,
+                reuse_existing_frames=args.reuse_existing_frames,
+            )
+        except Exception as exc:  # noqa: BLE001 - keep long-running materialization moving
+            materialization_failures += 1
+            if len(materialization_failure_examples) < 10:
+                materialization_failure_examples.append(
+                    {
+                        "sample_id": str(row["sample_id"]),
+                        "chunk": str(int(row["chunk"])),
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+            continue
         materialized += 1
         failed = {camera: status for camera, status in meta["decoder_status"].items() if status.startswith("failed:")}
         if failed:
@@ -105,9 +125,12 @@ def main() -> None:
         "requested_rows": int(len(manifest)),
         "materialized_rows": materialized,
         "skipped_missing_chunks": skipped_missing_chunks,
+        "materialization_failure_rows": materialization_failures,
+        "materialization_failure_examples": materialization_failure_examples,
         "decoder_failure_rows": decoder_failures,
         "decoder_failure_examples": status_examples,
         "skip_images": args.skip_images,
+        "reuse_existing_frames": args.reuse_existing_frames,
     }
     args.summary_json.parent.mkdir(parents=True, exist_ok=True)
     args.summary_json.write_text(json.dumps(summary, indent=2), encoding="utf-8")
