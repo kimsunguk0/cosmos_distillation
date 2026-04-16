@@ -45,6 +45,8 @@ Current issue list:
 - [027-current-traj-collapse-status-and-next-actions.md](./027-current-traj-collapse-status-and-next-actions.md)
 - [028-short-horizon-geometry-regression.md](./028-short-horizon-geometry-regression.md)
 - [029-teacher-traj-cache-design.md](./029-teacher-traj-cache-design.md)
+- [030-trainer-traj-bug-fix-and-a0-rerun.md](./030-trainer-traj-bug-fix-and-a0-rerun.md)
+- [031-teacher-traj-token-topk-subset-probe.md](./031-teacher-traj-token-topk-subset-probe.md)
 
 Latest known high-level state:
 
@@ -66,3 +68,7 @@ Latest known high-level state:
     - [027-current-traj-collapse-status-and-next-actions.md](./027-current-traj-collapse-status-and-next-actions.md)
   - latest teacher trajectory extraction design:
     - [029-teacher-traj-cache-design.md](./029-teacher-traj-cache-design.md)
+  - latest post-bugfix A0 rerun:
+    - [030-trainer-traj-bug-fix-and-a0-rerun.md](./030-trainer-traj-bug-fix-and-a0-rerun.md)
+  - latest teacher trajectory token/top-k subset probe:
+    - [031-teacher-traj-token-topk-subset-probe.md](./031-teacher-traj-token-topk-subset-probe.md)

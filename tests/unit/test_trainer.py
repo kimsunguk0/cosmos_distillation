@@ -12,9 +12,9 @@ class _FakeModel:
         return self._outputs.pop(0)
 
 
-def _make_batch() -> dict:
+def _make_batch(*, include_teacher_view: bool = True) -> dict:
     zeros = torch.zeros((1,), dtype=torch.float32)
-    return {
+    batch = {
         "input_ids": torch.tensor([[10, 11, 12]], dtype=torch.long),
         "attention_mask": torch.tensor([[1, 1, 1]], dtype=torch.long),
         "labels": torch.tensor([[-100, 0, 0]], dtype=torch.long),
@@ -42,6 +42,9 @@ def _make_batch() -> dict:
             "teacher_quality_multiplier": torch.ones((1,), dtype=torch.float32),
         },
     }
+    if not include_teacher_view:
+        batch["teacher_view"] = None
+    return batch
 
 
 def _make_outputs() -> list[dict]:
@@ -69,11 +72,8 @@ def _make_outputs() -> list[dict]:
     ]
 
 
-def test_run_train_step_supports_hard_only_teacher_traj_override() -> None:
-    legacy_model = _FakeModel(_make_outputs())
-    hard_only_model = _FakeModel(_make_outputs())
-
-    legacy_weights = DistillationLossWeights(
+def test_run_train_step_does_not_leak_teacher_traj_when_no_explicit_weight() -> None:
+    weights = DistillationLossWeights(
         hard_cot_ce=0.0,
         teacher_seq_ce=0.0,
         teacher_logit_kd=0.0,
@@ -82,6 +82,25 @@ def test_run_train_step_supports_hard_only_teacher_traj_override() -> None:
         action_aux=0.0,
         feat_align=0.0,
     )
+
+    with_teacher_view_loss, with_teacher_view_logs = run_train_step(
+        _FakeModel(_make_outputs()[:1]),
+        _make_batch(include_teacher_view=True),
+        weights,
+    )
+    without_teacher_view_loss, without_teacher_view_logs = run_train_step(
+        _FakeModel(_make_outputs()[:1]),
+        _make_batch(include_teacher_view=False),
+        weights,
+    )
+
+    assert abs(float(with_teacher_view_loss) - float(without_teacher_view_loss)) < 1e-6
+    assert abs(float(with_teacher_view_logs["teacher_traj_loss"])) < 1e-6
+    assert abs(float(without_teacher_view_logs["teacher_traj_loss"])) < 1e-6
+    assert abs(float(with_teacher_view_logs["traj_loss"]) - float(without_teacher_view_logs["traj_loss"])) < 1e-6
+
+
+def test_run_train_step_supports_explicit_teacher_traj_override() -> None:
     hard_only_weights = DistillationLossWeights(
         hard_cot_ce=0.0,
         teacher_seq_ce=0.0,
@@ -90,19 +109,33 @@ def test_run_train_step_supports_hard_only_teacher_traj_override() -> None:
         format_ce=0.0,
         action_aux=0.0,
         feat_align=0.0,
-        teacher_traj_ce=0.0,
+    )
+    explicit_teacher_weights = DistillationLossWeights(
+        hard_cot_ce=0.0,
+        teacher_seq_ce=0.0,
+        teacher_logit_kd=0.0,
+        traj_ce=1.0,
+        format_ce=0.0,
+        action_aux=0.0,
+        feat_align=0.0,
+        teacher_traj_ce=1.0,
     )
 
-    legacy_loss, legacy_logs = run_train_step(legacy_model, _make_batch(), legacy_weights)
-    hard_only_loss, hard_only_logs = run_train_step(hard_only_model, _make_batch(), hard_only_weights)
+    explicit_batch = _make_batch(include_teacher_view=True)
+    explicit_batch["teacher_view"]["traj_weights"] = torch.ones((1,), dtype=torch.float32)
 
-    assert float(legacy_loss) > float(hard_only_loss)
-    assert abs(float(legacy_logs["teacher_traj_loss"]) - float(hard_only_logs["teacher_traj_loss"])) < 1e-6
-    assert abs(float(legacy_logs["traj_loss"]) - float(hard_only_logs["traj_loss"])) < 1e-6
+    hard_only_loss, _ = run_train_step(_FakeModel(_make_outputs()[:1]), _make_batch(include_teacher_view=False), hard_only_weights)
+    explicit_teacher_loss, explicit_teacher_logs = run_train_step(
+        _FakeModel(_make_outputs()),
+        explicit_batch,
+        explicit_teacher_weights,
+    )
+
+    assert float(explicit_teacher_loss) > float(hard_only_loss)
+    assert float(explicit_teacher_logs["teacher_traj_loss"]) > 0.0
 
 
 def test_run_train_step_respects_traj_token_label_weights() -> None:
-    model = _FakeModel(_make_outputs())
     batch = _make_batch()
     unweighted_batch = dict(batch)
     unweighted_batch["traj_token_label_weights"] = torch.ones_like(batch["traj_token_label_weights"])
@@ -110,6 +143,17 @@ def test_run_train_step_respects_traj_token_label_weights() -> None:
     unweighted_batch["teacher_view"]["traj_token_label_weights"] = torch.ones_like(
         batch["teacher_view"]["traj_token_label_weights"]
     )
+    hard_logits = torch.tensor(
+        [[[0.0, 0.0], [0.0, 4.0], [4.0, 0.0]]],
+        dtype=torch.float32,
+    )
+    outputs = [
+        {
+            "logits": hard_logits,
+            "meta_action_logits": torch.zeros((1, 2), dtype=torch.float32),
+            "hidden_states": torch.zeros((1, 3, 2), dtype=torch.float32),
+        }
+    ]
 
     weights = DistillationLossWeights(
         hard_cot_ce=0.0,
@@ -120,6 +164,40 @@ def test_run_train_step_respects_traj_token_label_weights() -> None:
         action_aux=0.0,
         feat_align=0.0,
     )
-    weighted_loss, _ = run_train_step(_FakeModel(_make_outputs()), batch, weights)
-    plain_loss, _ = run_train_step(model, unweighted_batch, weights)
+    weighted_loss, _ = run_train_step(_FakeModel(outputs), batch, weights)
+    plain_loss, _ = run_train_step(_FakeModel(outputs), unweighted_batch, weights)
     assert float(weighted_loss) > float(plain_loss)
+
+
+def test_run_train_step_uses_body_only_mask_for_traj_ce() -> None:
+    logits = torch.tensor(
+        [[[20.0, 0.0], [20.0, 0.0], [0.0, 0.0]]],
+        dtype=torch.float32,
+    )
+    batch = {
+        "input_ids": torch.tensor([[10, 11, 12]], dtype=torch.long),
+        "attention_mask": torch.tensor([[1, 1, 1]], dtype=torch.long),
+        "labels": torch.tensor([[-100, 0, 1]], dtype=torch.long),
+        "cot_span_mask": torch.zeros((1, 3), dtype=torch.bool),
+        "traj_span_mask": torch.tensor([[False, True, True]], dtype=torch.bool),
+        "traj_token_mask": torch.tensor([[False, True, False]], dtype=torch.bool),
+        "format_token_mask": torch.tensor([[False, False, True]], dtype=torch.bool),
+        "hard_cot_weights": torch.ones((1,), dtype=torch.float32),
+        "traj_weights": torch.ones((1,), dtype=torch.float32),
+        "action_class_labels": torch.tensor([0], dtype=torch.long),
+        "action_aux_weight": torch.zeros((1,), dtype=torch.float32),
+        "teacher_view": None,
+    }
+    weights = DistillationLossWeights(
+        hard_cot_ce=0.0,
+        teacher_seq_ce=0.0,
+        teacher_logit_kd=0.0,
+        traj_ce=1.0,
+        format_ce=0.0,
+        action_aux=0.0,
+        feat_align=0.0,
+    )
+    loss, logs = run_train_step(_FakeModel([{"logits": logits, "meta_action_logits": torch.zeros((1, 2)), "hidden_states": torch.zeros((1, 3, 2))}]), batch, weights)
+
+    assert abs(float(loss)) < 1e-4
+    assert abs(float(logs["traj_loss"])) < 1e-4

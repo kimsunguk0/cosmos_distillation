@@ -193,6 +193,16 @@ def stage_weights_from_yaml(path: Path) -> tuple[TrainerConfig, DistillationLoss
         action_aux=resolve_loss_weight_value(weights, "action_aux", defaults.action_aux),
         feat_align=resolve_loss_weight_value(weights, "feat_align", defaults.feat_align),
         teacher_traj_ce=resolve_optional_loss_weight_value(weights, "teacher_traj_ce"),
+        teacher_traj_topk_kd=resolve_loss_weight_value(
+            weights,
+            "teacher_traj_topk_kd",
+            defaults.teacher_traj_topk_kd,
+        ),
+        teacher_traj_hidden_align=resolve_loss_weight_value(
+            weights,
+            "teacher_traj_hidden_align",
+            defaults.teacher_traj_hidden_align,
+        ),
         traj_xyz_reg=resolve_loss_weight_value(weights, "traj_xyz_reg", defaults.traj_xyz_reg),
         traj_delta_reg=resolve_loss_weight_value(weights, "traj_delta_reg", defaults.traj_delta_reg),
         traj_final_reg=resolve_loss_weight_value(weights, "traj_final_reg", defaults.traj_final_reg),
@@ -564,6 +574,12 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         raise ValueError(f"Unsupported data_view.target_mode={target_mode!r}")
     enable_teacher_view = bool(data_view_cfg.get("enable_teacher_view", True))
     enable_action_aux = bool(data_view_cfg.get("enable_action_aux", True))
+    teacher_traj_cache_dir_raw = data_view_cfg.get("teacher_traj_cache_dir")
+    teacher_traj_cache_dir = (
+        Path(str(remap_external_path(teacher_traj_cache_dir_raw)))
+        if teacher_traj_cache_dir_raw not in (None, "")
+        else None
+    )
     if (
         loss_weights.traj_xyz_reg > 0
         or loss_weights.traj_delta_reg > 0
@@ -594,6 +610,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         enable_teacher_view=enable_teacher_view,
         enable_action_aux=enable_action_aux,
         traj_token_weight_map=traj_token_weight_map,
+        teacher_traj_cache_dir=teacher_traj_cache_dir,
     )
     train_dataloader, train_sampler = build_dataloader(
         train_records,
@@ -669,6 +686,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "target_mode": target_mode,
             "enable_teacher_view": enable_teacher_view,
             "enable_action_aux": enable_action_aux,
+            "teacher_traj_cache_dir": str(teacher_traj_cache_dir) if teacher_traj_cache_dir is not None else None,
             "traj_token_reweighting": traj_token_reweight_summary,
             "traj_decode": traj_decode_summary,
             "decode_eval": {
@@ -819,6 +837,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "target_mode": target_mode,
             "enable_teacher_view": enable_teacher_view,
             "enable_action_aux": enable_action_aux,
+            "teacher_traj_cache_dir": str(teacher_traj_cache_dir) if teacher_traj_cache_dir is not None else None,
         },
         "traj_token_reweighting": traj_token_reweight_summary,
         "traj_decode": traj_decode_summary,

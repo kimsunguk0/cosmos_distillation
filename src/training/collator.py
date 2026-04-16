@@ -395,6 +395,47 @@ def _teacher_signal_from_sample(sample: dict[str, Any], project_root: Path) -> d
     return signal or None
 
 
+def _teacher_traj15_signal_from_sample(
+    sample: dict[str, Any],
+    *,
+    teacher_traj_cache_dir: Path | None,
+) -> dict[str, np.ndarray | float] | None:
+    if teacher_traj_cache_dir is None:
+        return None
+    sample_id = str(sample.get("sample_id") or "").strip()
+    if not sample_id:
+        return None
+
+    hidden_path = teacher_traj_cache_dir / "hidden" / f"{sample_id}.teacher_traj15.hidden.npy"
+    tokens_path = teacher_traj_cache_dir / "tokens" / f"{sample_id}.teacher_traj15.tokens.npy"
+    topk_path = teacher_traj_cache_dir / "topk" / f"{sample_id}.teacher_traj15.topk_logits.npz"
+    output_path = teacher_traj_cache_dir / "outputs" / f"{sample_id}.teacher_traj15.json"
+    if not hidden_path.exists() and not tokens_path.exists() and not topk_path.exists():
+        return None
+
+    signal: dict[str, np.ndarray | float] = {}
+    if tokens_path.exists():
+        signal["token_ids"] = np.load(tokens_path).astype(np.int32)
+    if hidden_path.exists():
+        signal["hidden"] = np.load(hidden_path).astype(np.float32)
+    if topk_path.exists():
+        topk_npz = np.load(topk_path)
+        signal["topk_indices"] = topk_npz["topk_indices"].astype(np.int32)
+        signal["topk_logprobs"] = topk_npz["topk_logprobs"].astype(np.float32)
+        if "target_token_ids" in topk_npz and "token_ids" not in signal:
+            signal["token_ids"] = topk_npz["target_token_ids"].astype(np.int32)
+    quality_multiplier = 1.0
+    if output_path.exists():
+        output = json.loads(output_path.read_text(encoding="utf-8"))
+        if str(output.get("status", "")).strip().lower() != "ready":
+            return None
+        signal["teacher_traj_ade_m"] = float(output.get("best_candidate_ade_m", 0.0) or 0.0)
+        signal["teacher_traj_fde_m"] = float(output.get("best_candidate_fde_m", 0.0) or 0.0)
+        quality_multiplier = float(output.get("teacher_quality_multiplier", 1.0) or 1.0)
+    signal["quality_multiplier"] = quality_multiplier
+    return signal or None
+
+
 def _pad_teacher_signal_batch(
     signal_items: list[dict[str, np.ndarray | int] | None],
     cot_content_positions: list[list[int]],
@@ -478,6 +519,7 @@ class DistillationCollator:
     enable_teacher_view: bool = True
     enable_action_aux: bool = True
     traj_token_weight_map: Mapping[int, float] | None = None
+    teacher_traj_cache_dir: Path | None = None
 
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, Any]:
         prompt_messages: list[list[dict[str, Any]]] = []
@@ -511,6 +553,7 @@ class DistillationCollator:
         teacher_logit_kd_weights: list[float] = []
         teacher_traj_weights: list[float] = []
         teacher_quality_multiplier: list[float] = []
+        teacher_traj_signal_items: list[dict[str, np.ndarray | float] | None] = []
 
         for sample_index, sample in enumerate(features):
             hard_target = sample.get("hard_target") or {}
@@ -581,6 +624,9 @@ class DistillationCollator:
             aux_weight = float(gate.get("action_aux_weight") or 0.0)
             action_aux_allowed.append(aux_allowed)
             action_aux_weight.append(aux_weight if aux_allowed else 0.0)
+            teacher_traj_signal_items.append(
+                _teacher_traj15_signal_from_sample(sample, teacher_traj_cache_dir=self.teacher_traj_cache_dir)
+            )
 
             if not teacher_allowed:
                 continue
@@ -603,7 +649,7 @@ class DistillationCollator:
             teacher_traj_weights.append(
                 explicit_teacher_traj_weight
                 if explicit_teacher_traj_weight is not None
-                else resolve_loss_weight_value(weights, "traj_ce", 1.0)
+                else 0.0
             )
             teacher_quality_multiplier.append(float(teacher_target.get("teacher_quality_multiplier", 1.0)))
 
@@ -654,6 +700,106 @@ class DistillationCollator:
             "hard_cot_weights": torch.tensor(hard_cot_weights, dtype=torch.float32),
             "traj_weights": torch.tensor(traj_weights, dtype=torch.float32),
         }
+        teacher_traj_available = torch.tensor(
+            [item is not None for item in teacher_traj_signal_items],
+            dtype=torch.bool,
+        )
+        teacher_traj_quality = torch.tensor(
+            [float((item or {}).get("quality_multiplier", 1.0)) for item in teacher_traj_signal_items],
+            dtype=torch.float32,
+        )
+        batch["teacher_traj_available"] = teacher_traj_available
+        batch["teacher_traj_quality_multiplier"] = teacher_traj_quality
+        if any(item is not None and "token_ids" in item for item in teacher_traj_signal_items):
+            teacher_traj_labels = torch.full_like(labels, IGNORE_INDEX)
+            for row_index, item in enumerate(teacher_traj_signal_items):
+                if item is None or "token_ids" not in item:
+                    continue
+                raw_token_ids = np.asarray(item["token_ids"], dtype=np.int32).reshape(-1)
+                active_positions = torch.nonzero(
+                    hard_masks["traj_token_mask"][row_index] & (labels[row_index] != IGNORE_INDEX),
+                    as_tuple=False,
+                ).flatten()
+                token_count = min(len(raw_token_ids), int(active_positions.numel()))
+                if token_count <= 0:
+                    continue
+                tokenizer_token_ids = [
+                    int(getattr(self.tokenizer, "traj_token_start_idx", -1)) + int(token_id)
+                    if isinstance(getattr(self.tokenizer, "traj_token_start_idx", None), int)
+                    and int(getattr(self.tokenizer, "traj_token_start_idx")) >= 0
+                    else int(self.tokenizer.convert_tokens_to_ids(discrete_traj_token(int(token_id))))
+                    for token_id in raw_token_ids[:token_count]
+                ]
+                teacher_traj_labels[row_index, active_positions[:token_count]] = torch.tensor(
+                    tokenizer_token_ids,
+                    dtype=teacher_traj_labels.dtype,
+                )
+            batch["teacher_traj_labels"] = teacher_traj_labels
+        topk_ready = [item for item in teacher_traj_signal_items if item is not None and "topk_indices" in item]
+        if topk_ready:
+            topk = int(np.asarray(topk_ready[0]["topk_indices"]).shape[-1])
+            max_tokens = max(
+                min(
+                    int(np.asarray(item["topk_indices"]).shape[0]),
+                    int(torch.count_nonzero(hard_masks["traj_token_mask"][row_index]).item()),
+                )
+                for row_index, item in enumerate(teacher_traj_signal_items)
+                if item is not None and "topk_indices" in item
+            )
+            teacher_traj_topk_indices = torch.zeros((len(features), max_tokens, topk), dtype=torch.long)
+            teacher_traj_topk_logprobs = torch.zeros((len(features), max_tokens, topk), dtype=torch.float32)
+            teacher_traj_topk_mask = torch.zeros((len(features), max_tokens), dtype=torch.bool)
+            traj_token_start_idx = getattr(self.tokenizer, "traj_token_start_idx", None)
+            if not isinstance(traj_token_start_idx, int) or traj_token_start_idx < 0:
+                raise ValueError("Tokenizer is missing traj_token_start_idx required for teacher traj cache.")
+            for row_index, item in enumerate(teacher_traj_signal_items):
+                if item is None or "topk_indices" not in item or "topk_logprobs" not in item:
+                    continue
+                raw_indices = np.asarray(item["topk_indices"], dtype=np.int32)
+                raw_logprobs = np.asarray(item["topk_logprobs"], dtype=np.float32)
+                token_count = min(
+                    int(raw_indices.shape[0]),
+                    int(torch.count_nonzero(hard_masks["traj_token_mask"][row_index]).item()),
+                    max_tokens,
+                )
+                if token_count <= 0:
+                    continue
+                teacher_traj_topk_indices[row_index, :token_count] = torch.from_numpy(
+                    raw_indices[:token_count] + int(traj_token_start_idx)
+                ).long()
+                teacher_traj_topk_logprobs[row_index, :token_count] = torch.from_numpy(raw_logprobs[:token_count]).float()
+                teacher_traj_topk_mask[row_index, :token_count] = True
+            batch["teacher_traj_topk_indices"] = teacher_traj_topk_indices
+            batch["teacher_traj_topk_logprobs"] = teacher_traj_topk_logprobs
+            batch["teacher_traj_topk_mask"] = teacher_traj_topk_mask
+        hidden_ready = [item for item in teacher_traj_signal_items if item is not None and "hidden" in item]
+        if hidden_ready:
+            hidden_dim = int(np.asarray(hidden_ready[0]["hidden"]).shape[-1])
+            max_tokens = max(
+                min(
+                    int(np.asarray(item["hidden"]).shape[0]),
+                    int(torch.count_nonzero(hard_masks["traj_token_mask"][row_index]).item()),
+                )
+                for row_index, item in enumerate(teacher_traj_signal_items)
+                if item is not None and "hidden" in item
+            )
+            teacher_traj_hidden = torch.zeros((len(features), max_tokens, hidden_dim), dtype=torch.float32)
+            teacher_traj_hidden_mask = torch.zeros((len(features), max_tokens), dtype=torch.bool)
+            for row_index, item in enumerate(teacher_traj_signal_items):
+                if item is None or "hidden" not in item:
+                    continue
+                hidden = np.asarray(item["hidden"], dtype=np.float32)
+                token_count = min(
+                    int(hidden.shape[0]),
+                    int(torch.count_nonzero(hard_masks["traj_token_mask"][row_index]).item()),
+                    max_tokens,
+                )
+                if token_count <= 0:
+                    continue
+                teacher_traj_hidden[row_index, :token_count] = torch.from_numpy(hidden[:token_count]).float()
+                teacher_traj_hidden_mask[row_index, :token_count] = True
+            batch["teacher_traj_hidden"] = teacher_traj_hidden
+            batch["teacher_traj_hidden_mask"] = teacher_traj_hidden_mask
         traj_token_label_weights = _build_label_token_weights(
             labels,
             hard_masks["traj_token_mask"],

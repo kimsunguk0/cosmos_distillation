@@ -1,0 +1,345 @@
+{
+  "checkpoint_dir": "outputs/checkpoints/subset_t0_teacher_traj_train16_step20/final",
+  "corpus_jsonl": "data/corpus/subset_probe/distill_v3_2_train16.jsonl",
+  "split": "train",
+  "num_samples": 16,
+  "max_new_tokens": 160,
+  "constrain_traj_decoding": true,
+  "forced_traj_token_count": null,
+  "avg_latency_sec": 4.041,
+  "load_info": {
+    "format": "lora_adapter",
+    "missing": [],
+    "unexpected": [],
+    "use_lora": true,
+    "data_view": {
+      "prompt_mode": "traj_only",
+      "target_mode": "traj_only",
+      "enable_teacher_view": false,
+      "enable_action_aux": false,
+      "teacher_traj_cache_dir": "/data/teacher_cache/traj15"
+    }
+  },
+  "results": [
+    {
+      "sample_id": "0262ea23-9be7-430e-8c62-d251b4cd9b01__t0_14887532__evt_00",
+      "split": "train",
+      "elapsed_sec": 4.292,
+      "generated_text": "<i778><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1183><i1094><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><|traj_future_end|>",
+      "generated_cot": "",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "missing"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep lane since the lane is clear ahead",
+      "target_text": "Go straight and navigate through the construction zone with traffic cones.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "400e1e49-bea2-4c37-be90-6da97fc90c98__t0_4397762__evt_00",
+      "split": "train",
+      "elapsed_sec": 4.123,
+      "generated_text": "<i778><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><|traj_future_end|>",
+      "generated_cot": "",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "missing"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "stop",
+      "teacher_long_cot": "Stop for the red traffic light ahead",
+      "target_text": "Yield to the pedestrians crossing the road at the crosswalk.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "58f41cc9-9803-4aa1-948c-8e84c708f909__t0_2198997__evt_00",
+      "split": "train",
+      "elapsed_sec": 4.175,
+      "generated_text": "<i778><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1183><i1094><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><|traj_future_end|>",
+      "generated_cot": "",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "missing"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge left due to the person standing beside the vehicle encroaching from the right",
+      "target_text": "Steer right to avoid the traffic cone in the road.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "f1429141-3729-4b3c-a531-1a0dc652ebe1__t0_7947035__evt_00",
+      "split": "train",
+      "elapsed_sec": 4.135,
+      "generated_text": "<i778><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1183><i1094><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><|traj_future_end|>",
+      "generated_cot": "",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "missing"
+      },
+      "gt_action": "change_lane_left",
+      "teacher_action": "slow_down",
+      "teacher_long_cot": "Lane change to the right due to slower vehicles ahead in our lane and a clear gap in the right lane, then match speed with right-lane traffic after merging.",
+      "target_text": "Steer left since the right road is closed and signs direct to the left.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "027c10f0-ca30-414a-8fdd-d4200b736b9f__t0_12983236__evt_00",
+      "split": "train",
+      "elapsed_sec": 3.988,
+      "generated_text": "<i739><i778><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><|traj_future_end|>",
+      "generated_cot": "",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "missing"
+      },
+      "gt_action": "stop",
+      "teacher_action": "stop",
+      "teacher_long_cot": "Keep distance to the lead vehicle since it is stopped ahead",
+      "target_text": "Stop for the red traffic light and pedestrian and cars ahead.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "99926029-db11-4cc3-bbb7-b1e0ca8e5a5a__t0_7439935__evt_00",
+      "split": "train",
+      "elapsed_sec": 3.985,
+      "generated_text": "<i739><i778><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><|traj_future_end|>",
+      "generated_cot": "",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "missing"
+      },
+      "gt_action": "nudge_left",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Yield to the pedestrian since they are crossing our lane in the crosswalk ahead",
+      "target_text": "Gentle acceleration to proceed through the intersection while maintaining a safe distance from the pedestrian crossing the street.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "d0aacbbf-09dd-4785-85a7-5e402bb25a2f__t0_16053201__evt_00",
+      "split": "train",
+      "elapsed_sec": 3.954,
+      "generated_text": "<i778><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1183><i1094><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><|traj_future_end|>",
+      "generated_cot": "",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "missing"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep distance to the lead vehicle since it is directly ahead in our lane",
+      "target_text": "Go straight and navigate through the construction zone with traffic delineators on the right.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "00d4efa8-62a5-47ce-b8c7-e2a6b67b8f5c__t0_7198027__evt_00",
+      "split": "train",
+      "elapsed_sec": 3.964,
+      "generated_text": "<i778><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><|traj_future_end|>",
+      "generated_cot": "",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "missing"
+      },
+      "gt_action": "nudge_left",
+      "teacher_action": "unknown",
+      "teacher_long_cot": "Keep distance to the cyclist since it is directly ahead in our lane",
+      "target_text": "Strong deceleration to maintain a safe distance from the pedestrian crossing the road.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "6303353e-7b55-4216-b1a1-64b362e76aba__t0_3491597__evt_00",
+      "split": "train",
+      "elapsed_sec": 3.944,
+      "generated_text": "<i739><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><|traj_future_end|>",
+      "generated_cot": "",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "missing"
+      },
+      "gt_action": "stop",
+      "teacher_action": "stop",
+      "teacher_long_cot": "Stop to yield to the pedestrian in the crosswalk ahead",
+      "target_text": "Stop for pedestrians crossing the crosswalk.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "cb01e385-6a7b-4563-9ec6-9aed407cff48__t0_9342626__evt_00",
+      "split": "train",
+      "elapsed_sec": 4.091,
+      "generated_text": "<i739><i778><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1183><i1094><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><|traj_future_end|>",
+      "generated_cot": "",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "missing"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Yield due to a pedestrian walking across the crosswalk ahead",
+      "target_text": "Strong deceleration to maintain a safe distance from the pedestrian crossing the road.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "2d99f4b2-c60c-4c66-ae99-2e0a8295abc1__t0_3687551__evt_00",
+      "split": "train",
+      "elapsed_sec": 3.987,
+      "generated_text": "<i739><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1183><i1183><i1183><i1094><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><|traj_future_end|>",
+      "generated_cot": "",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "missing"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep distance to the lead vehicle since it is directly ahead in our lane",
+      "target_text": "Gentle deceleration to maintain a safe distance from the cyclist ahead.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "e0f45fdc-1612-464f-8174-1212425ad8df__t0_3830822__evt_00",
+      "split": "train",
+      "elapsed_sec": 3.96,
+      "generated_text": "<i739><i778><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1183><i1094><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><|traj_future_end|>",
+      "generated_cot": "",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "missing"
+      },
+      "gt_action": "slow_down",
+      "teacher_action": "stop",
+      "teacher_long_cot": "Stop for the red traffic light ahead",
+      "target_text": "Stop for the red traffic light at the intersection while yielding to the emergency vehicle and pedestrian crossing.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "e63fa44f-918c-4545-bf8b-9a0767cdada6__t0_7585693__evt_00",
+      "split": "train",
+      "elapsed_sec": 3.984,
+      "generated_text": "<i739><i778><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><|traj_future_end|>",
+      "generated_cot": "",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "missing"
+      },
+      "gt_action": "stop",
+      "teacher_action": "stop",
+      "teacher_long_cot": "Stop due to red traffic light",
+      "target_text": "Stop for the green traffic light at the intersection while pedestrians cross the crosswalk.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "1bd51369-ce05-4b35-b6d4-55d520c95623__t0_9883757__evt_00",
+      "split": "train",
+      "elapsed_sec": 4.151,
+      "generated_text": "<i739><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><|traj_future_end|>",
+      "generated_cot": "",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "missing"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge to the left to clear the construction cones blocking the right side of our lane",
+      "target_text": "Shift left to adjust lane position for the construction zone guided by traffic cones.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "d4915d02-e9f8-49f5-9a88-158619ca749f__t0_11549083__evt_00",
+      "split": "train",
+      "elapsed_sec": 3.979,
+      "generated_text": "<i739><i778><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><|traj_future_end|>",
+      "generated_cot": "",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "missing"
+      },
+      "gt_action": "stop",
+      "teacher_action": "unknown",
+      "teacher_long_cot": "Yield due to a traffic officer in our lane ahead",
+      "target_text": "Stop as the traffic officer signals to stop.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "dd262b22-15c4-4d67-b1b4-f1e24a010c41__t0_8347757__evt_00",
+      "split": "train",
+      "elapsed_sec": 3.949,
+      "generated_text": "<i739><i778><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1094><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><i1183><|traj_future_end|>",
+      "generated_cot": "",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "missing"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep distance to the lead vehicle since it is directly ahead in our lane",
+      "target_text": "Steer right following temporary traffic barriers.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    }
+  ]
+}

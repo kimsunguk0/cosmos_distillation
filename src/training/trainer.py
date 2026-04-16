@@ -16,6 +16,7 @@ from src.training.losses import (
     feature_alignment_loss,
     masked_token_accuracy,
     teacher_logit_kd_loss,
+    token_hidden_alignment_loss,
     weighted_causal_ce,
 )
 
@@ -58,26 +59,33 @@ def _zero(device: torch.device) -> torch.Tensor:
     return torch.tensor(0.0, device=device)
 
 
-def _fallback_teacher_view(batch: dict[str, Any]) -> dict[str, Any]:
-    """Build a zero-weight teacher view so the model graph stays consistent across steps."""
-    device = batch["input_ids"].device
-    batch_size = int(batch["input_ids"].shape[0])
-    zeros = torch.zeros((batch_size,), device=device, dtype=torch.float32)
-    return {
-        "input_ids": batch["input_ids"],
-        "attention_mask": batch["attention_mask"],
-        "pixel_values": batch.get("pixel_values"),
-        "image_grid_thw": batch.get("image_grid_thw"),
-        "labels": batch["labels"],
-        "cot_span_mask": batch["cot_span_mask"],
-        "cot_content_mask": batch["cot_span_mask"],
-        "traj_span_mask": batch["traj_span_mask"],
-        "traj_token_mask": batch["traj_token_mask"],
-        "teacher_view_weight": zeros,
-        "teacher_logit_kd_weight": zeros,
-        "traj_weights": zeros,
-        "teacher_quality_multiplier": torch.ones((batch_size,), device=device, dtype=torch.float32),
-    }
+def _teacher_view_has_active_supervision(
+    teacher_view: dict[str, Any] | None,
+    weights: DistillationLossWeights,
+) -> bool:
+    """Return whether the teacher branch should run for this batch."""
+    if teacher_view is None:
+        return False
+
+    quality = teacher_view.get("teacher_quality_multiplier")
+    if quality is None:
+        quality = torch.ones_like(teacher_view["teacher_view_weight"], dtype=torch.float32)
+
+    def _active(name: str) -> bool:
+        tensor = teacher_view.get(name)
+        if tensor is None:
+            return False
+        return bool(torch.any((tensor * quality) > 0).item())
+
+    if weights.teacher_seq_ce > 0 and _active("teacher_view_weight"):
+        return True
+    if weights.teacher_logit_kd > 0 and _active("teacher_logit_kd_weight"):
+        return True
+    if weights.feat_align > 0 and _active("teacher_view_weight"):
+        return True
+    if weights.teacher_traj_ce is not None and weights.teacher_traj_ce > 0 and _active("traj_weights"):
+        return True
+    return False
 
 
 def run_train_step(
@@ -105,7 +113,7 @@ def run_train_step(
         hard_outputs["logits"],
         batch["labels"],
         batch["traj_weights"],
-        batch["traj_span_mask"],
+        batch["traj_token_mask"],
         batch.get("traj_token_label_weights"),
     )
     format_ce, _ = weighted_causal_ce(
@@ -133,16 +141,50 @@ def run_train_step(
     hard_token_acc = masked_token_accuracy(hard_outputs["logits"], batch["labels"], hard_token_mask)
     hard_cot_acc = masked_token_accuracy(hard_outputs["logits"], batch["labels"], batch["cot_span_mask"])
     hard_traj_acc = masked_token_accuracy(hard_outputs["logits"], batch["labels"], batch["traj_token_mask"])
-    del hard_outputs
 
     teacher_seq_ce = _zero(device)
     teacher_logit_kd = _zero(device)
     teacher_traj_ce = _zero(device)
+    teacher_traj_topk_kd = _zero(device)
+    teacher_traj_hidden_align = _zero(device)
     feat_align = _zero(device)
 
-    teacher_view = batch.get("teacher_view") or _fallback_teacher_view(batch)
+    teacher_traj_sample_weights = None
+    if batch.get("teacher_traj_available") is not None:
+        teacher_traj_sample_weights = batch["teacher_traj_available"].float()
+        if batch.get("teacher_traj_quality_multiplier") is not None:
+            teacher_traj_sample_weights = (
+                teacher_traj_sample_weights * batch["teacher_traj_quality_multiplier"].float()
+            )
+    if weights.teacher_traj_ce is not None and batch.get("teacher_traj_labels") is not None:
+        teacher_traj_ce, _ = weighted_causal_ce(
+            hard_outputs["logits"],
+            batch["teacher_traj_labels"],
+            teacher_traj_sample_weights,
+            batch["traj_token_mask"],
+            batch.get("traj_token_label_weights"),
+        )
+    if weights.teacher_traj_topk_kd > 0:
+        teacher_traj_topk_kd = teacher_logit_kd_loss(
+            hard_outputs["logits"],
+            batch.get("traj_token_mask"),
+            batch.get("teacher_traj_topk_indices"),
+            batch.get("teacher_traj_topk_logprobs"),
+            batch.get("teacher_traj_topk_mask"),
+            teacher_traj_sample_weights,
+        )
+    if weights.teacher_traj_hidden_align > 0:
+        teacher_traj_hidden_align = token_hidden_alignment_loss(
+            hard_outputs["hidden_states"],
+            batch.get("teacher_traj_hidden"),
+            batch.get("traj_token_mask"),
+            teacher_traj_sample_weights,
+        )
+    del hard_outputs
+
+    teacher_view = batch.get("teacher_view")
     teacher_cot_acc = _zero(device)
-    if teacher_view:
+    if _teacher_view_has_active_supervision(teacher_view, weights):
         teacher_outputs = model(
             input_ids=teacher_view["input_ids"],
             attention_mask=teacher_view["attention_mask"],
@@ -169,7 +211,7 @@ def run_train_step(
             teacher_outputs["logits"],
             teacher_view["labels"],
             teacher_view["traj_weights"],
-            teacher_view["traj_span_mask"],
+            teacher_view["traj_token_mask"],
             teacher_view.get("traj_token_label_weights"),
         )
         if weights.feat_align > 0 and teacher_view.get("teacher_pooled_hidden") is not None:
@@ -190,16 +232,11 @@ def run_train_step(
         )
         del teacher_outputs
 
-    traj_components = [hard_traj_ce]
-    if teacher_view:
-        traj_components.append(teacher_traj_ce)
-    traj_ce = torch.stack(traj_components).mean()
-
-    if weights.teacher_traj_ce is None:
-        traj_total = weights.traj_ce * traj_ce
-    else:
+    traj_ce = hard_traj_ce
+    traj_total = weights.traj_ce * hard_traj_ce
+    if weights.teacher_traj_ce is not None:
         traj_total = weights.traj_ce * hard_traj_ce
-        if teacher_view:
+        if _teacher_view_has_active_supervision(teacher_view, weights):
             traj_total = traj_total + weights.teacher_traj_ce * teacher_traj_ce
 
     total = (
@@ -210,6 +247,8 @@ def run_train_step(
         + weights.format_ce * format_ce
         + weights.action_aux * action_aux
         + weights.feat_align * feat_align
+        + weights.teacher_traj_topk_kd * teacher_traj_topk_kd
+        + weights.teacher_traj_hidden_align * teacher_traj_hidden_align
         + weights.traj_xyz_reg * traj_xyz_reg
         + weights.traj_delta_reg * traj_delta_reg
         + weights.traj_final_reg * traj_final_reg
@@ -222,6 +261,8 @@ def run_train_step(
         "teacher_logit_kd": float(teacher_logit_kd.detach().cpu()),
         "hard_traj_ce": float(hard_traj_ce.detach().cpu()),
         "teacher_traj_ce": float(teacher_traj_ce.detach().cpu()),
+        "teacher_traj_topk_kd": float(teacher_traj_topk_kd.detach().cpu()),
+        "teacher_traj_hidden_align": float(teacher_traj_hidden_align.detach().cpu()),
         "traj_ce": float(traj_ce.detach().cpu()),
         "format_ce": float(format_ce.detach().cpu()),
         "action_aux": float(action_aux.detach().cpu()),

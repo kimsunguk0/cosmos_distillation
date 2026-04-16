@@ -22,6 +22,8 @@ class DistillationLossWeights:
     action_aux: float
     feat_align: float
     teacher_traj_ce: float | None = None
+    teacher_traj_topk_kd: float = 0.0
+    teacher_traj_hidden_align: float = 0.0
     traj_xyz_reg: float = 0.0
     traj_delta_reg: float = 0.0
     traj_final_reg: float = 0.0
@@ -56,6 +58,8 @@ LOSS_WEIGHT_ALIASES: dict[str, tuple[str, ...]] = {
     "teacher_logit_kd": ("teacher_topk_kd_loss",),
     "traj_ce": ("traj_loss",),
     "teacher_traj_ce": ("teacher_traj_loss",),
+    "teacher_traj_topk_kd": ("teacher_traj_topk_kd_loss",),
+    "teacher_traj_hidden_align": ("teacher_traj_hidden_align_loss",),
     "format_ce": ("output_format_loss", "structure_loss"),
     "action_aux": ("meta_action_loss", "action_aux_loss"),
     "feat_align": ("feature_align_loss",),
@@ -71,6 +75,8 @@ LOSS_WEIGHT_EXPORT_NAMES: dict[str, str] = {
     "teacher_logit_kd": "teacher_topk_kd_loss",
     "traj_ce": "traj_loss",
     "teacher_traj_ce": "teacher_traj_loss",
+    "teacher_traj_topk_kd": "teacher_traj_topk_kd_loss",
+    "teacher_traj_hidden_align": "teacher_traj_hidden_align_loss",
     "format_ce": "output_format_loss",
     "action_aux": "meta_action_loss",
     "feat_align": "feature_align_loss",
@@ -86,6 +92,8 @@ METRIC_EXPORT_NAMES: dict[str, str] = {
     "teacher_logit_kd": "teacher_topk_kd_loss",
     "hard_traj_ce": "gt_traj_loss",
     "teacher_traj_ce": "teacher_traj_loss",
+    "teacher_traj_topk_kd": "teacher_traj_topk_kd_loss",
+    "teacher_traj_hidden_align": "teacher_traj_hidden_align_loss",
     "traj_ce": "traj_loss",
     "format_ce": "output_format_loss",
     "action_aux": "meta_action_loss",
@@ -137,6 +145,8 @@ def export_loss_weights(weights: DistillationLossWeights) -> dict[str, float]:
         "format_ce": weights.format_ce,
         "action_aux": weights.action_aux,
         "feat_align": weights.feat_align,
+        "teacher_traj_topk_kd": weights.teacher_traj_topk_kd,
+        "teacher_traj_hidden_align": weights.teacher_traj_hidden_align,
         "traj_xyz_reg": weights.traj_xyz_reg,
         "traj_delta_reg": weights.traj_delta_reg,
         "traj_final_reg": weights.traj_final_reg,
@@ -348,6 +358,48 @@ def feature_alignment_loss(
         return _zero(student_hidden.device)
     per_sample = F.mse_loss(student_pooled, teacher_pooled, reduction="none").mean(dim=-1)
     return _apply_sample_weights(per_sample, sample_weights)
+
+
+def token_hidden_alignment_loss(
+    student_hidden: torch.Tensor,
+    teacher_hidden: torch.Tensor | None,
+    token_mask: torch.Tensor | None,
+    sample_weights: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Align per-token hidden states over a selected masked span."""
+    if teacher_hidden is None or token_mask is None:
+        return _zero(student_hidden.device)
+
+    shift_student = student_hidden[:, :-1, :].contiguous()
+    span_mask = token_mask[:, 1:].to(dtype=torch.bool, device=student_hidden.device)
+    teacher_hidden = teacher_hidden.to(device=student_hidden.device, dtype=shift_student.dtype)
+
+    per_sample_losses = []
+    per_sample_weights = []
+    for sample_index in range(shift_student.shape[0]):
+        student_target_hidden = shift_student[sample_index][span_mask[sample_index]]
+        teacher_target_hidden = teacher_hidden[sample_index]
+        aligned_tokens = min(student_target_hidden.shape[0], teacher_target_hidden.shape[0])
+        if aligned_tokens <= 0:
+            continue
+        student_target_hidden = student_target_hidden[:aligned_tokens]
+        teacher_target_hidden = teacher_target_hidden[:aligned_tokens]
+        if student_target_hidden.shape[-1] != teacher_target_hidden.shape[-1]:
+            continue
+        per_sample_losses.append(
+            F.mse_loss(student_target_hidden, teacher_target_hidden, reduction="none").mean(dim=-1).mean()
+        )
+        if sample_weights is None:
+            per_sample_weights.append(torch.tensor(1.0, device=student_hidden.device))
+        else:
+            per_sample_weights.append(sample_weights[sample_index].to(student_hidden.device))
+
+    if not per_sample_losses:
+        return _zero(student_hidden.device)
+
+    losses = torch.stack(per_sample_losses)
+    weights = None if sample_weights is None else torch.stack(per_sample_weights)
+    return _apply_sample_weights(losses, weights)
 
 
 def _gather_expected_traj_controls(
