@@ -1,0 +1,554 @@
+{
+  "baseline": "subset_a0_geom_train{4,16}_step20",
+  "candidate": "subset_a0_short_train{4,16}_step60",
+  "interpretation": "Tests whether stronger short-horizon geometry emphasis improves train4/train16 anti-collapse behavior.",
+  "train4": {
+    "train": {
+      "baseline": {
+        "generated": {
+          "num_sequences": 4,
+          "unique_tokens_global": 13,
+          "per_seq_unique_avg": 10.0,
+          "max_same_token_run_avg": 38.25,
+          "top10": [
+            [
+              1519,
+              209
+            ],
+            [
+              1527,
+              116
+            ],
+            [
+              1485,
+              66
+            ],
+            [
+              1353,
+              35
+            ],
+            [
+              1532,
+              33
+            ],
+            [
+              1541,
+              20
+            ],
+            [
+              266,
+              12
+            ],
+            [
+              1487,
+              11
+            ],
+            [
+              1538,
+              4
+            ],
+            [
+              1557,
+              2
+            ]
+          ]
+        },
+        "avg_set_jaccard": 0.005840494092373791,
+        "coarse_motion_agreement_rate": 0.0,
+        "anti_collapse_score": 0.27050309227309344,
+        "samples": [
+          {
+            "sample_id": "0262ea23-9be7-430e-8c62-d251b4cd9b01__t0_14887532__evt_00",
+            "generated_unique": 9.0,
+            "target_unique": 60.0,
+            "set_jaccard": 0.0,
+            "predicted_motion_class": "right_turn",
+            "gt_motion_class": "change_lane_right",
+            "motion_match": 0
+          },
+          {
+            "sample_id": "400e1e49-bea2-4c37-be90-6da97fc90c98__t0_4397762__evt_00",
+            "generated_unique": 11.0,
+            "target_unique": 66.0,
+            "set_jaccard": 0.0132,
+            "predicted_motion_class": "change_lane_left",
+            "gt_motion_class": "lane_keep",
+            "motion_match": 0
+          },
+          {
+            "sample_id": "58f41cc9-9803-4aa1-948c-8e84c708f909__t0_2198997__evt_00",
+            "generated_unique": 10.0,
+            "target_unique": 89.0,
+            "set_jaccard": 0.0102,
+            "predicted_motion_class": "change_lane_left",
+            "gt_motion_class": "change_lane_right",
+            "motion_match": 0
+          }
+        ]
+      },
+      "candidate": {
+        "generated": {
+          "num_sequences": 4,
+          "unique_tokens_global": 2,
+          "per_seq_unique_avg": 1.25,
+          "max_same_token_run_avg": 122.25,
+          "top10": [
+            [
+              1485,
+              510
+            ],
+            [
+              1487,
+              2
+            ]
+          ]
+        },
+        "avg_set_jaccard": 0.0,
+        "coarse_motion_agreement_rate": 0.75,
+        "anti_collapse_score": 0.17294921875000002,
+        "samples": [
+          {
+            "sample_id": "0262ea23-9be7-430e-8c62-d251b4cd9b01__t0_14887532__evt_00",
+            "generated_unique": 1.0,
+            "target_unique": 60.0,
+            "set_jaccard": 0.0,
+            "predicted_motion_class": "change_lane_right",
+            "gt_motion_class": "change_lane_right",
+            "motion_match": 1
+          },
+          {
+            "sample_id": "400e1e49-bea2-4c37-be90-6da97fc90c98__t0_4397762__evt_00",
+            "generated_unique": 1.0,
+            "target_unique": 66.0,
+            "set_jaccard": 0.0,
+            "predicted_motion_class": "lane_keep",
+            "gt_motion_class": "lane_keep",
+            "motion_match": 1
+          },
+          {
+            "sample_id": "58f41cc9-9803-4aa1-948c-8e84c708f909__t0_2198997__evt_00",
+            "generated_unique": 2.0,
+            "target_unique": 89.0,
+            "set_jaccard": 0.0,
+            "predicted_motion_class": "change_lane_right",
+            "gt_motion_class": "change_lane_right",
+            "motion_match": 1
+          }
+        ]
+      },
+      "delta": {
+        "per_seq_unique_avg": -8.75,
+        "max_same_token_run_avg": 84.0,
+        "avg_set_jaccard": -0.005840494092373791,
+        "coarse_motion_agreement_rate": 0.75,
+        "anti_collapse_score": -0.09755387352309342
+      }
+    },
+    "val": {
+      "baseline": {
+        "generated": {
+          "num_sequences": 10,
+          "unique_tokens_global": 13,
+          "per_seq_unique_avg": 8.7,
+          "max_same_token_run_avg": 35.2,
+          "top10": [
+            [
+              1519,
+              500
+            ],
+            [
+              1527,
+              276
+            ],
+            [
+              1485,
+              187
+            ],
+            [
+              1353,
+              100
+            ],
+            [
+              1532,
+              98
+            ],
+            [
+              1541,
+              49
+            ],
+            [
+              266,
+              40
+            ],
+            [
+              1487,
+              18
+            ],
+            [
+              1538,
+              4
+            ],
+            [
+              1557,
+              3
+            ]
+          ]
+        },
+        "avg_set_jaccard": 0.028712983467264926,
+        "coarse_motion_agreement_rate": 0.1,
+        "anti_collapse_score": 0.2899907458668163,
+        "samples": [
+          {
+            "sample_id": "476fed83-ed85-4b2c-b6c3-cf780a2d0123__t0_16992755__evt_00",
+            "generated_unique": 9.0,
+            "target_unique": 78.0,
+            "set_jaccard": 0.0357,
+            "predicted_motion_class": "change_lane_left",
+            "gt_motion_class": "change_lane_right",
+            "motion_match": 0
+          },
+          {
+            "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_4833965__evt_00",
+            "generated_unique": 9.0,
+            "target_unique": 67.0,
+            "set_jaccard": 0.0556,
+            "predicted_motion_class": "change_lane_left",
+            "gt_motion_class": "lane_keep",
+            "motion_match": 0
+          },
+          {
+            "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_13533965__evt_01",
+            "generated_unique": 11.0,
+            "target_unique": 72.0,
+            "set_jaccard": 0.0779,
+            "predicted_motion_class": "change_lane_left",
+            "gt_motion_class": "lane_keep",
+            "motion_match": 0
+          }
+        ]
+      },
+      "candidate": {
+        "generated": {
+          "num_sequences": 10,
+          "unique_tokens_global": 2,
+          "per_seq_unique_avg": 1.5,
+          "max_same_token_run_avg": 113.3,
+          "top10": [
+            [
+              1485,
+              1270
+            ],
+            [
+              1487,
+              10
+            ]
+          ]
+        },
+        "avg_set_jaccard": 0.010216918405877731,
+        "coarse_motion_agreement_rate": 0.1,
+        "anti_collapse_score": 0.06532766710146945,
+        "samples": [
+          {
+            "sample_id": "476fed83-ed85-4b2c-b6c3-cf780a2d0123__t0_16992755__evt_00",
+            "generated_unique": 1.0,
+            "target_unique": 78.0,
+            "set_jaccard": 0.0,
+            "predicted_motion_class": "change_lane_right",
+            "gt_motion_class": "change_lane_right",
+            "motion_match": 1
+          },
+          {
+            "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_4833965__evt_00",
+            "generated_unique": 1.0,
+            "target_unique": 67.0,
+            "set_jaccard": 0.0149,
+            "predicted_motion_class": "change_lane_right",
+            "gt_motion_class": "lane_keep",
+            "motion_match": 0
+          },
+          {
+            "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_13533965__evt_01",
+            "generated_unique": 2.0,
+            "target_unique": 72.0,
+            "set_jaccard": 0.0278,
+            "predicted_motion_class": "change_lane_right",
+            "gt_motion_class": "lane_keep",
+            "motion_match": 0
+          }
+        ]
+      },
+      "delta": {
+        "per_seq_unique_avg": -7.199999999999999,
+        "max_same_token_run_avg": 78.1,
+        "avg_set_jaccard": -0.018496065061387193,
+        "coarse_motion_agreement_rate": 0.0,
+        "anti_collapse_score": -0.22466307876534683
+      }
+    }
+  },
+  "train16": {
+    "train": {
+      "baseline": {
+        "generated": {
+          "num_sequences": 16,
+          "unique_tokens_global": 10,
+          "per_seq_unique_avg": 5.4375,
+          "max_same_token_run_avg": 108.25,
+          "top10": [
+            [
+              1493,
+              1732
+            ],
+            [
+              267,
+              129
+            ],
+            [
+              1526,
+              100
+            ],
+            [
+              1597,
+              48
+            ],
+            [
+              1135,
+              29
+            ],
+            [
+              1411,
+              3
+            ],
+            [
+              1237,
+              3
+            ],
+            [
+              288,
+              2
+            ],
+            [
+              1126,
+              1
+            ],
+            [
+              1125,
+              1
+            ]
+          ]
+        },
+        "avg_set_jaccard": 0.017430826029642833,
+        "coarse_motion_agreement_rate": 0.125,
+        "anti_collapse_score": 0.1189084877574107,
+        "samples": [
+          {
+            "sample_id": "0262ea23-9be7-430e-8c62-d251b4cd9b01__t0_14887532__evt_00",
+            "generated_unique": 5.0,
+            "target_unique": 60.0,
+            "set_jaccard": 0.0317,
+            "predicted_motion_class": "right_turn",
+            "gt_motion_class": "change_lane_right",
+            "motion_match": 0
+          },
+          {
+            "sample_id": "400e1e49-bea2-4c37-be90-6da97fc90c98__t0_4397762__evt_00",
+            "generated_unique": 4.0,
+            "target_unique": 66.0,
+            "set_jaccard": 0.0145,
+            "predicted_motion_class": "change_lane_right",
+            "gt_motion_class": "lane_keep",
+            "motion_match": 0
+          },
+          {
+            "sample_id": "58f41cc9-9803-4aa1-948c-8e84c708f909__t0_2198997__evt_00",
+            "generated_unique": 6.0,
+            "target_unique": 89.0,
+            "set_jaccard": 0.0326,
+            "predicted_motion_class": "change_lane_right",
+            "gt_motion_class": "change_lane_right",
+            "motion_match": 1
+          }
+        ]
+      },
+      "candidate": {
+        "generated": {
+          "num_sequences": 16,
+          "unique_tokens_global": 1,
+          "per_seq_unique_avg": 1.0,
+          "max_same_token_run_avg": 128.0,
+          "top10": [
+            [
+              1475,
+              2048
+            ]
+          ]
+        },
+        "avg_set_jaccard": 0.0059597788320568095,
+        "coarse_motion_agreement_rate": 0.25,
+        "anti_collapse_score": 0.06086494470801421,
+        "samples": [
+          {
+            "sample_id": "0262ea23-9be7-430e-8c62-d251b4cd9b01__t0_14887532__evt_00",
+            "generated_unique": 1.0,
+            "target_unique": 60.0,
+            "set_jaccard": 0.0,
+            "predicted_motion_class": "change_lane_right",
+            "gt_motion_class": "change_lane_right",
+            "motion_match": 1
+          },
+          {
+            "sample_id": "400e1e49-bea2-4c37-be90-6da97fc90c98__t0_4397762__evt_00",
+            "generated_unique": 1.0,
+            "target_unique": 66.0,
+            "set_jaccard": 0.0152,
+            "predicted_motion_class": "change_lane_right",
+            "gt_motion_class": "lane_keep",
+            "motion_match": 0
+          },
+          {
+            "sample_id": "58f41cc9-9803-4aa1-948c-8e84c708f909__t0_2198997__evt_00",
+            "generated_unique": 1.0,
+            "target_unique": 89.0,
+            "set_jaccard": 0.0112,
+            "predicted_motion_class": "change_lane_right",
+            "gt_motion_class": "change_lane_right",
+            "motion_match": 1
+          }
+        ]
+      },
+      "delta": {
+        "per_seq_unique_avg": -4.4375,
+        "max_same_token_run_avg": 19.75,
+        "avg_set_jaccard": -0.011471047197586024,
+        "coarse_motion_agreement_rate": 0.125,
+        "anti_collapse_score": -0.05804354304939649
+      }
+    },
+    "val": {
+      "baseline": {
+        "generated": {
+          "num_sequences": 10,
+          "unique_tokens_global": 6,
+          "per_seq_unique_avg": 4.9,
+          "max_same_token_run_avg": 109.1,
+          "top10": [
+            [
+              1493,
+              1091
+            ],
+            [
+              267,
+              79
+            ],
+            [
+              1526,
+              67
+            ],
+            [
+              1597,
+              27
+            ],
+            [
+              1135,
+              14
+            ],
+            [
+              1411,
+              2
+            ]
+          ]
+        },
+        "avg_set_jaccard": 0.01075966997316503,
+        "coarse_motion_agreement_rate": 0.1,
+        "anti_collapse_score": 0.10554147999329126,
+        "samples": [
+          {
+            "sample_id": "476fed83-ed85-4b2c-b6c3-cf780a2d0123__t0_16992755__evt_00",
+            "generated_unique": 6.0,
+            "target_unique": 78.0,
+            "set_jaccard": 0.0,
+            "predicted_motion_class": "change_lane_right",
+            "gt_motion_class": "change_lane_right",
+            "motion_match": 1
+          },
+          {
+            "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_4833965__evt_00",
+            "generated_unique": 5.0,
+            "target_unique": 67.0,
+            "set_jaccard": 0.0286,
+            "predicted_motion_class": "change_lane_right",
+            "gt_motion_class": "lane_keep",
+            "motion_match": 0
+          },
+          {
+            "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_13533965__evt_01",
+            "generated_unique": 5.0,
+            "target_unique": 72.0,
+            "set_jaccard": 0.0132,
+            "predicted_motion_class": "change_lane_right",
+            "gt_motion_class": "lane_keep",
+            "motion_match": 0
+          }
+        ]
+      },
+      "candidate": {
+        "generated": {
+          "num_sequences": 10,
+          "unique_tokens_global": 1,
+          "per_seq_unique_avg": 1.0,
+          "max_same_token_run_avg": 128.0,
+          "top10": [
+            [
+              1475,
+              1280
+            ]
+          ]
+        },
+        "avg_set_jaccard": 0.003957458794453833,
+        "coarse_motion_agreement_rate": 0.1,
+        "anti_collapse_score": 0.030364364698613464,
+        "samples": [
+          {
+            "sample_id": "476fed83-ed85-4b2c-b6c3-cf780a2d0123__t0_16992755__evt_00",
+            "generated_unique": 1.0,
+            "target_unique": 78.0,
+            "set_jaccard": 0.0128,
+            "predicted_motion_class": "change_lane_right",
+            "gt_motion_class": "change_lane_right",
+            "motion_match": 1
+          },
+          {
+            "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_4833965__evt_00",
+            "generated_unique": 1.0,
+            "target_unique": 67.0,
+            "set_jaccard": 0.0,
+            "predicted_motion_class": "change_lane_right",
+            "gt_motion_class": "lane_keep",
+            "motion_match": 0
+          },
+          {
+            "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_13533965__evt_01",
+            "generated_unique": 1.0,
+            "target_unique": 72.0,
+            "set_jaccard": 0.0,
+            "predicted_motion_class": "change_lane_right",
+            "gt_motion_class": "lane_keep",
+            "motion_match": 0
+          }
+        ]
+      },
+      "delta": {
+        "per_seq_unique_avg": -3.9000000000000004,
+        "max_same_token_run_avg": 18.900000000000006,
+        "avg_set_jaccard": -0.006802211178711198,
+        "coarse_motion_agreement_rate": 0.0,
+        "anti_collapse_score": -0.0751771152946778
+      }
+    }
+  },
+  "key_takeaway": {
+    "train4": "short-horizon tuning regressed sharply into a near-single-token 1485 plateau on both seen-train and val.",
+    "train16": "short-horizon tuning regressed sharply into a near-single-token 1475 plateau on both seen-train and val.",
+    "overall": "Increasing short-horizon geometry pressure in this form made the central-band shortcut more attractive instead of less."
+  }
+}

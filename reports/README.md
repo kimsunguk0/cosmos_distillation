@@ -43,6 +43,8 @@ Current issue list:
 - [025-subset-collapse-threshold-1-4-16.md](./025-subset-collapse-threshold-1-4-16.md)
 - [026-a0-geometry-subset-threshold-1-4-16.md](./026-a0-geometry-subset-threshold-1-4-16.md)
 - [027-current-traj-collapse-status-and-next-actions.md](./027-current-traj-collapse-status-and-next-actions.md)
+- [028-short-horizon-geometry-regression.md](./028-short-horizon-geometry-regression.md)
+- [029-teacher-traj-cache-design.md](./029-teacher-traj-cache-design.md)
 
 Latest known high-level state:
 
@@ -62,3 +64,5 @@ Latest known high-level state:
   - `Stage A` is being rebuilt around `traj-only` warmup and decoded-geometry GT trajectory loss
   - latest trajectory-collapse summary:
     - [027-current-traj-collapse-status-and-next-actions.md](./027-current-traj-collapse-status-and-next-actions.md)
+  - latest teacher trajectory extraction design:
+    - [029-teacher-traj-cache-design.md](./029-teacher-traj-cache-design.md)

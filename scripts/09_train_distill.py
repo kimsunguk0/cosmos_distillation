@@ -201,6 +201,7 @@ def stage_weights_from_yaml(path: Path) -> tuple[TrainerConfig, DistillationLoss
         "data_view": dict(config.get("data_view") or {}),
         "traj_token_reweighting": dict(config.get("traj_token_reweighting") or {}),
         "decode_eval": dict(config.get("decode_eval") or {}),
+        "traj_decode_reg": dict(config.get("traj_decode_reg") or {}),
     }
     return trainer_config, loss_weights, stage_options
 
@@ -349,7 +350,11 @@ def build_traj_token_weight_map(
     return weight_map, summary
 
 
-def load_traj_decode_config(student_model: str | Path | None, tokenizer) -> tuple[TrajectoryDecodeConfig | None, dict[str, object]]:
+def load_traj_decode_config(
+    student_model: str | Path | None,
+    tokenizer,
+    overrides: dict[str, object] | None = None,
+) -> tuple[TrajectoryDecodeConfig | None, dict[str, object]]:
     """Load the Alpamayo trajectory-token decode contract used for geometry regularization."""
     config_path = resolve_traj_tokenizer_config_path(student_model)
     if config_path is None:
@@ -379,12 +384,18 @@ def load_traj_decode_config(student_model: str | Path | None, tokenizer) -> tupl
         dt=float(action_cfg["dt"]),
         n_waypoints=int(action_cfg["n_waypoints"]),
     )
+    override_cfg = dict(overrides or {})
+    if "short_horizon_steps" in override_cfg:
+        config.short_horizon_steps = int(override_cfg["short_horizon_steps"])
+    if "short_horizon_weight" in override_cfg:
+        config.short_horizon_weight = float(override_cfg["short_horizon_weight"])
     return config, {
         "enabled": True,
         "config_path": str(config_path),
         "num_bins": config.num_bins,
         "n_waypoints": config.n_waypoints,
         "short_horizon_steps": config.short_horizon_steps,
+        "short_horizon_weight": config.short_horizon_weight,
     }
 
 
@@ -539,7 +550,11 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     tokenizer = load_student_tokenizer(wrapper_cfg)
     processor = load_student_processor(wrapper_cfg, tokenizer=tokenizer)
     lora_spec = LoraConfigSpec(trainable_token_indices=tuple(distill_trainable_token_ids(tokenizer)))
-    traj_decode_config, traj_decode_summary = load_traj_decode_config(student_model, tokenizer)
+    traj_decode_config, traj_decode_summary = load_traj_decode_config(
+        student_model,
+        tokenizer,
+        stage_options.get("traj_decode_reg"),
+    )
     data_view_cfg = stage_options.get("data_view") or {}
     prompt_mode = str(data_view_cfg.get("prompt_mode", "joint"))
     target_mode = str(data_view_cfg.get("target_mode", "joint"))

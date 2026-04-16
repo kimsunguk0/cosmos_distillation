@@ -40,6 +40,7 @@ class TrajectoryDecodeConfig:
     dt: float
     n_waypoints: int
     short_horizon_steps: int = 24
+    short_horizon_weight: float = 1.0
 
 
 STAGE_DEFAULTS = {
@@ -491,12 +492,20 @@ def decoded_traj_geometry_losses(
         gt_xy = ego_future_xyz[sample_index, :common_steps, :2].to(device=pred_xy.device, dtype=pred_xy.dtype)
 
         short_steps = min(common_steps, max(int(config.short_horizon_steps), 1))
-        xyz_losses.append(F.smooth_l1_loss(pred_xy[:short_steps], gt_xy[:short_steps], reduction="mean"))
+        short_weight = max(float(config.short_horizon_weight), 1.0)
+
+        per_step_xy = F.smooth_l1_loss(pred_xy, gt_xy, reduction="none").mean(dim=-1)
+        xy_weights = torch.ones((common_steps,), device=pred_xy.device, dtype=pred_xy.dtype)
+        xy_weights[:short_steps] = short_weight
+        xyz_losses.append((per_step_xy * xy_weights).sum() / xy_weights.sum().clamp(min=1e-6))
 
         if common_steps >= 2:
             pred_delta = pred_xy[1:] - pred_xy[:-1]
             gt_delta = gt_xy[1:] - gt_xy[:-1]
-            delta_losses.append(F.smooth_l1_loss(pred_delta, gt_delta, reduction="mean"))
+            per_step_delta = F.smooth_l1_loss(pred_delta, gt_delta, reduction="none").mean(dim=-1)
+            delta_weights = torch.ones((common_steps - 1,), device=pred_xy.device, dtype=pred_xy.dtype)
+            delta_weights[: max(short_steps - 1, 1)] = short_weight
+            delta_losses.append((per_step_delta * delta_weights).sum() / delta_weights.sum().clamp(min=1e-6))
         final_losses.append(F.smooth_l1_loss(pred_xy[common_steps - 1], gt_xy[common_steps - 1], reduction="mean"))
 
     device = logits.device
