@@ -11,6 +11,7 @@ from src.training.losses import (
     resolve_optional_loss_weight_value,
     resolve_loss_weight_value,
     teacher_logit_kd_loss,
+    token_hidden_alignment_loss,
     weighted_causal_ce,
 )
 
@@ -177,3 +178,24 @@ def test_decoded_traj_geometry_losses_are_small_for_matching_midbin_controls() -
     assert float(xyz_loss) < 1e-4
     assert float(delta_loss) < 1e-4
     assert float(final_loss) < 1e-4
+
+
+def test_token_hidden_alignment_loss_respects_teacher_mask() -> None:
+    student_hidden = torch.tensor(
+        [[[1.0, 1.0], [9.0, 9.0], [9.0, 9.0], [9.0, 9.0]]],
+        dtype=torch.float32,
+    )
+    teacher_hidden = torch.tensor(
+        [[[1.0, 1.0], [100.0, 100.0]]],
+        dtype=torch.float32,
+    )
+    token_mask = torch.tensor([[False, True, True, False]], dtype=torch.bool)
+    teacher_token_mask = torch.tensor([[True, False]], dtype=torch.bool)
+    loss = token_hidden_alignment_loss(
+        student_hidden,
+        teacher_hidden,
+        token_mask,
+        teacher_token_mask,
+        torch.tensor([1.0], dtype=torch.float32),
+    )
+    assert float(loss) < 1e-6

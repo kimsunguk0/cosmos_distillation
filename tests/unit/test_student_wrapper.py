@@ -1,0 +1,42 @@
+from types import SimpleNamespace
+
+import torch
+from torch import nn
+
+from src.model.student_wrapper import DistillStudentModel
+
+
+class _DummyBackbone(nn.Module):
+    def __init__(self, hidden_size: int, vocab_size: int = 8) -> None:
+        super().__init__()
+        self.embed = nn.Embedding(vocab_size, hidden_size)
+        self.proj = nn.Linear(hidden_size, vocab_size)
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        output_hidden_states: bool = True,
+        return_dict: bool = True,
+        **kwargs,
+    ):
+        hidden = self.embed(input_ids)
+        logits = self.proj(hidden)
+        return SimpleNamespace(hidden_states=[hidden], logits=logits)
+
+
+def test_distill_student_model_projects_traj_hidden_states() -> None:
+    model = DistillStudentModel(
+        _DummyBackbone(hidden_size=4),
+        hidden_size=4,
+        num_action_classes=3,
+        traj_teacher_hidden_size=6,
+    )
+    outputs = model(
+        input_ids=torch.tensor([[1, 2, 3]], dtype=torch.long),
+        attention_mask=torch.tensor([[1, 1, 1]], dtype=torch.long),
+    )
+    assert outputs["hidden_states"].shape == (1, 3, 4)
+    assert outputs["traj_hidden_states"].shape == (1, 3, 6)
+    assert outputs["traj_aux_values"].shape == (1, 3, 2)
+    assert model.traj_hidden_projector is not None

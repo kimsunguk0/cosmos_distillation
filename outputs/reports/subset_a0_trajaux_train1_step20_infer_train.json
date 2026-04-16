@@ -1,0 +1,46 @@
+{
+  "checkpoint_dir": "outputs/checkpoints/subset_a0_trajaux_train1_step20/final",
+  "corpus_jsonl": "data/corpus/subset_probe/distill_v3_2_train1.jsonl",
+  "split": "train",
+  "num_samples": 1,
+  "max_new_tokens": 140,
+  "constrain_traj_decoding": true,
+  "forced_traj_token_count": null,
+  "avg_latency_sec": 4.217,
+  "load_info": {
+    "format": "lora_adapter",
+    "missing": [],
+    "unexpected": [],
+    "use_lora": true,
+    "data_view": {
+      "prompt_mode": "traj_only",
+      "target_mode": "traj_only",
+      "enable_teacher_view": false,
+      "enable_action_aux": false,
+      "teacher_traj_cache_dir": null,
+      "teacher_traj_hidden_size": null
+    }
+  },
+  "results": [
+    {
+      "sample_id": "0262ea23-9be7-430e-8c62-d251b4cd9b01__t0_14887532__evt_00",
+      "split": "train",
+      "elapsed_sec": 4.217,
+      "generated_text": "<i1581><i1583><i1563><i1544><i1544><i1544><i1544><i1544><i1544><i1543><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1544><i1529><i1529><i1529><i1529><i1570><i1570><i1570><i266><i1548><i1544><i1570><i266><i1544><i1570><i266><i1570><i266><i1570><i266><i1570><i266><i266><i266><i266><i266><i266><i266><i266><i266><i263><i263><i266><i263><i266><i263><i263><i266><i266><i266><i266><i263><i263><i266><i263><i266><i263><i266><i266><i266><i263><i263><i266><i263><i263><i266><i266><i263><i266><i266><i266><i263><i266><i266><i266><i266><i266><i266><i266><i263><i266><i266><i266><i262><i263><i266><i266><i263><i263><i263><i263><i266><|traj_future_end|>",
+      "generated_cot": "",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "missing"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep lane since the lane is clear ahead",
+      "target_text": "Go straight and navigate through the construction zone with traffic cones.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    }
+  ]
+}

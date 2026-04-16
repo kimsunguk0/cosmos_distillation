@@ -16,6 +16,7 @@ from src.training.losses import (
     feature_alignment_loss,
     masked_token_accuracy,
     teacher_logit_kd_loss,
+    trajectory_aux_regression_loss,
     token_hidden_alignment_loss,
     weighted_causal_ce,
 )
@@ -127,6 +128,13 @@ def run_train_step(
         batch["action_class_labels"],
         batch["action_aux_weight"],
     )
+    traj_aux_reg = trajectory_aux_regression_loss(
+        hard_outputs.get("traj_aux_values"),
+        batch["labels"],
+        batch["traj_token_mask"],
+        batch["traj_weights"],
+        traj_decode_config,
+    )
     traj_xyz_reg, traj_delta_reg, traj_final_reg = decoded_traj_geometry_losses(
         hard_outputs["logits"],
         batch["labels"],
@@ -175,9 +183,10 @@ def run_train_step(
         )
     if weights.teacher_traj_hidden_align > 0:
         teacher_traj_hidden_align = token_hidden_alignment_loss(
-            hard_outputs["hidden_states"],
+            hard_outputs.get("traj_hidden_states", hard_outputs["hidden_states"]),
             batch.get("teacher_traj_hidden"),
             batch.get("traj_token_mask"),
+            batch.get("teacher_traj_hidden_mask"),
             teacher_traj_sample_weights,
         )
     del hard_outputs
@@ -244,6 +253,7 @@ def run_train_step(
         + weights.teacher_seq_ce * teacher_seq_ce
         + weights.teacher_logit_kd * teacher_logit_kd
         + traj_total
+        + weights.traj_aux_reg * traj_aux_reg
         + weights.format_ce * format_ce
         + weights.action_aux * action_aux
         + weights.feat_align * feat_align
@@ -260,6 +270,7 @@ def run_train_step(
         "teacher_seq_ce": float(teacher_seq_ce.detach().cpu()),
         "teacher_logit_kd": float(teacher_logit_kd.detach().cpu()),
         "hard_traj_ce": float(hard_traj_ce.detach().cpu()),
+        "traj_aux_reg": float(traj_aux_reg.detach().cpu()),
         "teacher_traj_ce": float(teacher_traj_ce.detach().cpu()),
         "teacher_traj_topk_kd": float(teacher_traj_topk_kd.detach().cpu()),
         "teacher_traj_hidden_align": float(teacher_traj_hidden_align.detach().cpu()),

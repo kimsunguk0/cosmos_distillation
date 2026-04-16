@@ -22,6 +22,7 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 import yaml
+import numpy as np
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -189,6 +190,7 @@ def stage_weights_from_yaml(path: Path) -> tuple[TrainerConfig, DistillationLoss
         teacher_seq_ce=resolve_loss_weight_value(weights, "teacher_seq_ce", defaults.teacher_seq_ce),
         teacher_logit_kd=resolve_loss_weight_value(weights, "teacher_logit_kd", defaults.teacher_logit_kd),
         traj_ce=resolve_loss_weight_value(weights, "traj_ce", defaults.traj_ce),
+        traj_aux_reg=resolve_loss_weight_value(weights, "traj_aux_reg", defaults.traj_aux_reg),
         format_ce=resolve_loss_weight_value(weights, "format_ce", defaults.format_ce),
         action_aux=resolve_loss_weight_value(weights, "action_aux", defaults.action_aux),
         feat_align=resolve_loss_weight_value(weights, "feat_align", defaults.feat_align),
@@ -358,6 +360,23 @@ def build_traj_token_weight_map(
         "cap_max": max_weight,
     }
     return weight_map, summary
+
+
+def infer_teacher_traj_hidden_size(cache_dir: Path | None) -> int | None:
+    """Infer the teacher trajectory hidden width from the imported cache."""
+    if cache_dir is None:
+        return None
+    hidden_dir = cache_dir / "hidden"
+    if not hidden_dir.exists():
+        return None
+    for path in sorted(hidden_dir.glob("*.npy")):
+        try:
+            hidden = np.load(path, mmap_mode="r")
+        except Exception:  # noqa: BLE001
+            continue
+        if hidden.ndim >= 2:
+            return int(hidden.shape[-1])
+    return None
 
 
 def load_traj_decode_config(
@@ -551,20 +570,6 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     if args.learning_rate is not None:
         trainer_cfg.learning_rate = float(args.learning_rate)
     student_model = resolve_student_model_path(args.student_model)
-    wrapper_cfg = StudentWrapperConfig(
-        student_model_name=student_model,
-        max_length=trainer_cfg.max_length,
-        torch_dtype=preferred_model_dtype(bf16=trainer_cfg.bf16),
-        local_files_only=Path(student_model).expanduser().exists(),
-    )
-    tokenizer = load_student_tokenizer(wrapper_cfg)
-    processor = load_student_processor(wrapper_cfg, tokenizer=tokenizer)
-    lora_spec = LoraConfigSpec(trainable_token_indices=tuple(distill_trainable_token_ids(tokenizer)))
-    traj_decode_config, traj_decode_summary = load_traj_decode_config(
-        student_model,
-        tokenizer,
-        stage_options.get("traj_decode_reg"),
-    )
     data_view_cfg = stage_options.get("data_view") or {}
     prompt_mode = str(data_view_cfg.get("prompt_mode", "joint"))
     target_mode = str(data_view_cfg.get("target_mode", "joint"))
@@ -579,6 +584,28 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         Path(str(remap_external_path(teacher_traj_cache_dir_raw)))
         if teacher_traj_cache_dir_raw not in (None, "")
         else None
+    )
+    teacher_traj_hidden_size = None
+    if loss_weights.teacher_traj_hidden_align > 0:
+        teacher_traj_hidden_size = infer_teacher_traj_hidden_size(teacher_traj_cache_dir)
+        if teacher_traj_hidden_size is None:
+            raise RuntimeError(
+                "teacher_traj_hidden_align is enabled but no teacher trajectory hidden cache dimension could be inferred."
+            )
+    wrapper_cfg = StudentWrapperConfig(
+        student_model_name=student_model,
+        max_length=trainer_cfg.max_length,
+        torch_dtype=preferred_model_dtype(bf16=trainer_cfg.bf16),
+        local_files_only=Path(student_model).expanduser().exists(),
+        traj_teacher_hidden_size=teacher_traj_hidden_size,
+    )
+    tokenizer = load_student_tokenizer(wrapper_cfg)
+    processor = load_student_processor(wrapper_cfg, tokenizer=tokenizer)
+    lora_spec = LoraConfigSpec(trainable_token_indices=tuple(distill_trainable_token_ids(tokenizer)))
+    traj_decode_config, traj_decode_summary = load_traj_decode_config(
+        student_model,
+        tokenizer,
+        stage_options.get("traj_decode_reg"),
     )
     if (
         loss_weights.traj_xyz_reg > 0
@@ -687,6 +714,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "enable_teacher_view": enable_teacher_view,
             "enable_action_aux": enable_action_aux,
             "teacher_traj_cache_dir": str(teacher_traj_cache_dir) if teacher_traj_cache_dir is not None else None,
+            "teacher_traj_hidden_size": teacher_traj_hidden_size,
             "traj_token_reweighting": traj_token_reweight_summary,
             "traj_decode": traj_decode_summary,
             "decode_eval": {
@@ -786,7 +814,8 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                 f"batch_per_gpu={args.batch_size} effective_batch={trainer_cfg.batch_size * max(world_size, 1)} "
                 f"devices={device_ids} use_lora={use_lora} "
                 f"trainable_token_rows={len(lora_spec.trainable_token_indices or ())} "
-                f"prompt_mode={prompt_mode} target_mode={target_mode}"
+                f"prompt_mode={prompt_mode} target_mode={target_mode} "
+                f"teacher_traj_hidden_size={teacher_traj_hidden_size}"
             ),
             flush=True,
         )
@@ -838,6 +867,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "enable_teacher_view": enable_teacher_view,
             "enable_action_aux": enable_action_aux,
             "teacher_traj_cache_dir": str(teacher_traj_cache_dir) if teacher_traj_cache_dir is not None else None,
+            "teacher_traj_hidden_size": teacher_traj_hidden_size,
         },
         "traj_token_reweighting": traj_token_reweight_summary,
         "traj_decode": traj_decode_summary,

@@ -47,6 +47,8 @@ Current issue list:
 - [029-teacher-traj-cache-design.md](./029-teacher-traj-cache-design.md)
 - [030-trainer-traj-bug-fix-and-a0-rerun.md](./030-trainer-traj-bug-fix-and-a0-rerun.md)
 - [031-teacher-traj-token-topk-subset-probe.md](./031-teacher-traj-token-topk-subset-probe.md)
+- [032-teacher-traj-hidden-projector-subset-probe.md](./032-teacher-traj-hidden-projector-subset-probe.md)
+- [033-traj-aux-head-subset-probe.md](./033-traj-aux-head-subset-probe.md)
 
 Latest known high-level state:
 
@@ -72,3 +74,7 @@ Latest known high-level state:
     - [030-trainer-traj-bug-fix-and-a0-rerun.md](./030-trainer-traj-bug-fix-and-a0-rerun.md)
   - latest teacher trajectory token/top-k subset probe:
     - [031-teacher-traj-token-topk-subset-probe.md](./031-teacher-traj-token-topk-subset-probe.md)
+  - latest teacher trajectory hidden-projector subset probe:
+    - [032-teacher-traj-hidden-projector-subset-probe.md](./032-teacher-traj-hidden-projector-subset-probe.md)
+  - latest training-only trajectory auxiliary-head subset probe:
+    - [033-traj-aux-head-subset-probe.md](./033-traj-aux-head-subset-probe.md)

@@ -39,6 +39,14 @@ def _meta_head_path(checkpoint_dir: Path) -> Path:
     return checkpoint_dir / "meta_action_head.pt"
 
 
+def _traj_aux_head_path(checkpoint_dir: Path) -> Path:
+    return checkpoint_dir / "traj_aux_head.pt"
+
+
+def _traj_hidden_projector_path(checkpoint_dir: Path) -> Path:
+    return checkpoint_dir / "traj_hidden_projector.pt"
+
+
 def _legacy_state_path(checkpoint_dir: Path) -> Path:
     return checkpoint_dir / "student_state.pt"
 
@@ -78,11 +86,17 @@ def save_student_checkpoint(
         adapter_dir = _adapter_dir(checkpoint_dir)
         model.backbone.save_pretrained(adapter_dir, safe_serialization=True)
         torch.save(_cpu_state_dict(model.meta_action_head), _meta_head_path(checkpoint_dir))
+        torch.save(_cpu_state_dict(model.traj_aux_head), _traj_aux_head_path(checkpoint_dir))
         payload = {
             "format": "lora_adapter",
             "adapter_dir": adapter_dir.name,
             "meta_action_head": _meta_head_path(checkpoint_dir).name,
+            "traj_aux_head": _traj_aux_head_path(checkpoint_dir).name,
         }
+        if getattr(model, "traj_hidden_projector", None) is not None:
+            torch.save(_cpu_state_dict(model.traj_hidden_projector), _traj_hidden_projector_path(checkpoint_dir))
+            payload["traj_hidden_projector"] = _traj_hidden_projector_path(checkpoint_dir).name
+            payload["traj_teacher_hidden_size"] = int(getattr(model, "traj_teacher_hidden_size", 0) or 0)
     else:
         state_dict = _cast_float_state_dict(model.state_dict(), float_dtype=full_state_dtype)
         torch.save(state_dict, _legacy_state_path(checkpoint_dir))
@@ -91,6 +105,8 @@ def save_student_checkpoint(
             "state_dict": _legacy_state_path(checkpoint_dir).name,
             "float_dtype": str(full_state_dtype) if full_state_dtype is not None else None,
         }
+        if getattr(model, "traj_hidden_projector", None) is not None:
+            payload["traj_teacher_hidden_size"] = int(getattr(model, "traj_teacher_hidden_size", 0) or 0)
 
     _manifest_path(checkpoint_dir).write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return payload
@@ -108,6 +124,10 @@ def load_student_checkpoint(
 
     if checkpoint_format == "lora_adapter":
         from peft import PeftModel
+        manifest = json.loads(_manifest_path(checkpoint_dir).read_text(encoding="utf-8"))
+        traj_teacher_hidden_size = manifest.get("traj_teacher_hidden_size")
+        if traj_teacher_hidden_size not in (None, 0):
+            model.configure_traj_hidden_projector(int(traj_teacher_hidden_size))
 
         model.backbone = PeftModel.from_pretrained(
             model.backbone,
@@ -121,6 +141,26 @@ def load_student_checkpoint(
             except TypeError:
                 meta_head_state = torch.load(meta_head_path, map_location="cpu")
             model.meta_action_head.load_state_dict(meta_head_state, strict=True)
+        traj_aux_head_path = _traj_aux_head_path(checkpoint_dir)
+        if traj_aux_head_path.exists():
+            try:
+                traj_aux_head_state = torch.load(traj_aux_head_path, map_location="cpu", weights_only=True)
+            except TypeError:
+                traj_aux_head_state = torch.load(traj_aux_head_path, map_location="cpu")
+            model.traj_aux_head.load_state_dict(traj_aux_head_state, strict=True)
+        traj_hidden_projector_path = _traj_hidden_projector_path(checkpoint_dir)
+        if traj_hidden_projector_path.exists():
+            try:
+                projector_state = torch.load(
+                    traj_hidden_projector_path,
+                    map_location="cpu",
+                    weights_only=True,
+                )
+            except TypeError:
+                projector_state = torch.load(traj_hidden_projector_path, map_location="cpu")
+            if getattr(model, "traj_hidden_projector", None) is None:
+                raise ValueError("Checkpoint contains traj_hidden_projector but the model is not configured for it.")
+            model.traj_hidden_projector.load_state_dict(projector_state, strict=True)
         return {
             "format": checkpoint_format,
             "missing": [],
@@ -128,6 +168,10 @@ def load_student_checkpoint(
         }
 
     if checkpoint_format == "full_state_dict":
+        manifest = json.loads(_manifest_path(checkpoint_dir).read_text(encoding="utf-8"))
+        traj_teacher_hidden_size = manifest.get("traj_teacher_hidden_size")
+        if traj_teacher_hidden_size not in (None, 0):
+            model.configure_traj_hidden_projector(int(traj_teacher_hidden_size))
         state_path = _legacy_state_path(checkpoint_dir)
         load_kwargs = {"map_location": "cpu", "weights_only": True}
         try:

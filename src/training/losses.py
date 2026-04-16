@@ -21,6 +21,7 @@ class DistillationLossWeights:
     format_ce: float
     action_aux: float
     feat_align: float
+    traj_aux_reg: float = 0.0
     teacher_traj_ce: float | None = None
     teacher_traj_topk_kd: float = 0.0
     teacher_traj_hidden_align: float = 0.0
@@ -57,6 +58,7 @@ LOSS_WEIGHT_ALIASES: dict[str, tuple[str, ...]] = {
     "teacher_seq_ce": ("teacher_cot_loss",),
     "teacher_logit_kd": ("teacher_topk_kd_loss",),
     "traj_ce": ("traj_loss",),
+    "traj_aux_reg": ("traj_aux_loss", "traj_interface_loss"),
     "teacher_traj_ce": ("teacher_traj_loss",),
     "teacher_traj_topk_kd": ("teacher_traj_topk_kd_loss",),
     "teacher_traj_hidden_align": ("teacher_traj_hidden_align_loss",),
@@ -74,6 +76,7 @@ LOSS_WEIGHT_EXPORT_NAMES: dict[str, str] = {
     "teacher_seq_ce": "teacher_cot_loss",
     "teacher_logit_kd": "teacher_topk_kd_loss",
     "traj_ce": "traj_loss",
+    "traj_aux_reg": "traj_aux_loss",
     "teacher_traj_ce": "teacher_traj_loss",
     "teacher_traj_topk_kd": "teacher_traj_topk_kd_loss",
     "teacher_traj_hidden_align": "teacher_traj_hidden_align_loss",
@@ -91,6 +94,7 @@ METRIC_EXPORT_NAMES: dict[str, str] = {
     "teacher_seq_ce": "teacher_cot_loss",
     "teacher_logit_kd": "teacher_topk_kd_loss",
     "hard_traj_ce": "gt_traj_loss",
+    "traj_aux_reg": "traj_aux_loss",
     "teacher_traj_ce": "teacher_traj_loss",
     "teacher_traj_topk_kd": "teacher_traj_topk_kd_loss",
     "teacher_traj_hidden_align": "teacher_traj_hidden_align_loss",
@@ -142,6 +146,7 @@ def export_loss_weights(weights: DistillationLossWeights) -> dict[str, float]:
         "teacher_seq_ce": weights.teacher_seq_ce,
         "teacher_logit_kd": weights.teacher_logit_kd,
         "traj_ce": weights.traj_ce,
+        "traj_aux_reg": weights.traj_aux_reg,
         "format_ce": weights.format_ce,
         "action_aux": weights.action_aux,
         "feat_align": weights.feat_align,
@@ -364,6 +369,7 @@ def token_hidden_alignment_loss(
     student_hidden: torch.Tensor,
     teacher_hidden: torch.Tensor | None,
     token_mask: torch.Tensor | None,
+    teacher_token_mask: torch.Tensor | None = None,
     sample_weights: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Align per-token hidden states over a selected masked span."""
@@ -379,6 +385,10 @@ def token_hidden_alignment_loss(
     for sample_index in range(shift_student.shape[0]):
         student_target_hidden = shift_student[sample_index][span_mask[sample_index]]
         teacher_target_hidden = teacher_hidden[sample_index]
+        if teacher_token_mask is not None:
+            teacher_target_hidden = teacher_target_hidden[
+                teacher_token_mask[sample_index].to(dtype=torch.bool, device=student_hidden.device)
+            ]
         aligned_tokens = min(student_target_hidden.shape[0], teacher_target_hidden.shape[0])
         if aligned_tokens <= 0:
             continue
@@ -449,6 +459,66 @@ def _gather_expected_traj_controls(
         predicted_controls.append(expected_controls_flat.reshape(-1, 2))
         target_controls.append(target_controls_flat.reshape(-1, 2))
     return predicted_controls, target_controls
+
+
+def trajectory_aux_regression_loss(
+    traj_aux_values: torch.Tensor | None,
+    labels: torch.Tensor,
+    traj_token_mask: torch.Tensor | None,
+    sample_weights: torch.Tensor | None,
+    config: TrajectoryDecodeConfig | None,
+) -> torch.Tensor:
+    """Supervise a training-only trajectory interface head in continuous control space."""
+    if traj_aux_values is None or config is None or traj_token_mask is None:
+        device = labels.device if isinstance(labels, torch.Tensor) else torch.device("cpu")
+        return _zero(device)
+
+    shift_aux = traj_aux_values[:, :-1, :].contiguous()
+    shift_labels = labels[:, 1:].contiguous()
+    valid_mask = (shift_labels != IGNORE_INDEX) & traj_token_mask[:, 1:].to(dtype=torch.bool, device=shift_labels.device)
+    dims_min = torch.tensor(config.dims_min, device=shift_aux.device, dtype=shift_aux.dtype)
+    dims_max = torch.tensor(config.dims_max, device=shift_aux.device, dtype=shift_aux.dtype)
+
+    per_sample_losses: list[torch.Tensor] = []
+    per_sample_weights: list[torch.Tensor] = []
+    for sample_index in range(shift_aux.shape[0]):
+        sample_mask = valid_mask[sample_index]
+        if not sample_mask.any():
+            continue
+        selected_aux = shift_aux[sample_index][sample_mask]
+        selected_labels = shift_labels[sample_index][sample_mask] - int(config.traj_token_start_idx)
+        usable_count = min(selected_aux.shape[0], selected_labels.shape[0], config.n_waypoints * 2)
+        if usable_count <= 0:
+            continue
+        selected_aux = selected_aux[:usable_count]
+        selected_labels = selected_labels[:usable_count].clamp(min=0, max=config.num_bins - 1).to(dtype=shift_aux.dtype)
+
+        parity = torch.arange(usable_count, device=shift_aux.device) % 2
+        token_indices = torch.arange(usable_count, device=shift_aux.device)
+        pred_scalar = selected_aux[token_indices, parity]
+
+        dim_min = dims_min[parity]
+        dim_max = dims_max[parity]
+        target_scalar = selected_labels / float(config.num_bins - 1) * (dim_max - dim_min) + dim_min
+
+        per_token_loss = F.smooth_l1_loss(pred_scalar, target_scalar, reduction="none")
+        waypoint_ids = token_indices // 2
+        token_weights = torch.ones((usable_count,), device=shift_aux.device, dtype=shift_aux.dtype)
+        short_steps = max(int(config.short_horizon_steps), 1)
+        short_weight = max(float(config.short_horizon_weight), 1.0)
+        token_weights[waypoint_ids < short_steps] = short_weight
+        per_sample_losses.append((per_token_loss * token_weights).sum() / token_weights.sum().clamp(min=1e-6))
+        if sample_weights is None:
+            per_sample_weights.append(torch.tensor(1.0, device=shift_aux.device))
+        else:
+            per_sample_weights.append(sample_weights[sample_index].to(shift_aux.device))
+
+    if not per_sample_losses:
+        return _zero(shift_aux.device)
+
+    losses = torch.stack(per_sample_losses)
+    weights = None if sample_weights is None else torch.stack(per_sample_weights)
+    return _apply_sample_weights(losses, weights)
 
 
 def _decode_expected_future_xyz(
