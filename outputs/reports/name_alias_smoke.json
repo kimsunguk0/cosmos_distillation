@@ -1,0 +1,89 @@
+{
+  "mode": "train",
+  "student_model": "/workspace/base_models_weights/Cosmos-Reason2-2B",
+  "stage_name": "stage_a",
+  "train_records": 1,
+  "all_train_records": 244,
+  "val_records": 40,
+  "all_val_records": 40,
+  "teacher_ready_records": 1,
+  "action_aux_ready_records": 1,
+  "val_teacher_ready_records": 39,
+  "val_action_aux_ready_records": 37,
+  "global_steps": 1,
+  "steps_per_epoch": 1,
+  "requested_epochs": 1.0,
+  "completed_epochs": 1.0,
+  "resolved_max_steps": 1,
+  "eval_every_steps": 1,
+  "save_every_steps": 1,
+  "effective_batch_size": 1,
+  "learning_rate": 2e-05,
+  "use_lora": true,
+  "multi_gpu_mode": "single",
+  "cuda_visible_devices": null,
+  "device_count": 2,
+  "device_ids": [
+    0
+  ],
+  "best_val_total_loss": 10.091841065883637,
+  "consecutive_val_regressions": 0,
+  "early_stop_enabled": false,
+  "early_stop_stage": "stage_b",
+  "early_stop_patience": 2,
+  "early_stop_triggered": false,
+  "early_stop_reason": null,
+  "eval_history": [
+    {
+      "phase": "val",
+      "epoch_progress": 1.0,
+      "global_step": 1,
+      "logs": {
+        "gt_cot_loss": 4.539453125,
+        "teacher_cot_loss": 1.94296875,
+        "teacher_topk_kd_loss": 1.0310614801943303,
+        "gt_traj_loss": 20.915625,
+        "teacher_traj_loss": 20.14375,
+        "traj_loss": 20.5265625,
+        "meta_action_loss": 5.961181694082915,
+        "feature_align_loss": 0.0,
+        "response_token_acc": 0.05152600213186816,
+        "gt_cot_token_acc": 0.4681011524051428,
+        "traj_token_acc": 0.0,
+        "teacher_cot_token_acc": 0.3682378180325031,
+        "total_loss": 10.091841065883637
+      },
+      "best_val_total_loss": 10.091841065883637,
+      "consecutive_val_regressions": 0
+    }
+  ],
+  "saved_checkpoints": [
+    {
+      "global_step": 1,
+      "checkpoint_dir": "outputs/checkpoints/name_alias_smoke/step_000001",
+      "checkpoint": {
+        "format": "lora_adapter",
+        "adapter_dir": "lora_adapter",
+        "meta_action_head": "meta_action_head.pt"
+      }
+    }
+  ],
+  "versions": {
+    "canonical_localization_version": "v2_explicit_t0_anchor",
+    "path_semantics_version": "v2_action_turn_stop_records",
+    "teacher_runtime_bundle_version": "v2_runtime_only_bundle",
+    "teacher_prompt_family_version": "v5_official_cot_plus_honest_vqa_probe",
+    "teacher_selection_policy_version": "v5_long_cot_primary_honest_teacher_contract",
+    "kd_schema_version": "v5_long_cot_primary_meta_derived_answer_probe",
+    "teacher_signal_cache_version": "v3_field_scoped_sparse_topk"
+  },
+  "elapsed_sec": 72.918,
+  "metrics_path": "outputs/checkpoints/name_alias_smoke/metrics.jsonl",
+  "output_dir": "outputs/checkpoints/name_alias_smoke",
+  "checkpoint_dir": "outputs/checkpoints/name_alias_smoke/final",
+  "checkpoint": {
+    "format": "lora_adapter",
+    "adapter_dir": "lora_adapter",
+    "meta_action_head": "meta_action_head.pt"
+  }
+}

@@ -1,14 +1,15 @@
 stage_name: stage_b
-epochs: 2.0
+epochs: 4.0
 max_length: 4096
 bf16: true
 gradient_checkpointing: true
+learning_rate: 3.0e-5
 
 loss_weights:
-  hard_ce: 1.0
-  seq_kd: 0.6
-  logit_kd: 0.5
-  feat: 0.15
-  aux: 0.3
-  self_cons: 0.15
-  rank: 0.1
+  gt_cot_loss: 1.0
+  teacher_cot_loss: 0.25
+  teacher_topk_kd_loss: 0.4
+  traj_loss: 0.2
+  output_format_loss: 0.25
+  meta_action_loss: 0.05
+  feature_align_loss: 0.0

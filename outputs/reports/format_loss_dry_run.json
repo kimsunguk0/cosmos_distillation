@@ -1,0 +1,58 @@
+{
+  "mode": "data_only_dry_run",
+  "corpus_jsonl": "/workspace/cosmos_distillation/data/corpus/distill_v3_2.jsonl",
+  "train_records": 244,
+  "train_records_with_materialized_assets": 244,
+  "all_train_records": 244,
+  "val_records": 40,
+  "val_records_with_materialized_assets": 40,
+  "all_val_records": 40,
+  "teacher_ready_records": 240,
+  "action_aux_ready_records": 225,
+  "val_teacher_ready_records": 39,
+  "val_action_aux_ready_records": 37,
+  "stage_name": "stage_a",
+  "batch_size": 1,
+  "epochs": 2.0,
+  "max_length": 4096,
+  "steps_per_epoch": 244,
+  "resolved_max_steps": 488,
+  "eval_every_steps": 122,
+  "save_every_steps": 244,
+  "student_model": "/workspace/base_models_weights/Cosmos-Reason2-2B",
+  "first_batch_shapes": {
+    "input_ids": [
+      1,
+      3407
+    ],
+    "labels": [
+      1,
+      3407
+    ],
+    "cot_span_mask": [
+      1,
+      3407
+    ],
+    "traj_span_mask": [
+      1,
+      3407
+    ],
+    "pixel_values": [
+      11520,
+      1536
+    ],
+    "image_grid_thw": [
+      16,
+      3
+    ],
+    "teacher_view_input_ids": [
+      1,
+      3403
+    ],
+    "teacher_topk_indices": [
+      1,
+      8,
+      32
+    ]
+  }
+}

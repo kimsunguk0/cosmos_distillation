@@ -32,6 +32,7 @@ class StudentWrapperConfig:
     max_length: int = 4096
     min_pixels: int = 49152
     max_pixels: int = 196608
+    torch_dtype: torch.dtype | None = None
     special_tokens: tuple[str, ...] = field(default_factory=lambda: tuple(REQUIRED_SPECIAL_TOKENS))
     trust_remote_code: bool = True
     local_files_only: bool = False
@@ -151,6 +152,7 @@ def build_student_model(config: StudentWrapperConfig, tokenizer) -> DistillStude
     model_cls, resolved_config = _resolve_backbone_loader(config)
     backbone = model_cls.from_pretrained(
         config.student_model_name,
+        dtype=config.torch_dtype,
         trust_remote_code=config.trust_remote_code,
         local_files_only=_effective_local_files_only(config),
     )

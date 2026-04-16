@@ -1,0 +1,48 @@
+{
+  "mode": "data_only_dry_run",
+  "corpus_jsonl": "/workspace/cosmos_distillation/data/corpus/distill_v3_2.jsonl",
+  "train_records": 1,
+  "train_records_with_materialized_assets": 1,
+  "all_train_records": 244,
+  "teacher_ready_records": 1,
+  "action_aux_ready_records": 1,
+  "stage_name": "stage_b",
+  "batch_size": 1,
+  "max_length": 3072,
+  "student_model": "/workspace/base_models_weights/Cosmos-Reason2-2B",
+  "first_batch_shapes": {
+    "input_ids": [
+      1,
+      3072
+    ],
+    "labels": [
+      1,
+      3072
+    ],
+    "cot_span_mask": [
+      1,
+      3072
+    ],
+    "traj_span_mask": [
+      1,
+      3072
+    ],
+    "pixel_values": [
+      11520,
+      1536
+    ],
+    "image_grid_thw": [
+      16,
+      3
+    ],
+    "teacher_view_input_ids": [
+      1,
+      3072
+    ],
+    "teacher_topk_indices": [
+      1,
+      0,
+      32
+    ]
+  }
+}

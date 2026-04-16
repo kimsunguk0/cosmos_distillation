@@ -1,0 +1,190 @@
+{
+  "mode": "train",
+  "student_model": "/workspace/base_models_weights/Cosmos-Reason2-2B",
+  "stage_name": "stage_a",
+  "train_records": 4,
+  "all_train_records": 244,
+  "val_records": 40,
+  "all_val_records": 40,
+  "teacher_ready_records": 4,
+  "action_aux_ready_records": 3,
+  "val_teacher_ready_records": 39,
+  "val_action_aux_ready_records": 37,
+  "global_steps": 2,
+  "steps_per_epoch": 4,
+  "requested_epochs": 1.0,
+  "completed_epochs": 0.5,
+  "resolved_max_steps": 2,
+  "eval_every_steps": 2,
+  "save_every_steps": 4,
+  "effective_batch_size": 1,
+  "learning_rate": 0.0001,
+  "use_lora": true,
+  "multi_gpu_mode": "single",
+  "cuda_visible_devices": null,
+  "device_count": 2,
+  "device_ids": [
+    0
+  ],
+  "best_val_total_loss": 14.409422087669373,
+  "best_decode_score": 0.42890625000000004,
+  "best_decode_checkpoint_dir": "outputs/checkpoints/stage_a0_traj_only_geom_smoke/best_decode",
+  "consecutive_val_regressions": 0,
+  "early_stop_enabled": false,
+  "early_stop_stage": "stage_b",
+  "early_stop_patience": 2,
+  "early_stop_triggered": false,
+  "early_stop_reason": null,
+  "eval_history": [
+    {
+      "phase": "val",
+      "epoch_progress": 0.5,
+      "global_step": 2,
+      "logs": {
+        "gt_cot_loss": 0.0,
+        "teacher_cot_loss": 0.0,
+        "teacher_topk_kd_loss": 0.0,
+        "gt_traj_loss": 17.2625,
+        "teacher_traj_loss": 0.0,
+        "traj_loss": 8.63125,
+        "output_format_loss": 17.0125,
+        "meta_action_loss": 0.0,
+        "feature_align_loss": 0.0,
+        "traj_xyz_loss": 2.185216648131609,
+        "traj_delta_loss": 0.2740603219717741,
+        "traj_final_loss": 23.506794625520705,
+        "response_token_acc": 0.0,
+        "gt_cot_token_acc": 0.0,
+        "traj_token_acc": 0.0,
+        "teacher_cot_token_acc": 0.0,
+        "total_loss": 14.409422087669373
+      },
+      "best_val_total_loss": 14.409422087669373,
+      "consecutive_val_regressions": 0,
+      "decode_eval": {
+        "enabled": true,
+        "split": "val",
+        "num_samples": 8,
+        "avg_unique_traj_ids": 19.125,
+        "avg_max_same_token_run": 13.0,
+        "avg_target_set_jaccard": 0.0,
+        "token_count_match_rate": 1.0,
+        "coarse_motion_agreement_rate": 0.125,
+        "anti_collapse_score": 0.42890625000000004,
+        "traj_tokenizer_config": "/workspace/base_models_weights/Alpamayo-1.5-10B/config.json",
+        "samples": [
+          {
+            "sample_id": "476fed83-ed85-4b2c-b6c3-cf780a2d0123__t0_16992755__evt_00",
+            "generated_traj_token_count": 128,
+            "unique_traj_ids": 17.0,
+            "max_same_token_run": 12.0,
+            "target_set_jaccard": 0.0,
+            "predicted_motion_class": "change_lane_right",
+            "gt_motion_class": "change_lane_right",
+            "motion_match": 1
+          },
+          {
+            "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_4833965__evt_00",
+            "generated_traj_token_count": 128,
+            "unique_traj_ids": 19.0,
+            "max_same_token_run": 16.0,
+            "target_set_jaccard": 0.0,
+            "predicted_motion_class": "right_turn",
+            "gt_motion_class": "lane_keep",
+            "motion_match": 0
+          },
+          {
+            "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_13533965__evt_01",
+            "generated_traj_token_count": 128,
+            "unique_traj_ids": 20.0,
+            "max_same_token_run": 14.0,
+            "target_set_jaccard": 0.0,
+            "predicted_motion_class": "left_turn",
+            "gt_motion_class": "lane_keep",
+            "motion_match": 0
+          },
+          {
+            "sample_id": "594d2c54-ca9a-4bda-be8e-532b2fc359fb__t0_6659114__evt_00",
+            "generated_traj_token_count": 128,
+            "unique_traj_ids": 17.0,
+            "max_same_token_run": 12.0,
+            "target_set_jaccard": 0.0,
+            "predicted_motion_class": "left_turn",
+            "gt_motion_class": "slow_down",
+            "motion_match": 0
+          },
+          {
+            "sample_id": "5fa56c61-e8ed-4c0b-95dd-3e15c40d9f78__t0_4493173__evt_00",
+            "generated_traj_token_count": 128,
+            "unique_traj_ids": 20.0,
+            "max_same_token_run": 18.0,
+            "target_set_jaccard": 0.0,
+            "predicted_motion_class": "left_turn",
+            "gt_motion_class": "stop",
+            "motion_match": 0
+          },
+          {
+            "sample_id": "e0772c6e-1524-494f-b16f-84ca1a700a7b__t0_8590176__evt_00",
+            "generated_traj_token_count": 128,
+            "unique_traj_ids": 20.0,
+            "max_same_token_run": 11.0,
+            "target_set_jaccard": 0.0,
+            "predicted_motion_class": "left_turn",
+            "gt_motion_class": "slow_down",
+            "motion_match": 0
+          },
+          {
+            "sample_id": "6c96345e-07e1-47c7-868f-c7fb35d2998a__t0_15933466__evt_00",
+            "generated_traj_token_count": 128,
+            "unique_traj_ids": 21.0,
+            "max_same_token_run": 8.0,
+            "target_set_jaccard": 0.0,
+            "predicted_motion_class": "right_turn",
+            "gt_motion_class": "lane_keep",
+            "motion_match": 0
+          },
+          {
+            "sample_id": "6fb0ec61-90f9-4424-8b9c-66fba2cfd86d__t0_14780381__evt_00",
+            "generated_traj_token_count": 128,
+            "unique_traj_ids": 19.0,
+            "max_same_token_run": 13.0,
+            "target_set_jaccard": 0.0,
+            "predicted_motion_class": "right_turn",
+            "gt_motion_class": "change_lane_left",
+            "motion_match": 0
+          }
+        ]
+      }
+    }
+  ],
+  "saved_checkpoints": [
+    {
+      "global_step": 2,
+      "checkpoint_dir": "outputs/checkpoints/stage_a0_traj_only_geom_smoke/best_decode",
+      "checkpoint": {
+        "format": "lora_adapter",
+        "adapter_dir": "lora_adapter",
+        "meta_action_head": "meta_action_head.pt"
+      },
+      "kind": "best_decode"
+    }
+  ],
+  "versions": {
+    "canonical_localization_version": "v2_explicit_t0_anchor",
+    "path_semantics_version": "v2_action_turn_stop_records",
+    "teacher_runtime_bundle_version": "v2_runtime_only_bundle",
+    "teacher_prompt_family_version": "v5_official_cot_plus_honest_vqa_probe",
+    "teacher_selection_policy_version": "v5_long_cot_primary_honest_teacher_contract",
+    "kd_schema_version": "v5_long_cot_primary_meta_derived_answer_probe",
+    "teacher_signal_cache_version": "v3_field_scoped_sparse_topk"
+  },
+  "elapsed_sec": 107.019,
+  "metrics_path": "outputs/checkpoints/stage_a0_traj_only_geom_smoke/metrics.jsonl",
+  "output_dir": "outputs/checkpoints/stage_a0_traj_only_geom_smoke",
+  "checkpoint_dir": "outputs/checkpoints/stage_a0_traj_only_geom_smoke/final",
+  "checkpoint": {
+    "format": "lora_adapter",
+    "adapter_dir": "lora_adapter",
+    "meta_action_head": "meta_action_head.pt"
+  }
+}

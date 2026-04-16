@@ -1,0 +1,114 @@
+{
+  "mode": "train",
+  "student_model": "/workspace/base_models_weights/Cosmos-Reason2-2B",
+  "stage_name": "stage_a",
+  "train_records": 244,
+  "all_train_records": 244,
+  "val_records": 40,
+  "all_val_records": 40,
+  "teacher_ready_records": 240,
+  "action_aux_ready_records": 225,
+  "val_teacher_ready_records": 39,
+  "val_action_aux_ready_records": 37,
+  "global_steps": 122,
+  "steps_per_epoch": 122,
+  "requested_epochs": 1.0,
+  "completed_epochs": 1.0,
+  "resolved_max_steps": 122,
+  "eval_every_steps": 61,
+  "save_every_steps": 122,
+  "effective_batch_size": 2,
+  "learning_rate": 3e-05,
+  "use_lora": true,
+  "multi_gpu_mode": "ddp",
+  "cuda_visible_devices": null,
+  "device_count": 2,
+  "device_ids": [
+    0,
+    1
+  ],
+  "best_val_total_loss": 8.32535629272461,
+  "consecutive_val_regressions": 0,
+  "early_stop_enabled": false,
+  "early_stop_stage": "stage_b",
+  "early_stop_patience": 2,
+  "early_stop_triggered": false,
+  "early_stop_reason": null,
+  "eval_history": [
+    {
+      "phase": "val",
+      "epoch_progress": 0.5,
+      "global_step": 61,
+      "logs": {
+        "feature_align_loss": 0.0,
+        "gt_cot_loss": 0.964990234375,
+        "gt_cot_token_acc": 0.7509983062744141,
+        "gt_traj_loss": 5.478515625,
+        "meta_action_loss": 7.1321052551269535,
+        "output_format_loss": 0.02211456298828125,
+        "response_token_acc": 0.1461726665496826,
+        "teacher_cot_loss": 0.5093505859375,
+        "teacher_cot_token_acc": 0.6238014221191406,
+        "teacher_topk_kd_loss": 0.37665271759033203,
+        "teacher_traj_loss": 5.344140625,
+        "total_loss": 8.959152221679688,
+        "traj_loss": 5.412890625,
+        "traj_token_acc": 0.0609375
+      },
+      "best_val_total_loss": 8.959152221679688,
+      "consecutive_val_regressions": 0
+    },
+    {
+      "phase": "val",
+      "epoch_progress": 1.0,
+      "global_step": 122,
+      "logs": {
+        "feature_align_loss": 0.0,
+        "gt_cot_loss": 1.0307373046875,
+        "gt_cot_token_acc": 0.7343454837799073,
+        "gt_traj_loss": 5.026171875,
+        "meta_action_loss": 6.683465576171875,
+        "output_format_loss": 0.01657257080078125,
+        "response_token_acc": 0.1625727653503418,
+        "teacher_cot_loss": 0.60009765625,
+        "teacher_cot_token_acc": 0.621407413482666,
+        "teacher_topk_kd_loss": 0.4145909309387207,
+        "teacher_traj_loss": 4.909375,
+        "total_loss": 8.32535629272461,
+        "traj_loss": 4.968359375,
+        "traj_token_acc": 0.08125
+      },
+      "best_val_total_loss": 8.32535629272461,
+      "consecutive_val_regressions": 0
+    }
+  ],
+  "saved_checkpoints": [
+    {
+      "global_step": 122,
+      "checkpoint_dir": "/workspace/cosmos_distillation/outputs/checkpoints/stage_a4_v3_2/step_000122",
+      "checkpoint": {
+        "format": "lora_adapter",
+        "adapter_dir": "lora_adapter",
+        "meta_action_head": "meta_action_head.pt"
+      }
+    }
+  ],
+  "versions": {
+    "canonical_localization_version": "v2_explicit_t0_anchor",
+    "path_semantics_version": "v2_action_turn_stop_records",
+    "teacher_runtime_bundle_version": "v2_runtime_only_bundle",
+    "teacher_prompt_family_version": "v5_official_cot_plus_honest_vqa_probe",
+    "teacher_selection_policy_version": "v5_long_cot_primary_honest_teacher_contract",
+    "kd_schema_version": "v5_long_cot_primary_meta_derived_answer_probe",
+    "teacher_signal_cache_version": "v3_field_scoped_sparse_topk"
+  },
+  "elapsed_sec": 483.514,
+  "metrics_path": "/workspace/cosmos_distillation/outputs/checkpoints/stage_a4_v3_2/metrics.jsonl",
+  "output_dir": "/workspace/cosmos_distillation/outputs/checkpoints/stage_a4_v3_2",
+  "checkpoint_dir": "/workspace/cosmos_distillation/outputs/checkpoints/stage_a4_v3_2/final",
+  "checkpoint": {
+    "format": "lora_adapter",
+    "adapter_dir": "lora_adapter",
+    "meta_action_head": "meta_action_head.pt"
+  }
+}

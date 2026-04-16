@@ -1,28 +1,43 @@
-"""Corpus collation for v1 text distillation with multimodal inputs."""
+"""Corpus collation for v3.2 multiview distillation."""
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 import torch
 from PIL import Image
 
 from src.data.consistency import ACTION_CLASSES
+from src.training.losses import resolve_loss_weight_value, resolve_optional_loss_weight_value
+from src.utils.runtime_paths import remap_external_path
+from src.utils.traj_tokens import discrete_traj_token
 
 
 IGNORE_INDEX = -100
 SYSTEM_PROMPT = "You are a driving assistant that generates safe and accurate actions."
 FRAME_OFFSETS_DEFAULT = (-0.3, -0.2, -0.1, 0.0)
-TEXT_TARGET_SPECS = (
-    ("teacher_long_cot", 1.0),
-    ("teacher_answer", 0.2),
-    ("teacher_short_reason", 0.1),
-    ("teacher_structured_json", 0.0),
-)
+
+
+@dataclass(slots=True)
+class TargetLayout:
+    completion_text: str
+    cot_content_len: int
+    cot_suffix_len: int
+    traj_prefix_len: int
+    traj_content_len: int
+    traj_suffix_len: int
+
+    @property
+    def cot_span_len(self) -> int:
+        return self.cot_content_len + self.cot_suffix_len
+
+    @property
+    def traj_span_len(self) -> int:
+        return self.traj_prefix_len + self.traj_content_len + self.traj_suffix_len
 
 
 def build_label_mask() -> str:
@@ -38,14 +53,25 @@ def action_class_to_id(value: str | None) -> int:
     return ACTION_CLASSES.index(value) if value in ACTION_CLASSES else ACTION_CLASSES.index("unknown")
 
 
+def _resolve_path(raw_path: str | Path | None, project_root: Path) -> Path:
+    remapped = remap_external_path(raw_path)
+    if remapped is None:
+        raise FileNotFoundError(f"Missing runtime path for {raw_path!r}")
+    path = Path(remapped)
+    return path if path.is_absolute() else project_root / path
+
+
 def resolve_sample_path(sample: dict[str, Any], project_root: Path) -> Path:
-    """Resolve a canonical sample path relative to the project root."""
-    raw_path = Path(str(sample["input"]["canonical_sample_path"]))
-    return raw_path if raw_path.is_absolute() else project_root / raw_path
+    """Resolve the best-available sample root for a corpus record."""
+    sample_input = sample.get("input") or {}
+    raw_path = sample_input.get("materialized_sample_path") or sample_input.get("canonical_sample_path")
+    if raw_path in (None, ""):
+        raise KeyError("Record is missing input.materialized_sample_path / input.canonical_sample_path")
+    return _resolve_path(raw_path, project_root)
 
 
 def frame_offsets_from_sample(sample_dir: Path) -> list[float]:
-    """Load the canonical frame offsets for one sample."""
+    """Load canonical frame offsets for legacy materialized samples."""
     sample_meta_path = sample_dir / "sample_meta.json"
     if not sample_meta_path.exists():
         return list(FRAME_OFFSETS_DEFAULT)
@@ -55,19 +81,64 @@ def frame_offsets_from_sample(sample_dir: Path) -> list[float]:
 
 def load_sample_images(sample: dict[str, Any], project_root: Path) -> list[Image.Image]:
     """Load the canonical multi-camera image set in a stable order."""
+    sample_input = sample.get("input") or {}
+    image_paths = list(sample_input.get("image_paths") or [])
+    if image_paths:
+        return [Image.open(_resolve_path(path, project_root)).convert("RGB") for path in image_paths]
+
     sample_dir = resolve_sample_path(sample, project_root)
     frame_offsets = frame_offsets_from_sample(sample_dir)
     images: list[Image.Image] = []
-    for camera_name in sample["input"]["camera_names"]:
+    for camera_name in sample_input.get("camera_names") or []:
         for offset in frame_offsets:
             image_path = sample_dir / "frames" / f"{camera_name}_t{offset:+.1f}.jpg"
             images.append(Image.open(image_path).convert("RGB"))
+    if not images:
+        raise FileNotFoundError(f"No image inputs resolved for sample {sample.get('sample_id')}")
     return images
 
 
-def format_history_text(sample_dir: Path) -> str:
+def load_ego_history_xyz(sample: dict[str, Any], project_root: Path) -> np.ndarray:
+    """Load ego history coordinates from the v3.2 or legacy sample layout."""
+    sample_input = sample.get("input") or {}
+    history_path = sample_input.get("ego_history_path")
+    if history_path:
+        history = np.load(_resolve_path(history_path, project_root)).astype(np.float32)
+    else:
+        sample_dir = resolve_sample_path(sample, project_root)
+        legacy_path = sample_dir / "ego_history_xyz.npy"
+        if not legacy_path.exists():
+            raise FileNotFoundError(f"Missing ego history for sample {sample.get('sample_id')}")
+        history = np.load(legacy_path).astype(np.float32)
+    if history.ndim == 1:
+        return history.reshape(-1, 1)
+    if history.ndim > 2:
+        return history.reshape(-1, history.shape[-1])
+    return history
+
+
+def load_ego_future_xyz(sample: dict[str, Any], project_root: Path) -> np.ndarray:
+    """Load ego future coordinates from the v3.2 or legacy sample layout."""
+    sample_dir = resolve_sample_path(sample, project_root)
+    candidate_paths = (
+        sample_dir / "ego" / "ego_future_xyz.npy",
+        sample_dir / "ego_future_xyz.npy",
+    )
+    for path in candidate_paths:
+        if path.exists():
+            future = np.load(path).astype(np.float32)
+            if future.ndim == 1:
+                return future.reshape(-1, 1)
+            if future.ndim > 2:
+                return future.reshape(-1, future.shape[-1])
+            return future
+    raise FileNotFoundError(f"Missing ego future xyz for sample {sample.get('sample_id')}")
+
+
+def format_history_text(history_xyz: np.ndarray) -> str:
     """Serialize ego history into a compact token block for the student input."""
-    history_xyz = np.load(sample_dir / "ego_history_xyz.npy")
+    if history_xyz.ndim > 2:
+        history_xyz = history_xyz.reshape(-1, history_xyz.shape[-1])
     steps = []
     for index, point in enumerate(history_xyz):
         steps.append(f"{index}:{point[0]:+.2f},{point[1]:+.2f},{point[2]:+.2f}")
@@ -75,32 +146,69 @@ def format_history_text(sample_dir: Path) -> str:
     return f"<|traj_history_start|>{joined}<|traj_history_end|>"
 
 
-def build_user_prompt(sample: dict[str, Any], project_root: Path) -> str:
+def build_user_prompt(
+    sample: dict[str, Any],
+    project_root: Path,
+    *,
+    ego_history_xyz: np.ndarray | None = None,
+) -> str:
     """Create the textual instruction paired with the image stack."""
-    sample_dir = resolve_sample_path(sample, project_root)
-    question = sample["input"]["question"].strip()
-    history_text = format_history_text(sample_dir)
+    history_xyz = ego_history_xyz if ego_history_xyz is not None else load_ego_history_xyz(sample, project_root)
+    question = str((sample.get("input") or {}).get("question") or "").strip()
+    history_text = format_history_text(history_xyz)
     return f"{history_text}\n<|question_start|>{question}<|question_end|>"
 
 
-def build_messages(prompt_text: str, image_count: int, target_text: str | None = None) -> list[dict[str, Any]]:
+def build_traj_only_prompt(
+    sample: dict[str, Any],
+    project_root: Path,
+    *,
+    ego_history_xyz: np.ndarray | None = None,
+) -> str:
+    """Create the minimal A0 prompt for future-trajectory prediction only."""
+    history_xyz = ego_history_xyz if ego_history_xyz is not None else load_ego_history_xyz(sample, project_root)
+    history_text = format_history_text(history_xyz)
+    return f"{history_text}\n<|question_start|>Predict the future trajectory tokens only.<|question_end|>"
+
+
+def build_messages(
+    prompt_text: str,
+    image_count: int,
+    completion_text: str | None = None,
+    *,
+    target_text: str | None = None,
+    assistant_prefix: str = "<|cot_start|>",
+) -> list[dict[str, Any]]:
     """Construct the multimodal chat message structure for one sample."""
+    if completion_text is None and target_text is not None:
+        completion_text = target_text
     user_content: list[dict[str, Any]] = [{"type": "image"} for _ in range(image_count)]
     user_content.append({"type": "text", "text": prompt_text})
-    messages: list[dict[str, Any]] = [
+    assistant_text = assistant_prefix
+    if completion_text is not None:
+        assistant_text = f"{assistant_text}{completion_text}"
+    return [
         {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
         {"role": "user", "content": user_content},
+        {"role": "assistant", "content": [{"type": "text", "text": assistant_text}]},
     ]
-    assistant_text = "<|cot_start|>"
-    if target_text is not None:
-        assistant_text += f"{target_text.strip()}\n<|cot_end|>"
-    messages.append({"role": "assistant", "content": [{"type": "text", "text": assistant_text}]})
-    return messages
 
 
-def _encode_messages(processor, messages_batch: list[list[dict[str, Any]]], image_batch: list[list[Image.Image]], max_length: int):
+def _encode_messages(
+    processor,
+    messages_batch: list[list[dict[str, Any]]],
+    image_batch: list[list[Image.Image]],
+    max_length: int,
+    *,
+    continue_final_message: bool = False,
+):
     texts = [
-        processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+        processor.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=False,
+            continue_final_message=continue_final_message,
+        )
         for messages in messages_batch
     ]
     return processor(
@@ -117,73 +225,246 @@ def _labels_from_prompt_and_full(prompt_batch, full_batch) -> torch.Tensor:
     labels = full_batch["input_ids"].clone()
     labels[full_batch["attention_mask"] == 0] = IGNORE_INDEX
     prompt_lengths = prompt_batch["attention_mask"].sum(dim=1)
+    full_lengths = full_batch["attention_mask"].sum(dim=1)
     for row_index, prompt_length in enumerate(prompt_lengths.tolist()):
+        prompt_length = int(prompt_length)
+        full_length = int(full_lengths[row_index].item())
+        if prompt_length >= full_length:
+            raise ValueError(
+                "Prompt length consumed the entire completion span; check chat template alignment and max_length."
+            )
+        prompt_prefix = prompt_batch["input_ids"][row_index, :prompt_length]
+        full_prefix = full_batch["input_ids"][row_index, :prompt_length]
+        if not torch.equal(prompt_prefix, full_prefix):
+            raise ValueError(
+                "Prompt/full chat template prefixes diverged; prompt masking would corrupt supervision labels."
+            )
         labels[row_index, : int(prompt_length)] = IGNORE_INDEX
+        if not torch.any(labels[row_index] != IGNORE_INDEX):
+            raise ValueError("No trainable completion tokens remain after prompt masking.")
     return labels
 
 
-def teacher_text_targets(sample: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return teacher text targets without collapsing them into a single string."""
-    soft_target = sample.get("soft_target", {})
-    signal_targets = soft_target.get("teacher_signal_targets") or {}
-    target_weights = soft_target.get("teacher_target_weights") or {}
-    targets: list[dict[str, Any]] = []
-    for field_name, base_weight in TEXT_TARGET_SPECS:
-        text = soft_target.get(field_name)
-        if not text:
+def _build_target_layout(tokenizer, cot_text: str | None, traj_token_ids: list[int]) -> TargetLayout:
+    cot_text = str(cot_text or "").strip()
+    cot_content_ids = tokenizer.encode(cot_text, add_special_tokens=False) if cot_text else []
+    cot_end_ids = tokenizer.encode("<|cot_end|>", add_special_tokens=False)
+    traj_prefix_ids = tokenizer.encode("<|traj_future_start|>", add_special_tokens=False)
+    traj_suffix_ids = tokenizer.encode("<|traj_future_end|>", add_special_tokens=False)
+    traj_token_text = "".join(discrete_traj_token(int(token_id)) for token_id in traj_token_ids)
+    completion_text = f"{cot_text}<|cot_end|><|traj_future_start|>{traj_token_text}<|traj_future_end|>"
+    return TargetLayout(
+        completion_text=completion_text,
+        cot_content_len=len(cot_content_ids),
+        cot_suffix_len=len(cot_end_ids),
+        traj_prefix_len=len(traj_prefix_ids),
+        traj_content_len=len(traj_token_ids),
+        traj_suffix_len=len(traj_suffix_ids),
+    )
+
+
+def _build_traj_only_target_layout(tokenizer, traj_token_ids: list[int]) -> TargetLayout:
+    traj_suffix_ids = tokenizer.encode("<|traj_future_end|>", add_special_tokens=False)
+    traj_token_text = "".join(discrete_traj_token(int(token_id)) for token_id in traj_token_ids)
+    completion_text = f"{traj_token_text}<|traj_future_end|>"
+    return TargetLayout(
+        completion_text=completion_text,
+        cot_content_len=0,
+        cot_suffix_len=0,
+        traj_prefix_len=0,
+        traj_content_len=len(traj_token_ids),
+        traj_suffix_len=len(traj_suffix_ids),
+    )
+
+
+def _target_layout_masks(labels: torch.Tensor, layouts: list[TargetLayout]) -> dict[str, Any]:
+    cot_span_mask = torch.zeros_like(labels, dtype=torch.bool)
+    cot_content_mask = torch.zeros_like(labels, dtype=torch.bool)
+    traj_span_mask = torch.zeros_like(labels, dtype=torch.bool)
+    traj_token_mask = torch.zeros_like(labels, dtype=torch.bool)
+    format_token_mask = torch.zeros_like(labels, dtype=torch.bool)
+    cot_content_positions: list[list[int]] = []
+
+    for row_index, layout in enumerate(layouts):
+        valid_positions = torch.nonzero(labels[row_index] != IGNORE_INDEX, as_tuple=False).flatten()
+        if valid_positions.numel() == 0:
+            cot_content_positions.append([])
             continue
-        source = soft_target.get(f"{field_name}_source", "missing")
-        targets.append(
+
+        cursor = int(valid_positions[0].item())
+        valid_end = int(valid_positions[-1].item()) + 1
+
+        cot_content_len = min(layout.cot_content_len, max(valid_end - cursor, 0))
+        if cot_content_len > 0:
+            cot_content_mask[row_index, cursor : cursor + cot_content_len] = True
+
+        cot_span_len = min(layout.cot_span_len, max(valid_end - cursor, 0))
+        if cot_span_len > 0:
+            cot_span_mask[row_index, cursor : cursor + cot_span_len] = True
+        cot_suffix_start = cursor + cot_content_len
+        cot_suffix_len = min(layout.cot_suffix_len, max(valid_end - cot_suffix_start, 0))
+        if cot_suffix_len > 0:
+            format_token_mask[row_index, cot_suffix_start : cot_suffix_start + cot_suffix_len] = True
+        cot_content_positions.append(list(range(cursor, cursor + cot_content_len)))
+        cursor += cot_span_len
+
+        traj_span_len = min(layout.traj_span_len, max(valid_end - cursor, 0))
+        if traj_span_len > 0:
+            traj_span_mask[row_index, cursor : cursor + traj_span_len] = True
+        traj_prefix_len = min(layout.traj_prefix_len, max(valid_end - cursor, 0))
+        if traj_prefix_len > 0:
+            format_token_mask[row_index, cursor : cursor + traj_prefix_len] = True
+
+        traj_token_start = cursor + min(layout.traj_prefix_len, traj_span_len)
+        traj_token_len = min(layout.traj_content_len, max(valid_end - traj_token_start, 0))
+        if traj_token_len > 0:
+            traj_token_mask[row_index, traj_token_start : traj_token_start + traj_token_len] = True
+        traj_suffix_start = traj_token_start + traj_token_len
+        traj_suffix_len = min(layout.traj_suffix_len, max(valid_end - traj_suffix_start, 0))
+        if traj_suffix_len > 0:
+            format_token_mask[row_index, traj_suffix_start : traj_suffix_start + traj_suffix_len] = True
+
+    return {
+        "cot_span_mask": cot_span_mask,
+        "cot_content_mask": cot_content_mask,
+        "traj_span_mask": traj_span_mask,
+        "traj_token_mask": traj_token_mask,
+        "format_token_mask": format_token_mask,
+        "cot_content_positions": cot_content_positions,
+    }
+
+
+def _build_label_token_weights(
+    labels: torch.Tensor,
+    token_mask: torch.Tensor,
+    token_weight_map: Mapping[int, float] | None,
+) -> torch.Tensor | None:
+    if not token_weight_map:
+        return None
+    weights = torch.ones_like(labels, dtype=torch.float32)
+    active_positions = torch.nonzero(token_mask & (labels != IGNORE_INDEX), as_tuple=False)
+    for row_index, token_index in active_positions.tolist():
+        label_id = int(labels[row_index, token_index].item())
+        weights[row_index, token_index] = float(token_weight_map.get(label_id, 1.0))
+    return weights
+
+
+def _pad_ego_history_batch(history_items: list[np.ndarray]) -> tuple[torch.Tensor, torch.Tensor]:
+    max_steps = max(item.shape[0] for item in history_items)
+    max_dim = max(item.shape[-1] for item in history_items)
+    history = torch.zeros((len(history_items), max_steps, max_dim), dtype=torch.float32)
+    history_mask = torch.zeros((len(history_items), max_steps), dtype=torch.bool)
+    for row_index, item in enumerate(history_items):
+        tensor = torch.from_numpy(item).float()
+        history[row_index, : tensor.shape[0], : tensor.shape[1]] = tensor
+        history_mask[row_index, : tensor.shape[0]] = True
+    return history, history_mask
+
+
+def _pad_future_xyz_batch(future_items: list[np.ndarray]) -> tuple[torch.Tensor, torch.Tensor]:
+    max_steps = max(item.shape[0] for item in future_items)
+    max_dim = max(item.shape[-1] for item in future_items)
+    future = torch.zeros((len(future_items), max_steps, max_dim), dtype=torch.float32)
+    future_mask = torch.zeros((len(future_items), max_steps), dtype=torch.bool)
+    for row_index, item in enumerate(future_items):
+        tensor = torch.from_numpy(item).float()
+        future[row_index, : tensor.shape[0], : tensor.shape[1]] = tensor
+        future_mask[row_index, : tensor.shape[0]] = True
+    return future, future_mask
+
+
+def _teacher_signal_from_sample(sample: dict[str, Any], project_root: Path) -> dict[str, np.ndarray | int] | None:
+    teacher_target = sample.get("teacher_target") or {}
+    topk_path = teacher_target.get("topk_logits_path")
+    pooled_hidden_path = teacher_target.get("pooled_hidden_path")
+    if not topk_path and not pooled_hidden_path:
+        return None
+
+    signal: dict[str, np.ndarray | int] = {}
+    if topk_path:
+        resolved_topk = _resolve_path(topk_path, project_root)
+        if resolved_topk.exists():
+            topk_npz = np.load(resolved_topk)
+            signal["topk_indices"] = topk_npz["topk_indices"]
+            signal["topk_logprobs"] = topk_npz["topk_logits"].astype(np.float32)
+            signal["target_token_count"] = int(np.asarray(topk_npz["target_token_count"]).reshape(-1)[0])
+    if pooled_hidden_path:
+        resolved_hidden = _resolve_path(pooled_hidden_path, project_root)
+        if resolved_hidden.exists():
+            signal["pooled_hidden"] = np.load(resolved_hidden).astype(np.float32)
+    return signal or None
+
+
+def _pad_teacher_signal_batch(
+    signal_items: list[dict[str, np.ndarray | int] | None],
+    cot_content_positions: list[list[int]],
+) -> dict[str, torch.Tensor]:
+    outputs: dict[str, torch.Tensor] = {}
+    topk_ready = [item for item in signal_items if item and "topk_indices" in item and "topk_logprobs" in item]
+    if topk_ready:
+        topk = int(topk_ready[0]["topk_indices"].shape[-1])
+        max_tokens = max(
+            min(
+                int(item["target_token_count"]),
+                len(cot_content_positions[row_index]),
+            )
+            for row_index, item in enumerate(signal_items)
+            if item and "topk_indices" in item and "topk_logprobs" in item
+        )
+        topk_indices = torch.zeros((len(signal_items), max_tokens, topk), dtype=torch.long)
+        topk_logprobs = torch.zeros((len(signal_items), max_tokens, topk), dtype=torch.float32)
+        topk_mask = torch.zeros((len(signal_items), max_tokens), dtype=torch.bool)
+        topk_positions = torch.full((len(signal_items), max_tokens), -1, dtype=torch.long)
+        for row_index, item in enumerate(signal_items):
+            if item is None or "topk_indices" not in item or "topk_logprobs" not in item:
+                continue
+            token_count = min(int(item["target_token_count"]), len(cot_content_positions[row_index]), max_tokens)
+            if token_count <= 0:
+                continue
+            topk_indices[row_index, :token_count] = torch.from_numpy(item["topk_indices"][:token_count]).long()
+            topk_logprobs[row_index, :token_count] = torch.from_numpy(item["topk_logprobs"][:token_count]).float()
+            topk_mask[row_index, :token_count] = True
+            topk_positions[row_index, :token_count] = torch.tensor(
+                cot_content_positions[row_index][:token_count],
+                dtype=torch.long,
+            )
+        outputs.update(
             {
-                "field_name": field_name,
-                "text": str(text).strip(),
-                "base_weight": float(target_weights.get(field_name, base_weight)),
-                "source": source,
-                "signal_target": signal_targets.get(field_name) or {},
+                "teacher_topk_indices": topk_indices,
+                "teacher_topk_logprobs": topk_logprobs,
+                "teacher_topk_mask": topk_mask,
+                "teacher_topk_positions": topk_positions,
             }
         )
-    return targets
+
+    hidden_ready = [item for item in signal_items if item and "pooled_hidden" in item]
+    if hidden_ready:
+        hidden_dim = int(hidden_ready[0]["pooled_hidden"].shape[-1])
+        teacher_pooled_hidden = torch.zeros((len(signal_items), hidden_dim), dtype=torch.float32)
+        teacher_hidden_mask = torch.zeros((len(signal_items),), dtype=torch.bool)
+        for row_index, item in enumerate(signal_items):
+            if item is None or "pooled_hidden" not in item:
+                continue
+            teacher_pooled_hidden[row_index] = torch.from_numpy(item["pooled_hidden"]).float()
+            teacher_hidden_mask[row_index] = True
+        outputs["teacher_pooled_hidden"] = teacher_pooled_hidden
+        outputs["teacher_pooled_hidden_mask"] = teacher_hidden_mask
+
+    return outputs
 
 
-def load_sparse_signal(signal_target: dict[str, Any]) -> dict[str, np.ndarray] | None:
-    """Load sparse top-k logits and pooled hidden for one teacher target field."""
-    logits_path = signal_target.get("logits_path")
-    hidden_path = signal_target.get("hidden_path")
-    if not logits_path or not hidden_path:
-        return None
-    logits_npz = np.load(logits_path)
-    pooled_hidden = np.load(hidden_path)
-    return {
-        "topk_indices": logits_npz["topk_indices"],
-        "topk_logits": logits_npz["topk_logits"],
-        "target_token_ids": logits_npz["target_token_ids"],
-        "target_token_count": np.asarray(logits_npz["target_token_count"]).reshape(-1)[0],
-        "pooled_hidden": pooled_hidden,
-    }
-
-
-def pad_sparse_signal_batch(signal_items: list[dict[str, np.ndarray]]) -> dict[str, torch.Tensor]:
-    """Pad sparse signal arrays for a teacher target batch."""
-    max_tokens = max(int(item["target_token_count"]) for item in signal_items)
-    topk = int(signal_items[0]["topk_indices"].shape[-1])
-    hidden_dim = int(signal_items[0]["pooled_hidden"].shape[-1])
-    batch_size = len(signal_items)
-    topk_indices = torch.zeros((batch_size, max_tokens, topk), dtype=torch.long)
-    topk_logits = torch.zeros((batch_size, max_tokens, topk), dtype=torch.float32)
-    token_mask = torch.zeros((batch_size, max_tokens), dtype=torch.bool)
-    pooled_hidden = torch.zeros((batch_size, hidden_dim), dtype=torch.float32)
-    for row_index, item in enumerate(signal_items):
-        token_count = int(item["target_token_count"])
-        topk_indices[row_index, :token_count] = torch.from_numpy(item["topk_indices"]).long()
-        topk_logits[row_index, :token_count] = torch.from_numpy(item["topk_logits"]).float()
-        token_mask[row_index, :token_count] = True
-        pooled_hidden[row_index] = torch.from_numpy(item["pooled_hidden"]).float()
-    return {
-        "teacher_topk_indices": topk_indices,
-        "teacher_topk_logits": topk_logits,
-        "teacher_topk_mask": token_mask,
-        "teacher_pooled_hidden": pooled_hidden,
-    }
+def _action_aux_label(sample: dict[str, Any]) -> str | None:
+    teacher_target = sample.get("teacher_target") or {}
+    derived = sample.get("derived") or {}
+    for value in (
+        teacher_target.get("teacher_motion_class"),
+        derived.get("teacher_motion_class"),
+        derived.get("gt_motion_class"),
+        derived.get("human_motion_class"),
+    ):
+        if value:
+            return str(value)
+    return None
 
 
 @dataclass(slots=True)
@@ -192,121 +473,240 @@ class DistillationCollator:
     processor: Any
     project_root: Path
     max_length: int = 4096
+    prompt_mode: str = "joint"
+    target_mode: str = "joint"
+    enable_teacher_view: bool = True
+    enable_action_aux: bool = True
+    traj_token_weight_map: Mapping[int, float] | None = None
 
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, Any]:
-        prompt_messages = []
-        full_messages = []
-        image_batch = []
+        prompt_messages: list[list[dict[str, Any]]] = []
+        full_messages: list[list[dict[str, Any]]] = []
+        image_batch: list[list[Image.Image]] = []
+        ego_histories: list[np.ndarray] = []
+        ego_futures: list[np.ndarray] = []
+        hard_layouts: list[TargetLayout] = []
+
         sample_ids: list[str] = []
-        source_sample_ids: list[str] = []
         splits: list[str] = []
-        action_labels = []
-        teacher_action_labels = []
-        teacher_action_present = []
-        consistency_scores = []
-        teacher_selection_scores = []
-        hard_weights = []
-        rank_weights = []
-        teacher_targets_by_field: dict[str, list[dict[str, Any] | None]] = {
-            field_name: [] for field_name, _ in TEXT_TARGET_SPECS
-        }
+        image_paths: list[list[str]] = []
+        teacher_vs_gt_consistency_level: list[str] = []
+        sample_provenance_flags: list[dict[str, Any]] = []
+        action_labels: list[int] = []
+        hard_cot_weights: list[float] = []
+        traj_weights: list[float] = []
+        teacher_view_allowed: list[bool] = []
+        teacher_view_weight: list[float] = []
+        action_aux_allowed: list[bool] = []
+        action_aux_weight: list[float] = []
 
-        for sample in features:
-            prompt_text = build_user_prompt(sample, self.project_root)
-            target_text = sample["target"]["text"].strip()
+        teacher_prompt_messages: list[list[dict[str, Any]]] = []
+        teacher_full_messages: list[list[dict[str, Any]]] = []
+        teacher_image_batch: list[list[Image.Image]] = []
+        teacher_layouts: list[TargetLayout] = []
+        teacher_signal_items: list[dict[str, np.ndarray | int] | None] = []
+        teacher_sample_ids: list[str] = []
+        teacher_source_indices: list[int] = []
+        teacher_seq_ce_weights: list[float] = []
+        teacher_logit_kd_weights: list[float] = []
+        teacher_traj_weights: list[float] = []
+        teacher_quality_multiplier: list[float] = []
+
+        for sample_index, sample in enumerate(features):
+            hard_target = sample.get("hard_target") or {}
+            traj_token_ids = [int(token_id) for token_id in hard_target.get("traj_future_token_ids") or []]
+            if not traj_token_ids:
+                raise ValueError(f"Sample {sample.get('sample_id')} is missing hard_target.traj_future_token_ids")
+
+            ego_history_xyz = load_ego_history_xyz(sample, self.project_root)
+            if self.prompt_mode == "traj_only":
+                prompt_text = build_traj_only_prompt(sample, self.project_root, ego_history_xyz=ego_history_xyz)
+            else:
+                prompt_text = build_user_prompt(sample, self.project_root, ego_history_xyz=ego_history_xyz)
+            ego_future_xyz = load_ego_future_xyz(sample, self.project_root)
             images = load_sample_images(sample, self.project_root)
-            image_count = len(images)
-            prompt_messages.append(build_messages(prompt_text, image_count))
-            full_messages.append(build_messages(prompt_text, image_count, target_text))
-            image_batch.append(images)
+            if self.target_mode == "traj_only":
+                hard_layout = _build_traj_only_target_layout(self.tokenizer, traj_token_ids)
+                assistant_prefix = "<|traj_future_start|>"
+            else:
+                hard_layout = _build_target_layout(self.tokenizer, hard_target.get("cot_text"), traj_token_ids)
+                assistant_prefix = "<|cot_start|>"
 
-            available_targets = {item["field_name"]: item for item in teacher_text_targets(sample)}
-            for field_name in teacher_targets_by_field:
-                teacher_targets_by_field[field_name].append(available_targets.get(field_name))
-
-            derived = sample.get("derived", {})
-            meta_action = (derived.get("meta_action_from_human") or {}).get("value")
-            teacher_action = sample.get("soft_target", {}).get("teacher_action_class")
-
-            action_labels.append(action_class_to_id(meta_action))
-            teacher_action_labels.append(action_class_to_id(teacher_action))
-            teacher_action_present.append(bool(teacher_action))
-            consistency_scores.append(float(sample.get("consistency_score", 0.0)))
-            teacher_selection_scores.append(float(sample.get("soft_target", {}).get("teacher_selection_score", 0.0)))
-
-            weights = sample.get("weights", {})
-            hard_weights.append(float(weights.get("hard_ce", 1.0)))
-            rank_weights.append(float(weights.get("rank", 0.0)))
-            sample_ids.append(str(sample["sample_id"]))
-            source_sample_ids.append(str(sample.get("source_sample_id", sample["sample_id"])))
-            splits.append(str(sample.get("split", "train")))
-
-        prompt_batch = _encode_messages(self.processor, prompt_messages, image_batch, self.max_length)
-        full_batch = _encode_messages(self.processor, full_messages, image_batch, self.max_length)
-        labels = _labels_from_prompt_and_full(prompt_batch, full_batch)
-
-        teacher_target_batches = []
-        for field_name, _ in TEXT_TARGET_SPECS:
-            targets_for_field = teacher_targets_by_field[field_name]
-            present_mask = torch.tensor([item is not None for item in targets_for_field], dtype=torch.bool)
-            if not present_mask.any():
-                continue
-            field_prompt_messages = [prompt_messages[idx] for idx, item in enumerate(targets_for_field) if item is not None]
-            field_full_messages = [
+            prompt_messages.append(build_messages(prompt_text, len(images), assistant_prefix=assistant_prefix))
+            full_messages.append(
                 build_messages(
-                    build_user_prompt(features[idx], self.project_root),
-                    len(image_batch[idx]),
-                    item["text"],
+                    prompt_text,
+                    len(images),
+                    hard_layout.completion_text,
+                    assistant_prefix=assistant_prefix,
                 )
-                for idx, item in enumerate(targets_for_field)
-                if item is not None
-            ]
-            field_images = [image_batch[idx] for idx, item in enumerate(targets_for_field) if item is not None]
-            prompt_encoded = _encode_messages(self.processor, field_prompt_messages, field_images, self.max_length)
-            full_encoded = _encode_messages(self.processor, field_full_messages, field_images, self.max_length)
-            field_batch = {
-                "field_name": field_name,
-                "input_ids": full_encoded["input_ids"],
-                "attention_mask": full_encoded["attention_mask"],
-                "labels": _labels_from_prompt_and_full(prompt_encoded, full_encoded),
-                "pixel_values": full_encoded["pixel_values"],
-                "image_grid_thw": full_encoded["image_grid_thw"],
-                "present_mask": present_mask,
-                "weights": torch.tensor(
-                    [float(item["base_weight"]) for item in targets_for_field if item is not None],
-                    dtype=torch.float32,
-                ),
-                "sources": [str(item["source"]) for item in targets_for_field if item is not None],
-            }
-            signal_items = []
-            signal_present = True
-            for item in targets_for_field:
-                if item is None:
-                    continue
-                signal = load_sparse_signal(item["signal_target"])
-                if signal is None:
-                    signal_present = False
-                    break
-                signal_items.append(signal)
-            if signal_present and signal_items:
-                field_batch.update(pad_sparse_signal_batch(signal_items))
-            teacher_target_batches.append(field_batch)
+            )
+            image_batch.append(images)
+            ego_histories.append(ego_history_xyz)
+            ego_futures.append(ego_future_xyz)
+            hard_layouts.append(hard_layout)
 
-        return {
+            weights = sample.get("weights") or {}
+            gate = sample.get("gate") or {}
+            teacher_target = sample.get("teacher_target") or {}
+            explicit_teacher_traj_weight = resolve_optional_loss_weight_value(weights, "teacher_traj_ce")
+
+            sample_ids.append(str(sample.get("sample_id")))
+            splits.append(str(sample.get("split", "train")))
+            image_paths.append([str(path) for path in (sample.get("input") or {}).get("image_paths") or []])
+            teacher_vs_gt_consistency_level.append(str(gate.get("teacher_vs_gt_motion") or "missing"))
+            sample_provenance_flags.append(
+                {
+                    "hard_text": (sample.get("provenance") or {}).get("hard_text"),
+                    "soft_text": (sample.get("provenance") or {}).get("soft_text"),
+                    "traj_target": (sample.get("provenance") or {}).get("traj_target"),
+                    "teacher_gt_joint_pair_forbidden": bool(
+                        (sample.get("provenance") or {}).get("teacher_gt_joint_pair_forbidden", True)
+                    ),
+                }
+            )
+            action_labels.append(action_class_to_id(_action_aux_label(sample)))
+            hard_cot_weights.append(resolve_loss_weight_value(weights, "hard_cot_ce", 1.0))
+            traj_weights.append(resolve_loss_weight_value(weights, "traj_ce", 1.0))
+            teacher_allowed = (
+                self.enable_teacher_view
+                and self.target_mode != "traj_only"
+                and bool(gate.get("teacher_view_allowed"))
+                and bool(teacher_target.get("cot_text"))
+            )
+            teacher_weight = float(gate.get("teacher_view_weight") or teacher_target.get("teacher_view_weight") or 0.0)
+            teacher_view_allowed.append(teacher_allowed)
+            teacher_view_weight.append(teacher_weight if teacher_allowed else 0.0)
+            aux_allowed = self.enable_action_aux and bool(gate.get("action_aux_allowed"))
+            aux_weight = float(gate.get("action_aux_weight") or 0.0)
+            action_aux_allowed.append(aux_allowed)
+            action_aux_weight.append(aux_weight if aux_allowed else 0.0)
+
+            if not teacher_allowed:
+                continue
+
+            teacher_layout = _build_target_layout(self.tokenizer, teacher_target.get("cot_text"), traj_token_ids)
+            teacher_prompt_messages.append(build_messages(prompt_text, len(images)))
+            teacher_full_messages.append(build_messages(prompt_text, len(images), teacher_layout.completion_text))
+            teacher_image_batch.append(images)
+            teacher_layouts.append(teacher_layout)
+            teacher_signal = _teacher_signal_from_sample(sample, self.project_root)
+            teacher_signal_items.append(teacher_signal)
+            teacher_sample_ids.append(str(sample.get("sample_id")))
+            teacher_source_indices.append(sample_index)
+            teacher_seq_ce_weights.append(resolve_loss_weight_value(weights, "teacher_seq_ce", teacher_weight))
+            teacher_logit_kd_weights.append(
+                resolve_loss_weight_value(weights, "teacher_logit_kd", teacher_weight)
+                if teacher_signal and "topk_indices" in teacher_signal
+                else 0.0
+            )
+            teacher_traj_weights.append(
+                explicit_teacher_traj_weight
+                if explicit_teacher_traj_weight is not None
+                else resolve_loss_weight_value(weights, "traj_ce", 1.0)
+            )
+            teacher_quality_multiplier.append(float(teacher_target.get("teacher_quality_multiplier", 1.0)))
+
+        prompt_batch = _encode_messages(
+            self.processor,
+            prompt_messages,
+            image_batch,
+            self.max_length,
+            continue_final_message=True,
+        )
+        full_batch = _encode_messages(
+            self.processor,
+            full_messages,
+            image_batch,
+            self.max_length,
+            continue_final_message=True,
+        )
+        labels = _labels_from_prompt_and_full(prompt_batch, full_batch)
+        hard_masks = _target_layout_masks(labels, hard_layouts)
+        ego_history_xyz, ego_history_mask = _pad_ego_history_batch(ego_histories)
+        ego_future_xyz, ego_future_mask = _pad_future_xyz_batch(ego_futures)
+
+        batch: dict[str, Any] = {
             "input_ids": full_batch["input_ids"],
             "attention_mask": full_batch["attention_mask"],
-            "pixel_values": full_batch["pixel_values"],
-            "image_grid_thw": full_batch["image_grid_thw"],
+            "pixel_values": full_batch.get("pixel_values"),
+            "image_grid_thw": full_batch.get("image_grid_thw"),
             "labels": labels,
-            "teacher_target_batches": teacher_target_batches,
+            "cot_span_mask": hard_masks["cot_span_mask"],
+            "traj_span_mask": hard_masks["traj_span_mask"],
+            "traj_token_mask": hard_masks["traj_token_mask"],
+            "format_token_mask": hard_masks["format_token_mask"],
+            "ego_history_xyz": ego_history_xyz,
+            "ego_history_mask": ego_history_mask,
+            "ego_future_xyz": ego_future_xyz,
+            "ego_future_mask": ego_future_mask,
+            "image_paths": image_paths,
             "sample_ids": sample_ids,
-            "source_sample_ids": source_sample_ids,
             "splits": splits,
+            "sample_provenance_flags": sample_provenance_flags,
+            "teacher_vs_gt_consistency_level": teacher_vs_gt_consistency_level,
+            "teacher_view_allowed": torch.tensor(teacher_view_allowed, dtype=torch.bool),
+            "teacher_view_weight": torch.tensor(teacher_view_weight, dtype=torch.float32),
+            "action_aux_allowed": torch.tensor(action_aux_allowed, dtype=torch.bool),
+            "action_aux_weight": torch.tensor(action_aux_weight, dtype=torch.float32),
+            "teacher_quality_multiplier": torch.ones((len(features),), dtype=torch.float32),
             "action_class_labels": torch.tensor(action_labels, dtype=torch.long),
-            "teacher_action_class_labels": torch.tensor(teacher_action_labels, dtype=torch.long),
-            "teacher_action_present_mask": torch.tensor(teacher_action_present, dtype=torch.bool),
-            "consistency_scores": torch.tensor(consistency_scores, dtype=torch.float32),
-            "teacher_selection_scores": torch.tensor(teacher_selection_scores, dtype=torch.float32),
-            "hard_ce_weights": torch.tensor(hard_weights, dtype=torch.float32),
-            "rank_weights": torch.tensor(rank_weights, dtype=torch.float32),
+            "hard_cot_weights": torch.tensor(hard_cot_weights, dtype=torch.float32),
+            "traj_weights": torch.tensor(traj_weights, dtype=torch.float32),
         }
+        traj_token_label_weights = _build_label_token_weights(
+            labels,
+            hard_masks["traj_token_mask"],
+            self.traj_token_weight_map,
+        )
+        if traj_token_label_weights is not None:
+            batch["traj_token_label_weights"] = traj_token_label_weights
+
+        if teacher_full_messages:
+            teacher_prompt_batch = _encode_messages(
+                self.processor,
+                teacher_prompt_messages,
+                teacher_image_batch,
+                self.max_length,
+                continue_final_message=True,
+            )
+            teacher_full_batch = _encode_messages(
+                self.processor,
+                teacher_full_messages,
+                teacher_image_batch,
+                self.max_length,
+                continue_final_message=True,
+            )
+            teacher_labels = _labels_from_prompt_and_full(teacher_prompt_batch, teacher_full_batch)
+            teacher_masks = _target_layout_masks(teacher_labels, teacher_layouts)
+            teacher_view_batch: dict[str, Any] = {
+                "input_ids": teacher_full_batch["input_ids"],
+                "attention_mask": teacher_full_batch["attention_mask"],
+                "pixel_values": teacher_full_batch.get("pixel_values"),
+                "image_grid_thw": teacher_full_batch.get("image_grid_thw"),
+                "labels": teacher_labels,
+                "cot_span_mask": teacher_masks["cot_span_mask"],
+                "cot_content_mask": teacher_masks["cot_content_mask"],
+                "traj_span_mask": teacher_masks["traj_span_mask"],
+                "traj_token_mask": teacher_masks["traj_token_mask"],
+                "format_token_mask": teacher_masks["format_token_mask"],
+                "sample_ids": teacher_sample_ids,
+                "source_indices": torch.tensor(teacher_source_indices, dtype=torch.long),
+                "teacher_view_weight": torch.tensor(teacher_seq_ce_weights, dtype=torch.float32),
+                "teacher_logit_kd_weight": torch.tensor(teacher_logit_kd_weights, dtype=torch.float32),
+                "traj_weights": torch.tensor(teacher_traj_weights, dtype=torch.float32),
+                "teacher_quality_multiplier": torch.tensor(teacher_quality_multiplier, dtype=torch.float32),
+            }
+            teacher_view_batch.update(_pad_teacher_signal_batch(teacher_signal_items, teacher_masks["cot_content_positions"]))
+            teacher_traj_token_label_weights = _build_label_token_weights(
+                teacher_labels,
+                teacher_masks["traj_token_mask"],
+                self.traj_token_weight_map,
+            )
+            if teacher_traj_token_label_weights is not None:
+                teacher_view_batch["traj_token_label_weights"] = teacher_traj_token_label_weights
+            batch["teacher_view"] = teacher_view_batch
+        else:
+            batch["teacher_view"] = None
+
+        return batch

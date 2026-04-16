@@ -1,4 +1,4 @@
-"""Safe corpus contracts for v1 distillation."""
+"""Safe corpus contracts for v3.2 distillation."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 
 FORBIDDEN_TASK_TYPES = {
-    "teacher_reasoning_plus_gt_path",
+    "teacher_reasoning_plus_gt_path_as_honest_joint_pair",
     "human_reasoning_plus_teacher_path",
     "teacher_discrete_future_tokens_as_gt",
 }
@@ -24,6 +24,6 @@ class CorpusSample:
 
 
 def validate_task_type(task_type: str) -> None:
-    """Reject tasks that are explicitly forbidden in v1."""
+    """Reject task types that remain forbidden under the v3.2 provenance rules."""
     if task_type in FORBIDDEN_TASK_TYPES:
-        raise ValueError(f"Forbidden v1 task type: {task_type}")
+        raise ValueError(f"Forbidden v3.2 task type: {task_type}")

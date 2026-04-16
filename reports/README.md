@@ -37,6 +37,12 @@ Current issue list:
 - [019-true-kd-smoke-and-shared-vocab-guard.md](./019-true-kd-smoke-and-shared-vocab-guard.md)
 - [020-spec-design-issues-so-far.md](./020-spec-design-issues-so-far.md)
 - [021-alpamayo-base-vs-1p5-teacher-contract.md](./021-alpamayo-base-vs-1p5-teacher-contract.md)
+- [022-v3-2-stage-a-contract-recovery-issues.md](./022-v3-2-stage-a-contract-recovery-issues.md)
+- [023-stage-a3-traj-audit-and-continuation.md](./023-stage-a3-traj-audit-and-continuation.md)
+- [024-hard-only-traj-continuation-result.md](./024-hard-only-traj-continuation-result.md)
+- [025-subset-collapse-threshold-1-4-16.md](./025-subset-collapse-threshold-1-4-16.md)
+- [026-a0-geometry-subset-threshold-1-4-16.md](./026-a0-geometry-subset-threshold-1-4-16.md)
+- [027-current-traj-collapse-status-and-next-actions.md](./027-current-traj-collapse-status-and-next-actions.md)
 
 Latest known high-level state:
 
@@ -51,3 +57,8 @@ Latest known high-level state:
 - Full `teacher262` background pipeline is currently running from `teacher overwrite -> signal cache -> consistency -> corpus -> train -> eval`.
 - Consolidated design/spec issue summary:
   - [020-spec-design-issues-so-far.md](./020-spec-design-issues-so-far.md)
+- Current distillation status:
+  - `Stage B` remains paused
+  - `Stage A` is being rebuilt around `traj-only` warmup and decoded-geometry GT trajectory loss
+  - latest trajectory-collapse summary:
+    - [027-current-traj-collapse-status-and-next-actions.md](./027-current-traj-collapse-status-and-next-actions.md)

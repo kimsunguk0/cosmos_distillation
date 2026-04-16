@@ -1,0 +1,52 @@
+{
+  "checkpoint_dir": "outputs/checkpoints/stage_a_contract_format_smoke/final",
+  "corpus_jsonl": "/workspace/cosmos_distillation/data/corpus/distill_v3_2.jsonl",
+  "split": "train",
+  "num_samples": 2,
+  "max_new_tokens": 224,
+  "avg_latency_sec": 0.876,
+  "load_info": {
+    "format": "lora_adapter",
+    "missing": [],
+    "unexpected": [],
+    "use_lora": true
+  },
+  "results": [
+    {
+      "sample_id": "0262ea23-9be7-430e-8c62-d251b4cd9b01__t0_14887532__evt_00",
+      "split": "train",
+      "elapsed_sec": 0.965,
+      "generated_text": "Go straight and navigate through the construction zone with traffic cones.",
+      "generated_cot": "Go straight and navigate through the construction zone with traffic cones.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep lane since the lane is clear ahead",
+      "target_text": "Go straight and navigate through the construction zone with traffic cones.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "400e1e49-bea2-4c37-be90-6da97fc90c98__t0_4397762__evt_00",
+      "split": "train",
+      "elapsed_sec": 0.787,
+      "generated_text": "Yield to the pedestrians crossing the road at the crosswalk.",
+      "generated_cot": "Yield to the pedestrians crossing the road at the crosswalk.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "yield",
+        "confidence": 0.7,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "stop",
+      "teacher_long_cot": "Stop for the red traffic light ahead",
+      "target_text": "Yield to the pedestrians crossing the road at the crosswalk.",
+      "target_traj_token_count": 128
+    }
+  ]
+}

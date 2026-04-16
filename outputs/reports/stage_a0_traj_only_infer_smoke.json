@@ -1,0 +1,44 @@
+{
+  "checkpoint_dir": "outputs/checkpoints/stage_a0_traj_only_smoke/final",
+  "corpus_jsonl": "/workspace/cosmos_distillation/data/corpus/distill_v3_2.jsonl",
+  "split": "val",
+  "num_samples": 1,
+  "max_new_tokens": 160,
+  "constrain_traj_decoding": true,
+  "forced_traj_token_count": null,
+  "avg_latency_sec": 4.363,
+  "load_info": {
+    "format": "lora_adapter",
+    "missing": [],
+    "unexpected": [],
+    "use_lora": true,
+    "data_view": {
+      "prompt_mode": "traj_only",
+      "target_mode": "traj_only",
+      "enable_teacher_view": false,
+      "enable_action_aux": false
+    }
+  },
+  "results": [
+    {
+      "sample_id": "476fed83-ed85-4b2c-b6c3-cf780a2d0123__t0_16992755__evt_00",
+      "split": "val",
+      "elapsed_sec": 4.363,
+      "generated_text": "<i1368><i2><i2><i2><i2><i2><i2><i2><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><i0><|traj_future_end|>",
+      "generated_cot": "",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "missing"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge to the left to clear the stopped van blocking the right side of our lane",
+      "target_text": "Slightly shift left to maintain a safe distance from the vehicle parked on the right side of the road.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    }
+  ]
+}

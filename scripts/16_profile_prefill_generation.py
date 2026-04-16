@@ -20,9 +20,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.model.checkpoint_io import detect_checkpoint_format, load_student_checkpoint
 from src.model.peft_setup import LoraConfigSpec, maybe_apply_lora
 from src.model.student_wrapper import StudentWrapperConfig, build_student_model
+from src.model.tokenizer_ext import distill_trainable_token_ids
 from src.training.collator import build_messages, build_user_prompt, load_sample_images
+from src.utils.runtime_paths import remap_external_path
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,7 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--corpus-jsonl",
         type=Path,
-        default=PROJECT_ROOT / "data" / "corpus" / "strict_human_long_cot_262_fixkd.jsonl",
+        default=PROJECT_ROOT / "data" / "corpus" / "distill_v3_2.jsonl",
     )
     parser.add_argument("--split", default="val")
     parser.add_argument("--sample-index", type=int, default=0)
@@ -39,22 +42,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--teacher-model-path",
         type=Path,
-        default=Path("/home/pm97/workspace/sukim/weights/alpamayo15_vlm_weights"),
+        default=Path("/workspace/base_models_weights/Alpamayo-1.5-10B"),
     )
     parser.add_argument(
         "--alpamayo-src",
         type=Path,
-        default=Path("/home/pm97/workspace/sukim/alpamayo1.5/src"),
+        default=Path("/workspace/alpamayo_repos/alpamayo1.5/src"),
     )
     parser.add_argument(
         "--student-checkpoint-dir",
         type=Path,
-        default=PROJECT_ROOT / "outputs" / "checkpoints" / "train_stage_b_teacher262_fixkd_full" / "final",
+        default=PROJECT_ROOT / "outputs" / "checkpoints" / "stage_b_v3_2" / "final",
     )
     parser.add_argument(
         "--summary-json",
         type=Path,
-        default=PROJECT_ROOT / "outputs" / "reports" / "prefill_generation_profile.json",
+        default=PROJECT_ROOT / "outputs" / "reports" / "prefill_generation_profile_v3_2.json",
     )
     return parser.parse_args()
 
@@ -174,6 +177,25 @@ def canonical_frame_offsets(sample_dir: Path) -> list[float]:
 
 
 def teacher_image_frames(sample: dict[str, Any]) -> tuple[torch.Tensor, torch.Tensor]:
+    sample_input = sample.get("input") or {}
+    image_paths = list(sample_input.get("image_paths") or [])
+    if image_paths:
+        camera_indices = [int(value) for value in sample_input.get("camera_indices") or [0, 1, 2, 6]]
+        num_frames = int(sample_input.get("num_frames_per_camera", 4))
+        if len(image_paths) < len(camera_indices) * num_frames:
+            raise RuntimeError("image_paths does not contain a complete camera/frame grid")
+        frames_by_camera = []
+        for camera_offset, _ in enumerate(camera_indices):
+            camera_frames = []
+            base = camera_offset * num_frames
+            for frame_offset in range(num_frames):
+                image_path = Path(remap_external_path(image_paths[base + frame_offset]) or image_paths[base + frame_offset])
+                image = Image.open(image_path).convert("RGB")
+                image_tensor = torch.from_numpy(np.array(image, copy=True)).permute(2, 0, 1).contiguous()
+                camera_frames.append(image_tensor)
+            frames_by_camera.append(torch.stack(camera_frames, dim=0))
+        return torch.stack(frames_by_camera, dim=0), torch.tensor(camera_indices, dtype=torch.int64)
+
     camera_name_to_index = {
         "camera_cross_left_120fov": 0,
         "camera_front_wide_120fov": 1,
@@ -309,13 +331,22 @@ def profile_student(sample: dict[str, Any], args: argparse.Namespace) -> dict[st
     wrapper_cfg = StudentWrapperConfig(
         student_model_name=base_model,
         max_length=int(train_config["trainer_config"]["max_length"]),
+        torch_dtype=(
+            torch.bfloat16
+            if args.device.startswith("cuda") and bool(train_config["trainer_config"].get("bf16", True))
+            else None
+        ),
         local_files_only=Path(base_model).expanduser().exists(),
     )
     model = build_student_model(wrapper_cfg, tokenizer)
-    model.backbone = maybe_apply_lora(model.backbone, LoraConfigSpec(), enabled=use_lora)
-    state_dict = torch.load(args.student_checkpoint_dir / "student_state.pt", map_location="cpu", mmap=True)
-    model.load_state_dict(state_dict, strict=False, assign=True)
-    del state_dict
+    checkpoint_format = detect_checkpoint_format(args.student_checkpoint_dir)
+    if checkpoint_format == "full_state_dict" and use_lora:
+        model.backbone = maybe_apply_lora(
+            model.backbone,
+            LoraConfigSpec(trainable_token_indices=tuple(distill_trainable_token_ids(tokenizer))),
+            enabled=True,
+        )
+    load_student_checkpoint(args.student_checkpoint_dir, model, use_lora=use_lora)
     model = model.to(args.device).eval()
     sync_cuda()
     load_sec = elapsed(started)
@@ -391,7 +422,7 @@ def main() -> None:
     student = profile_student(sample, args)
 
     summary = {
-        "sample_id": sample["source_sample_id"],
+        "sample_id": sample["sample_id"],
         "split": sample.get("split"),
         "max_new_tokens": args.max_new_tokens,
         "teacher": teacher,

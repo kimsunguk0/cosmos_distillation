@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WP14 entrypoint: evaluation."""
+"""WP14 entrypoint: v3.2 corpus evaluation."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.training.metrics import exact_match_rate, jaccard_overlap, load_jsonl
+from src.utils.runtime_paths import DEFAULT_STATE_ROOT, DEFAULT_TEACHER_CACHE_ROOT, remap_external_path
 
 
 def parse_args() -> argparse.Namespace:
@@ -22,100 +23,108 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--corpus-jsonl",
         type=Path,
-        default=PROJECT_ROOT / "data" / "corpus" / "strict_human_long_cot.jsonl",
+        default=PROJECT_ROOT / "data" / "corpus" / "distill_v3_2.jsonl",
     )
     parser.add_argument(
         "--teacher-index-jsonl",
         type=Path,
-        default=PROJECT_ROOT / "data" / "teacher_cache" / "text" / "index.jsonl",
+        default=DEFAULT_TEACHER_CACHE_ROOT / "text" / "index.jsonl",
     )
     parser.add_argument(
         "--summary-json",
         type=Path,
-        default=PROJECT_ROOT / "outputs" / "reports" / "eval_summary.json",
+        default=PROJECT_ROOT / "outputs" / "reports" / "eval_summary_v3_2.json",
     )
     parser.add_argument(
         "--consistency-parquet",
         type=Path,
-        default=PROJECT_ROOT / "data" / "teacher_cache" / "diagnostics" / "consistency_matrix.parquet",
+        default=DEFAULT_STATE_ROOT / "split_semantic_gate.parquet",
     )
     return parser.parse_args()
+
+
+def _path_exists(raw_path: str | Path | None) -> bool:
+    if raw_path in (None, ""):
+        return False
+    path_str = remap_external_path(raw_path)
+    return path_str is not None and Path(path_str).exists()
 
 
 def main() -> None:
     args = parse_args()
     corpus = load_jsonl(args.corpus_jsonl)
     teacher_index = {record["sample_id"]: record for record in load_jsonl(args.teacher_index_jsonl)}
-    consistency_df = (
-        pd.read_parquet(args.consistency_parquet)
-        if args.consistency_parquet.exists()
-        else pd.DataFrame()
-    )
+    consistency_df = pd.read_parquet(args.consistency_parquet) if args.consistency_parquet.exists() else pd.DataFrame()
     consistency_map = (
         consistency_df.set_index("sample_id").to_dict(orient="index")
         if not consistency_df.empty
         else {}
     )
 
-    meta_action_pairs = []
+    motion_pairs = []
     overlap_scores = []
     teacher_present = 0
-    json_ready = 0
-    structured_ready = 0
-    hallucination_flags = 0
+    teacher_view_allowed = 0
+    action_aux_allowed = 0
+    teacher_topk_ready = 0
+    traj_ready = 0
     teacher_human_levels = []
-    gate_scores = []
-    signal_ready = 0
+    teacher_gt_intent_levels = []
     for sample in corpus:
-        source_sample_id = str(sample.get("source_sample_id", sample["sample_id"]))
-        teacher_record = teacher_index.get(source_sample_id)
-        if not teacher_record or teacher_record.get("status") != "ok":
-            continue
-        teacher_present += 1
-        output = teacher_record.get("output", {})
-        teacher_meta = output.get("teacher_meta_action")
-        human_meta = (sample.get("derived", {}).get("meta_action_from_human") or {}).get("value")
-        if teacher_meta and human_meta:
-            meta_action_pairs.append((teacher_meta, human_meta))
-        teacher_reason = output.get("teacher_short_reason")
-        human_reason = sample.get("target", {}).get("text")
-        if teacher_reason and human_reason:
-            overlap_scores.append(jaccard_overlap(teacher_reason, human_reason))
-        if output.get("teacher_parse_status") == "json_valid":
-            json_ready += 1
-        if output.get("teacher_structured_json"):
-            structured_ready += 1
-        hallucination_flags += int(bool(output.get("teacher_hallucination_flags")))
-        signal_targets = output.get("teacher_signal_targets") or {}
-        if any((signal_targets.get(field_name) or {}).get("signal_ready") for field_name in ("teacher_short_reason", "teacher_answer")):
-            signal_ready += 1
-        consistency_row = consistency_map.get(source_sample_id, {})
-        if consistency_row.get("teacher_text__human_reasoning"):
-            teacher_human_levels.append(str(consistency_row["teacher_text__human_reasoning"]))
-        if consistency_row.get("consistency_score") is not None:
-            gate_scores.append(float(consistency_row["consistency_score"]))
+        sample_id = str(sample["sample_id"])
+        teacher_record = teacher_index.get(sample_id)
+        teacher_target = sample.get("teacher_target") or {}
+        hard_target = sample.get("hard_target") or {}
+        gate = sample.get("gate") or {}
+        derived = sample.get("derived") or {}
+
+        if teacher_record:
+            teacher_present += 1
+        teacher_view_allowed += int(bool(gate.get("teacher_view_allowed")))
+        action_aux_allowed += int(bool(gate.get("action_aux_allowed")))
+        teacher_topk_ready += int(_path_exists(teacher_target.get("topk_logits_path")))
+        traj_ready += int(
+            bool(hard_target.get("traj_future_token_ids")) and _path_exists(hard_target.get("traj_future_token_ids_path"))
+        )
+
+        teacher_motion = teacher_target.get("teacher_motion_class") or derived.get("teacher_motion_class")
+        gt_motion = derived.get("gt_motion_class")
+        if teacher_motion and gt_motion:
+            motion_pairs.append((teacher_motion, gt_motion))
+        teacher_cot = teacher_target.get("cot_text")
+        human_cot = hard_target.get("cot_text")
+        if teacher_cot and human_cot:
+            overlap_scores.append(jaccard_overlap(teacher_cot, human_cot))
+
+        consistency_row = consistency_map.get(sample_id, {})
+        teacher_human_levels.append(str(consistency_row.get("teacher_vs_human_motion") or "missing"))
+        teacher_gt_intent_levels.append(str(consistency_row.get("teacher_vs_gt_intent") or "missing"))
 
     summary = {
         "corpus_jsonl": str(args.corpus_jsonl),
         "teacher_index_jsonl": str(args.teacher_index_jsonl),
         "consistency_parquet": str(args.consistency_parquet),
+        "records": len(corpus),
         "teacher_ready_records": teacher_present,
-        "json_parseability": (json_ready / teacher_present) if teacher_present else 0.0,
-        "structured_target_coverage": (structured_ready / teacher_present) if teacher_present else 0.0,
-        "signal_cache_coverage": (signal_ready / teacher_present) if teacher_present else 0.0,
-        "meta_action_f1": exact_match_rate(meta_action_pairs),
-        "human_coc_overlap": (sum(overlap_scores) / len(overlap_scores)) if overlap_scores else 0.0,
-        "hallucination_rate": (hallucination_flags / teacher_present) if teacher_present else 0.0,
+        "teacher_view_allowed_rate": (teacher_view_allowed / len(corpus)) if corpus else 0.0,
+        "action_aux_allowed_rate": (action_aux_allowed / len(corpus)) if corpus else 0.0,
+        "teacher_topk_ready_rate": (teacher_topk_ready / len(corpus)) if corpus else 0.0,
+        "traj_ready_rate": (traj_ready / len(corpus)) if corpus else 0.0,
+        "teacher_gt_motion_exact_match": exact_match_rate(motion_pairs),
+        "teacher_human_cot_overlap": (sum(overlap_scores) / len(overlap_scores)) if overlap_scores else 0.0,
         "teacher_human_disagreement_rate": (
             sum(1 for level in teacher_human_levels if level not in {"pass", "soft_pass"}) / len(teacher_human_levels)
             if teacher_human_levels
             else 0.0
         ),
-        "consistency_gate_score": (sum(gate_scores) / len(gate_scores)) if gate_scores else 0.0,
-        "rationale_answer_consistency": (sum(overlap_scores) / len(overlap_scores)) if overlap_scores else 0.0,
+        "teacher_gt_intent_disagreement_rate": (
+            sum(1 for level in teacher_gt_intent_levels if level not in {"pass", "soft_pass"}) / len(teacher_gt_intent_levels)
+            if teacher_gt_intent_levels
+            else 0.0
+        ),
         "notes": [
-            "Evaluation reflects available teacher-text diagnostics and the current consistency matrix.",
-            "Teacher trajectory consistency remains unavailable in v1.",
+            "Evaluation reflects v3.2 corpus coverage, gate policy, and teacher/GT consistency diagnostics.",
+            "Checkpoint-level generation metrics should be measured with scripts/15_infer_student_smoke.py.",
         ],
     }
     args.summary_json.parent.mkdir(parents=True, exist_ok=True)

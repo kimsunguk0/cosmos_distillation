@@ -12,6 +12,7 @@ class LoraConfigSpec:
     alpha: int = 64
     dropout: float = 0.05
     bias: str = "none"
+    trainable_token_indices: tuple[int, ...] | None = None
     target_modules: tuple[str, ...] = (
         "q_proj",
         "k_proj",
@@ -38,6 +39,9 @@ def maybe_apply_lora(model: Any, spec: LoraConfigSpec, enabled: bool = False) ->
         lora_dropout=spec.dropout,
         bias=spec.bias,
         target_modules=list(spec.target_modules),
+        trainable_token_indices=(
+            list(spec.trainable_token_indices) if spec.trainable_token_indices is not None else None
+        ),
         task_type="CAUSAL_LM",
     )
     return get_peft_model(model, peft_config)

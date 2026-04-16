@@ -3,12 +3,13 @@ epochs: 1.0
 max_length: 4096
 bf16: true
 gradient_checkpointing: true
+learning_rate: 2.0e-5
 
 loss_weights:
-  hard_ce: 1.1
-  seq_kd: 0.3
-  logit_kd: 0.3
-  feat: 0.1
-  aux: 0.35
-  self_cons: 0.25
-  rank: 0.2
+  gt_cot_loss: 1.0
+  teacher_cot_loss: 0.2
+  teacher_topk_kd_loss: 0.35
+  traj_loss: 0.15
+  output_format_loss: 0.15
+  meta_action_loss: 0.08
+  feature_align_loss: 0.0

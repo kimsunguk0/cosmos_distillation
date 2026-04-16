@@ -1,0 +1,19 @@
+{
+  "corpus_jsonl": "/workspace/cosmos_distillation/data/corpus/distill_v3_2.jsonl",
+  "teacher_index_jsonl": "/data/teacher_cache/text/index.jsonl",
+  "consistency_parquet": "/data/state/split_semantic_gate.parquet",
+  "records": 284,
+  "teacher_ready_records": 284,
+  "teacher_view_allowed_rate": 0.9823943661971831,
+  "action_aux_allowed_rate": 0.9225352112676056,
+  "teacher_topk_ready_rate": 1.0,
+  "traj_ready_rate": 1.0,
+  "teacher_gt_motion_exact_match": 0.40492957746478875,
+  "teacher_human_cot_overlap": 0.14638410014843892,
+  "teacher_human_disagreement_rate": 0.7253521126760564,
+  "teacher_gt_intent_disagreement_rate": 0.602112676056338,
+  "notes": [
+    "Evaluation reflects v3.2 corpus coverage, gate policy, and teacher/GT consistency diagnostics.",
+    "Checkpoint-level generation metrics should be measured with scripts/15_infer_student_smoke.py."
+  ]
+}

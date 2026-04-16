@@ -1,0 +1,38 @@
+{
+  "checkpoint_dir": "/workspace/cosmos_distillation/outputs/checkpoints/subset_probe_train1_contract100/final",
+  "corpus_jsonl": "/workspace/cosmos_distillation/data/corpus/subset_probe/distill_v3_2_train1.jsonl",
+  "split": "train",
+  "num_samples": 1,
+  "max_new_tokens": 224,
+  "constrain_traj_decoding": true,
+  "forced_traj_token_count": null,
+  "avg_latency_sec": 4.692,
+  "load_info": {
+    "format": "lora_adapter",
+    "missing": [],
+    "unexpected": [],
+    "use_lora": true
+  },
+  "results": [
+    {
+      "sample_id": "0262ea23-9be7-430e-8c62-d251b4cd9b01__t0_14887532__evt_00",
+      "split": "train",
+      "elapsed_sec": 4.692,
+      "generated_text": "Go straight and navigate through the construction zone with traffic cones.<|cot_end|><|traj_future_start|><i1717><i1499><i1692><i1498><i1663><i1497><i1640><i1496><i1630><i1496><i1634><i1496><i1640><i1497><i1637><i1497><i1626><i1496><i1621><i1495><i1627><i1494><i1640><i1493><i1648><i1493><i1649><i1492><i1648><i1492><i1643><i1492><i1633><i1492><i1624><i1491><i1622><i1491><i1625><i1492><i1625><i1492><i1621><i1492><i1614><i1492><i1610><i1491><i1610><i1490><i1613><i1489><i1615><i1488><i1609><i1488><i1599><i1488><i1594><i1489><i1600><i1490><i1611><i1491><i1613><i1491><i1606><i1491><i1597><i1491><i1591><i1492><i1589><i1492><i1592><i1492><i1601><i1492><i1610><i1492><i1613><i1493><i1606><i1494><i1595><i1495><i1586><i1495><i1588><i1496><i1604><i1497><i1628><i1498><i1642><i1499><i1638><i1501><i1621><i1502><i1606><i1503><i1599><i1503><i1600><i1502><i1598><i1500><i1589><i1500><i1576><i1500><i1570><i1500><i1576><i1499><i1588><i1499><i1595><i1499><i1594><i1499><i1590><i1500><i1591><i1501><i1596><i1503><|traj_future_end|>",
+      "generated_cot": "Go straight and navigate through the construction zone with traffic cones.",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep lane since the lane is clear ahead",
+      "target_text": "Go straight and navigate through the construction zone with traffic cones.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    }
+  ]
+}

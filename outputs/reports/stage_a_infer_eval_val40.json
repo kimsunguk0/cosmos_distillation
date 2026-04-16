@@ -1,0 +1,736 @@
+{
+  "checkpoint_dir": "outputs/checkpoints/stage_a_v3_2/final",
+  "corpus_jsonl": "/workspace/cosmos_distillation/data/corpus/distill_v3_2.jsonl",
+  "split": "val",
+  "num_samples": 40,
+  "max_new_tokens": 64,
+  "avg_latency_sec": 1.189,
+  "load_info": {
+    "format": "lora_adapter",
+    "missing": [],
+    "unexpected": [],
+    "use_lora": true
+  },
+  "results": [
+    {
+      "sample_id": "476fed83-ed85-4b2c-b6c3-cf780a2d0123__t0_16992755__evt_00",
+      "split": "val",
+      "elapsed_sec": 2.136,
+      "generated_text": "The ego vehicle is driving on a residential road. driving on a residential road. driving on a residential road. driving on a residential road. driving on a residential road. driving on a residential road. driving on a residential road. driving on a residential road. driving on a residential road. driving on a residential road.",
+      "generated_cot": "The ego vehicle is driving on a residential road. driving on a residential road. driving on a residential road. driving on a residential road. driving on a residential road. driving on a residential road. driving on a residential road. driving on a residential road. driving on a residential road. driving on a residential road.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge to the left to clear the stopped van blocking the right side of our lane",
+      "target_text": "Slightly shift left to maintain a safe distance from the vehicle parked on the right side of the road.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_4833965__evt_00",
+      "split": "val",
+      "elapsed_sec": 1.924,
+      "generated_text": "The pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the",
+      "generated_cot": "The pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge left due to construction barrels blocking the right side of our lane",
+      "target_text": "Steer left to maintain a safe distance from the pedestrian ahead.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_13533965__evt_01",
+      "split": "val",
+      "elapsed_sec": 0.74,
+      "generated_text": "The pedestrian is walking across the road in front of the ego vehicle.",
+      "generated_cot": "The pedestrian is walking across the road in front of the ego vehicle.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Change lanes to the left due to a slow/parked vehicle blocking the right lane ahead, then match speed with left-lane traffic after merging.",
+      "target_text": "Steer left to pass the vehicle parking on the driving lane.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "594d2c54-ca9a-4bda-be8e-532b2fc359fb__t0_6659114__evt_00",
+      "split": "val",
+      "elapsed_sec": 1.913,
+      "generated_text": "The pedestrian is crossing the road. the ego vehicle should slow down to yield to the pedestrian. the pedestrian is crossing the road. the pedestrian is crossing the road. the pedestrian is crossing the road. the pedestrian is crossing the road. the pedestrian is crossing the road. the pedestrian is crossing the road. the pedestrian is",
+      "generated_cot": "The pedestrian is crossing the road. the ego vehicle should slow down to yield to the pedestrian. the pedestrian is crossing the road. the pedestrian is crossing the road. the pedestrian is crossing the road. the pedestrian is crossing the road. the pedestrian is crossing the road. the pedestrian is crossing the road. the pedestrian is",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "yield",
+        "confidence": 0.7,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "slow_down",
+      "teacher_action": "stop",
+      "teacher_long_cot": "Stop due to red traffic light",
+      "target_text": "Stop for the red traffic light at the intersection while pedestrians cross the crosswalk.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "5fa56c61-e8ed-4c0b-95dd-3e15c40d9f78__t0_4493173__evt_00",
+      "split": "val",
+      "elapsed_sec": 0.647,
+      "generated_text": "The garbage truck is ahead of the ego vehicle.",
+      "generated_cot": "The garbage truck is ahead of the ego vehicle.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "stop",
+      "teacher_action": "stop",
+      "teacher_long_cot": "Slow down due to the stopped lead vehicle blocking the lane",
+      "target_text": "Decelerate to maintain a safe distance from the garbage truck ahead while navigating through the construction zone on the left.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "e0772c6e-1524-494f-b16f-84ca1a700a7b__t0_8590176__evt_00",
+      "split": "val",
+      "elapsed_sec": 1.984,
+      "generated_text": "The construction zone ahead requires the ego vehicle to navigate carefully. construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone",
+      "generated_cot": "The construction zone ahead requires the ego vehicle to navigate carefully. construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "slow_down",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge to the left to clear the construction barricades blocking the right side of our lane",
+      "target_text": "Decelerate to maintain a safe distance from the construction zone on the right side of the road.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "6c96345e-07e1-47c7-868f-c7fb35d2998a__t0_15933466__evt_00",
+      "split": "val",
+      "elapsed_sec": 0.778,
+      "generated_text": "The ego vehicle is driving in a lane that is blocked by construction barriers.",
+      "generated_cot": "The ego vehicle is driving in a lane that is blocked by construction barriers.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge left due to the stopped van blocking the right side of our lane",
+      "target_text": "Strong deceleration when approaching the construction zone with traffic barriers.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "6fb0ec61-90f9-4424-8b9c-66fba2cfd86d__t0_14780381__evt_00",
+      "split": "val",
+      "elapsed_sec": 1.914,
+      "generated_text": "The driver encounters a construction zone with temporary barriers and signage ahead. construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction",
+      "generated_cot": "The driver encounters a construction zone with temporary barriers and signage ahead. construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "change_lane_left",
+      "teacher_action": "unknown",
+      "teacher_long_cot": "Keep speed through the intersection since the traffic light is green",
+      "target_text": "Steer left to maintain a safe distance from the construction zone with traffic barriers ahead.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "13f0af4c-2565-4a4d-b765-7f397f1d1684__t0_5148839__evt_00",
+      "split": "val",
+      "elapsed_sec": 0.725,
+      "generated_text": "The pedestrian is crossing the road in front of the ego vehicle.",
+      "generated_cot": "The pedestrian is crossing the road in front of the ego vehicle.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Yield due to a pedestrian walking across the crosswalk ahead",
+      "target_text": "Yield to the pedestrian crossing the road.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "13f0af4c-2565-4a4d-b765-7f397f1d1684__t0_11048839__evt_01",
+      "split": "val",
+      "elapsed_sec": 0.602,
+      "generated_text": "The pedestrian is crossing the road ahead.",
+      "generated_cot": "The pedestrian is crossing the road ahead.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "unknown",
+      "teacher_long_cot": "Keep speed through the intersection since the traffic light is green",
+      "target_text": "Decelerate to maintain a safe distance from the pedestrian crossing the road.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "13f0af4c-2565-4a4d-b765-7f397f1d1684__t0_14648839__evt_02",
+      "split": "val",
+      "elapsed_sec": 0.721,
+      "generated_text": "The pedestrian is crossing the road in front of the ego vehicle.",
+      "generated_cot": "The pedestrian is crossing the road in front of the ego vehicle.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "nudge_left",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Yield to the pedestrian in the crosswalk since they are walking across our lane ahead",
+      "target_text": "Steer left to pass the pedestrian crossing the road at the crosswalk.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "1de484ec-e29f-41ca-b4e8-4c91e0a1d66c__t0_6324984__evt_00",
+      "split": "val",
+      "elapsed_sec": 0.623,
+      "generated_text": "The ego vehicle is waiting at the intersection.",
+      "generated_cot": "The ego vehicle is waiting at the intersection.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "stop",
+      "teacher_action": "stop",
+      "teacher_long_cot": "Yield due to a pedestrian exiting a vehicle ahead",
+      "target_text": "Stop behind the lead vehicle in the same lane and yield to the pedestrian crossing the road.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "682fed39-be2a-4949-8d04-21529678ffca__t0_6247611__evt_00",
+      "split": "val",
+      "elapsed_sec": 1.902,
+      "generated_text": "The ego vehicle is driving in the right lane of a two-lane road. ahead the lane is blocked by a truck. ahead the lane is blocked by a truck. ahead the lane is blocked by a truck. ahead the lane is blocked by a truck. ahead the lane is blocked by a truck. ahead the lane",
+      "generated_cot": "The ego vehicle is driving in the right lane of a two-lane road. ahead the lane is blocked by a truck. ahead the lane is blocked by a truck. ahead the lane is blocked by a truck. ahead the lane is blocked by a truck. ahead the lane is blocked by a truck. ahead the lane",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "nudge_left",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge to the left to clear the stopped truck blocking the right side of our lane",
+      "target_text": "Decelerate to maintain a safe distance from the pedestrian on the road.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "79937d25-63d0-4e38-9848-c714dcab0328__t0_6778032__evt_00",
+      "split": "val",
+      "elapsed_sec": 0.673,
+      "generated_text": "The pedestrian is crossing the road at the crosswalk.",
+      "generated_cot": "The pedestrian is crossing the road at the crosswalk.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "stop",
+      "teacher_action": "stop",
+      "teacher_long_cot": "Yield due to a pedestrian walking across the crosswalk",
+      "target_text": "Stop for the pedestrian crossing the road at the crosswalk.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "298ee80a-156d-46c7-a4e4-7b2ec10cf991__t0_7376236__evt_00",
+      "split": "val",
+      "elapsed_sec": 0.833,
+      "generated_text": "The ego vehicle is driving in a lane that is divided by a dashed white line.",
+      "generated_cot": "The ego vehicle is driving in a lane that is divided by a dashed white line.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge left due to the vehicle protruding into our lane from the right",
+      "target_text": "Stop to keep a safe distance from the upcoming vehicle.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "7f3de9fd-d5d6-41d9-973a-c473e2debd66__t0_14294104__evt_00",
+      "split": "val",
+      "elapsed_sec": 0.653,
+      "generated_text": "The next action is to proceed through the intersection.",
+      "generated_cot": "The next action is to proceed through the intersection.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "stop",
+      "teacher_action": "stop",
+      "teacher_long_cot": "Yield due to pedestrians in the crosswalk",
+      "target_text": "Yield to pedestrians crossing the crosswalk.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "2a23ab0e-e5ec-4150-abcd-770a9372a485__t0_8293882__evt_00",
+      "split": "val",
+      "elapsed_sec": 0.723,
+      "generated_text": "The pedestrian is crossing the road in front of the ego vehicle.",
+      "generated_cot": "The pedestrian is crossing the road in front of the ego vehicle.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep distance to the lead vehicle since it is directly ahead in our lane",
+      "target_text": "Steer right following temporary traffic delineators.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "9da64062-a82e-4e40-84c5-3d267ad84968__t0_15034658__evt_00",
+      "split": "val",
+      "elapsed_sec": 1.91,
+      "generated_text": "The ego vehicle is driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area.",
+      "generated_cot": "The ego vehicle is driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "slow_down",
+      "teacher_long_cot": "Keep distance to the lead vehicle since it is moving slowly ahead",
+      "target_text": "Maintain speed while maintaining a safe distance from the yellow construction vehicle in the same lane.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "0c94c73b-8b7b-4516-8ddb-2a8031eccff4__t0_11981334__evt_00",
+      "split": "val",
+      "elapsed_sec": 0.725,
+      "generated_text": "The construction zone ahead causes the ego vehicle to decelerate.",
+      "generated_cot": "The construction zone ahead causes the ego vehicle to decelerate.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "left_turn",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge to the left to clear the construction barricade blocking the right side of our lane",
+      "target_text": "Steer left following temporary traffic delineators.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "44f7c2ff-6530-4a28-b62f-1adb51cc30ee__t0_4177771__evt_00",
+      "split": "val",
+      "elapsed_sec": 0.722,
+      "generated_text": "The pedestrian is crossing the road in front of the ego vehicle.",
+      "generated_cot": "The pedestrian is crossing the road in front of the ego vehicle.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "left_turn",
+      "teacher_action": "slow_down",
+      "teacher_long_cot": "Slow down due to a pedestrian walking across the crosswalk ahead",
+      "target_text": "Decelerate to maintain a safe distance from the pedestrian crossing the road ahead.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "049a4497-61ad-44a1-8c39-5fa1a3ed8d15__t0_2649354__evt_00",
+      "split": "val",
+      "elapsed_sec": 0.622,
+      "generated_text": "The pedestrian is walking across the road ahead.",
+      "generated_cot": "The pedestrian is walking across the road ahead.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "nudge_right",
+      "teacher_long_cot": "Nudge right due to the vehicle encroaching from the left into our lane",
+      "target_text": "Decelerate because the oncoming vehicle is turning.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "0e74e6f8-6841-4428-a11f-f5c70426d3be__t0_4970759__evt_00",
+      "split": "val",
+      "elapsed_sec": 0.592,
+      "generated_text": "The upcoming traffic light is green.",
+      "generated_cot": "The upcoming traffic light is green.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "nudge_right",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep distance to the lead vehicle since it is directly ahead in our lane",
+      "target_text": "__DISCARDED__",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "0e74e6f8-6841-4428-a11f-f5c70426d3be__t0_8170759__evt_01",
+      "split": "val",
+      "elapsed_sec": 0.634,
+      "generated_text": "The ego vehicle is waiting at the intersection.",
+      "generated_cot": "The ego vehicle is waiting at the intersection.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "change_lane_left",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep distance to the lead vehicle since it is directly ahead in our lane",
+      "target_text": "Steer left following temporary traffic delineators.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "0e74e6f8-6841-4428-a11f-f5c70426d3be__t0_10770759__evt_02",
+      "split": "val",
+      "elapsed_sec": 1.954,
+      "generated_text": "The construction zone ahead requires the ego vehicle to navigate carefully. construction zone ahead requires the ego vehicle to navigate carefully. construction zone ahead requires the ego vehicle to navigate carefully. construction zone ahead requires the ego vehicle to navigate carefully. construction zone ahead requires the ego vehicle to navigate carefully. construction zone ahead requires the ego vehicle to",
+      "generated_cot": "The construction zone ahead requires the ego vehicle to navigate carefully. construction zone ahead requires the ego vehicle to navigate carefully. construction zone ahead requires the ego vehicle to navigate carefully. construction zone ahead requires the ego vehicle to navigate carefully. construction zone ahead requires the ego vehicle to navigate carefully. construction zone ahead requires the ego vehicle to",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep distance to the lead vehicle since it is directly ahead in our lane",
+      "target_text": "Steer right following the temporary lane delineated by traffic cones through the construction zone.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "f7cc562a-30c7-413d-9220-a8f573f6cfba__t0_7451387__evt_00",
+      "split": "val",
+      "elapsed_sec": 1.911,
+      "generated_text": "The ego vehicle is driving on a road. the road has construction barriers. the construction barriers are in the middle of the road. the construction barriers are in the middle of the road. the construction barriers are in the middle of the road. the construction barriers are in the middle of the road. the construction barriers are in",
+      "generated_cot": "The ego vehicle is driving on a road. the road has construction barriers. the construction barriers are in the middle of the road. the construction barriers are in the middle of the road. the construction barriers are in the middle of the road. the construction barriers are in the middle of the road. the construction barriers are in",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "nudge_left",
+      "teacher_action": "nudge_right",
+      "teacher_long_cot": "Nudge to the right to clear the stopped van blocking the lane ahead",
+      "target_text": "Steer left to maintain a safe distance from the upcoming construction zone delineated by traffic cones and barriers.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "15c9927b-1ef3-445d-8e8d-f275d554de15__t0_6772650__evt_00",
+      "split": "val",
+      "elapsed_sec": 0.65,
+      "generated_text": "The construction zone ahead is blocked by temporary barriers.",
+      "generated_cot": "The construction zone ahead is blocked by temporary barriers.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep lane since the lane is narrowed by construction barriers",
+      "target_text": "Go straight while following the lane through the construction zone with traffic cones on the left side.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "a987d18a-92e2-4c13-b61e-fda0de5e685d__t0_10491032__evt_00",
+      "split": "val",
+      "elapsed_sec": 1.968,
+      "generated_text": "The ego vehicle is driving in a lane that is narrowed by construction. construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7",
+      "generated_cot": "The ego vehicle is driving in a lane that is narrowed by construction. construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7 construction\ud83d\udea7",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge left due to the construction barricade blocking the right side of our lane",
+      "target_text": "Steer left to maintain a safe distance from the construction zone with traffic barriers.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "e1d3b0a3-39bc-4a2d-a80a-825af393ec92__t0_4349306__evt_00",
+      "split": "val",
+      "elapsed_sec": 1.937,
+      "generated_text": "The ego vehicle is driving on a narrow street with construction barriers on the right. driving on a narrow street with construction barriers on the right. driving on a narrow street with construction barriers on the right. driving on a narrow street with construction barriers on the right. driving on a narrow street with construction barriers on the right.",
+      "generated_cot": "The ego vehicle is driving on a narrow street with construction barriers on the right. driving on a narrow street with construction barriers on the right. driving on a narrow street with construction barriers on the right. driving on a narrow street with construction barriers on the right. driving on a narrow street with construction barriers on the right.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "slow_down",
+      "teacher_action": "nudge_right",
+      "teacher_long_cot": "Nudge to the right to clear the construction barricades blocking the left side of our lane",
+      "target_text": "Adapt speed for the upcoming construction zone with traffic delineators and barriers.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "5d8b451d-e522-4a5f-8705-389dfce25009__t0_6219153__evt_00",
+      "split": "val",
+      "elapsed_sec": 0.673,
+      "generated_text": "The pedestrian is crossing the road at the crosswalk.",
+      "generated_cot": "The pedestrian is crossing the road at the crosswalk.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "slow_down",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep distance to the lead vehicle since it is directly ahead in our lane",
+      "target_text": "Steer right to keep a safe distance from the construction zone with traffic cones in the same lane.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "892eb6e7-83b3-4452-94cd-a49286465682__t0_3348535__evt_00",
+      "split": "val",
+      "elapsed_sec": 1.933,
+      "generated_text": "The next action for the ego vehicle is to maintain its current speed while navigating through the construction zone. construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone",
+      "generated_cot": "The next action for the ego vehicle is to maintain its current speed while navigating through the construction zone. construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge left due to construction cones blocking the right side of our lane",
+      "target_text": "Steer left to keep a safe distance from the construction zone ahead.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "892eb6e7-83b3-4452-94cd-a49286465682__t0_5748535__evt_01",
+      "split": "val",
+      "elapsed_sec": 1.927,
+      "generated_text": "The construction zone ahead will require the ego vehicle to navigate through the construction zone. construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone",
+      "generated_cot": "The construction zone ahead will require the ego vehicle to navigate through the construction zone. construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone construction zone",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge to the left to clear the construction cones blocking the right side of our lane",
+      "target_text": "Steer right after passing the construction zone.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "cf624891-61eb-4039-8839-b8940bb28e1c__t0_10522698__evt_00",
+      "split": "val",
+      "elapsed_sec": 1.92,
+      "generated_text": "The pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the",
+      "generated_cot": "The pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the pedestrian is walking across the crosswalk. the",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "nudge_right",
+      "teacher_long_cot": "Nudge right due to the person walking into the lane from the left",
+      "target_text": "Steer right to maintain a safe distance from the pedestrian on the left.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "2ab96e64-9280-4b50-b2b6-2379701d9401__t0_11032903__evt_00",
+      "split": "val",
+      "elapsed_sec": 0.627,
+      "generated_text": "The ego vehicle is traveling along the road.",
+      "generated_cot": "The ego vehicle is traveling along the road.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "nudge_left",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge left due to cones blocking the right side of our lane",
+      "target_text": "Stop behind the lead vehicle in the same lane.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "2ab96e64-9280-4b50-b2b6-2379701d9401__t0_12332903__evt_01",
+      "split": "val",
+      "elapsed_sec": 0.626,
+      "generated_text": "The ego vehicle is traveling along the lane.",
+      "generated_cot": "The ego vehicle is traveling along the lane.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "nudge_left",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge left due to the stopped van blocking the right side of our lane",
+      "target_text": "Steer left to pass the bus parked in the same lane.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "2f3a0b15-1632-4a96-b194-2ab344206a02__t0_16343015__evt_00",
+      "split": "val",
+      "elapsed_sec": 0.674,
+      "generated_text": "The pedestrian is crossing the road at the crosswalk.",
+      "generated_cot": "The pedestrian is crossing the road at the crosswalk.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "nudge_left",
+      "teacher_action": "stop",
+      "teacher_long_cot": "Yield due to a cyclist crossing our lane ahead",
+      "target_text": "Gentle deceleration to keep a safe distance from the cyclist and lead vehicle ahead.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "4e40e1f9-2877-446c-a53d-eb7fcbfc05ad__t0_9876928__evt_00",
+      "split": "val",
+      "elapsed_sec": 0.721,
+      "generated_text": "The construction zone ahead causes the ego vehicle to decelerate.",
+      "generated_cot": "The construction zone ahead causes the ego vehicle to decelerate.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge left due to cones blocking the right side of our lane",
+      "target_text": "Slightly shift left to maintain a safe distance from the pedestrian crossing the road ahead.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "4e40e1f9-2877-446c-a53d-eb7fcbfc05ad__t0_11376928__evt_01",
+      "split": "val",
+      "elapsed_sec": 0.724,
+      "generated_text": "The construction zone ahead causes the ego vehicle to decelerate.",
+      "generated_cot": "The construction zone ahead causes the ego vehicle to decelerate.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge left due to the stopped truck blocking the right side of our lane",
+      "target_text": "Decelerate to maintain a safe distance from the pedestrian crossing the road ahead.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "8d9851c9-1a4b-4c23-9993-bcc49d1c250e__t0_1816305__evt_00",
+      "split": "val",
+      "elapsed_sec": 0.751,
+      "generated_text": "The driver is navigating through a construction zone with temporary traffic delineators.",
+      "generated_cot": "The driver is navigating through a construction zone with temporary traffic delineators.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "right_turn",
+      "teacher_action": "nudge_right",
+      "teacher_long_cot": "Nudge to the right to clear the construction cones blocking the left side of our lane",
+      "target_text": "Steer right following temporary traffic delineators.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "f4d0d2ce-332d-4086-8848-7c02fd59544f__t0_2096281__evt_00",
+      "split": "val",
+      "elapsed_sec": 1.943,
+      "generated_text": "The driver encounters a temporary traffic restriction due to construction cones on the road. construction cones are present on the road. construction cones are present on the road. construction cones are present on the road. construction cones are present on the road. construction cones are present on the road. construction cones are present on the road. construction",
+      "generated_cot": "The driver encounters a temporary traffic restriction due to construction cones on the road. construction cones are present on the road. construction cones are present on the road. construction cones are present on the road. construction cones are present on the road. construction cones are present on the road. construction cones are present on the road. construction",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "nudge_right",
+      "teacher_action": "nudge_right",
+      "teacher_long_cot": "Nudge right due to cones blocking the left side of our lane",
+      "target_text": "Steer right to maintain a safe distance from the upcoming construction zone delineated by traffic cones.",
+      "target_traj_token_count": 128
+    },
+    {
+      "sample_id": "f4d0d2ce-332d-4086-8848-7c02fd59544f__t0_4896281__evt_01",
+      "split": "val",
+      "elapsed_sec": 1.926,
+      "generated_text": "The ego vehicle is driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area.",
+      "generated_cot": "The ego vehicle is driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area. driving in a residential area.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "change_lane_left",
+      "teacher_action": "nudge_right",
+      "teacher_long_cot": "Nudge to the right to clear the construction cones blocking the lane",
+      "target_text": "Steer left to return to the driving lane after passing the construction zone.",
+      "target_traj_token_count": 128
+    }
+  ]
+}

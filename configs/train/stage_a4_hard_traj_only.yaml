@@ -1,0 +1,16 @@
+stage_name: stage_a
+epochs: 1.0
+max_length: 4096
+bf16: true
+gradient_checkpointing: true
+learning_rate: 3.0e-5
+
+loss_weights:
+  gt_cot_loss: 0.75
+  teacher_cot_loss: 0.0
+  teacher_topk_kd_loss: 0.0
+  traj_loss: 1.5
+  teacher_traj_loss: 0.0
+  output_format_loss: 0.75
+  meta_action_loss: 0.0
+  feature_align_loss: 0.0

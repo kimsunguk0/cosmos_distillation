@@ -1,0 +1,33 @@
+{
+  "mode": "train",
+  "student_model": "/workspace/base_models_weights/Cosmos-Reason2-2B",
+  "stage_name": "stage_b",
+  "train_records": 2,
+  "all_train_records": 244,
+  "teacher_ready_records": 2,
+  "action_aux_ready_records": 1,
+  "global_steps": 1,
+  "effective_batch_size": 2,
+  "learning_rate": 2e-05,
+  "use_lora": true,
+  "multi_gpu_mode": "ddp",
+  "cuda_visible_devices": null,
+  "device_count": 2,
+  "device_ids": [
+    0,
+    1
+  ],
+  "versions": {
+    "canonical_localization_version": "v2_explicit_t0_anchor",
+    "path_semantics_version": "v2_action_turn_stop_records",
+    "teacher_runtime_bundle_version": "v2_runtime_only_bundle",
+    "teacher_prompt_family_version": "v5_official_cot_plus_honest_vqa_probe",
+    "teacher_selection_policy_version": "v5_long_cot_primary_honest_teacher_contract",
+    "kd_schema_version": "v5_long_cot_primary_meta_derived_answer_probe",
+    "teacher_signal_cache_version": "v3_field_scoped_sparse_topk"
+  },
+  "elapsed_sec": 3.625,
+  "metrics_path": "/workspace/cosmos_distillation/outputs/checkpoints/smoke_stage_b_v3_2_ddp/metrics.jsonl",
+  "output_dir": "/workspace/cosmos_distillation/outputs/checkpoints/smoke_stage_b_v3_2_ddp",
+  "checkpoint_dir": "/workspace/cosmos_distillation/outputs/checkpoints/smoke_stage_b_v3_2_ddp/final"
+}

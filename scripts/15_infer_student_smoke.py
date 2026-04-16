@@ -16,12 +16,22 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import torch
-from transformers import AutoProcessor, AutoTokenizer
+from transformers import AutoProcessor, AutoTokenizer, LogitsProcessorList, StoppingCriteriaList
 
 from src.data.parsers import action_record_from_text
+from src.inference.decoding import (
+    StopOnTrajEndCriteria,
+    StopOnTrajOnlyEndCriteria,
+    TrajDecodingContract,
+    TrajOnlyDecodingContract,
+    TrajOnlyLogitsProcessor,
+    TrajSpanLogitsProcessor,
+)
+from src.model.checkpoint_io import detect_checkpoint_format, load_student_checkpoint
 from src.model.peft_setup import LoraConfigSpec, maybe_apply_lora
 from src.model.student_wrapper import StudentWrapperConfig, build_student_model
-from src.training.collator import build_messages, build_user_prompt, load_sample_images
+from src.model.tokenizer_ext import distill_trainable_token_ids
+from src.training.collator import build_messages, build_traj_only_prompt, build_user_prompt, load_sample_images
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,21 +39,32 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--corpus-jsonl",
         type=Path,
-        default=PROJECT_ROOT / "data" / "corpus" / "strict_human_long_cot_262_fixkd.jsonl",
+        default=PROJECT_ROOT / "data" / "corpus" / "distill_v3_2.jsonl",
     )
     parser.add_argument(
         "--checkpoint-dir",
         type=Path,
-        default=PROJECT_ROOT / "outputs" / "checkpoints" / "train_stage_b_teacher262_fixkd_full" / "final",
+        default=PROJECT_ROOT / "outputs" / "checkpoints" / "stage_b_v3_2" / "final",
     )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--num-samples", type=int, default=3)
     parser.add_argument("--split", default="val")
-    parser.add_argument("--max-new-tokens", type=int, default=80)
+    parser.add_argument("--max-new-tokens", type=int, default=160)
+    parser.add_argument(
+        "--disable-traj-constraint",
+        action="store_true",
+        help="Disable structured trajectory decoding after `<|cot_end|>`.",
+    )
+    parser.add_argument(
+        "--forced-traj-token-count",
+        type=int,
+        default=None,
+        help="Override the number of `<i...>` trajectory tokens to emit before `<|traj_future_end|>`.",
+    )
     parser.add_argument(
         "--summary-json",
         type=Path,
-        default=PROJECT_ROOT / "outputs" / "reports" / "student_infer_smoke_teacher262_fixkd.json",
+        default=PROJECT_ROOT / "outputs" / "reports" / "student_infer_smoke_v3_2.json",
     )
     return parser.parse_args()
 
@@ -73,10 +94,6 @@ def decode_generated_text(tokenizer, input_ids: torch.Tensor, generated_ids: tor
     prompt_len = int(input_ids.shape[-1])
     new_tokens = generated_ids[0, prompt_len:]
     text = tokenizer.decode(new_tokens, skip_special_tokens=False)
-    if "<|cot_start|>" in text:
-        text = text.split("<|cot_start|>", 1)[1]
-    if "<|cot_end|>" in text:
-        text = text.split("<|cot_end|>", 1)[0]
     text = text.replace("<|im_start|>assistant", "\n").replace("<|im_end|>", "\n")
     text = re.sub(r"^\s*assistant[:;]?\s*", "", text, flags=re.IGNORECASE)
     lines = [line.strip(" ;") for line in text.splitlines() if line.strip(" ;")]
@@ -85,6 +102,20 @@ def decode_generated_text(tokenizer, input_ids: torch.Tensor, generated_ids: tor
         if not deduped or deduped[-1] != line:
             deduped.append(line)
     return "\n".join(deduped).strip()
+
+
+def extract_generated_spans(generated_text: str, *, target_mode: str) -> tuple[str, list[int]]:
+    if target_mode == "traj_only":
+        return "", [int(match) for match in re.findall(r"<i(\d+)>", generated_text)]
+    cot_text = generated_text
+    if "<|cot_end|>" in cot_text:
+        cot_text = cot_text.split("<|cot_end|>", 1)[0]
+    if "<|traj_future_start|>" in generated_text and "<|traj_future_end|>" in generated_text:
+        traj_text = generated_text.split("<|traj_future_start|>", 1)[1].split("<|traj_future_end|>", 1)[0]
+        traj_tokens = [int(match) for match in re.findall(r"<i(\d+)>", traj_text)]
+    else:
+        traj_tokens = []
+    return cot_text.strip(), traj_tokens
 
 
 def load_model_and_processors(checkpoint_dir: Path, device: str):
@@ -99,32 +130,43 @@ def load_model_and_processors(checkpoint_dir: Path, device: str):
     wrapper_cfg = StudentWrapperConfig(
         student_model_name=base_model,
         max_length=int(train_config["trainer_config"]["max_length"]),
+        torch_dtype=(
+            torch.bfloat16
+            if device.startswith("cuda") and bool(train_config["trainer_config"].get("bf16", True))
+            else None
+        ),
         local_files_only=Path(base_model).expanduser().exists(),
     )
     print(json.dumps({"event": "load_base_model_start", "base_model": base_model}), flush=True)
     started_at = time.time()
     model = build_student_model(wrapper_cfg, tokenizer)
     print(json.dumps({"event": "load_base_model_done", "elapsed_sec": round(time.time() - started_at, 3)}), flush=True)
-    model.backbone = maybe_apply_lora(model.backbone, LoraConfigSpec(), enabled=use_lora)
-    print(json.dumps({"event": "load_state_dict_start"}), flush=True)
+    checkpoint_format = detect_checkpoint_format(checkpoint_dir)
+    if checkpoint_format == "full_state_dict" and use_lora:
+        model.backbone = maybe_apply_lora(
+            model.backbone,
+            LoraConfigSpec(trainable_token_indices=tuple(distill_trainable_token_ids(tokenizer))),
+            enabled=True,
+        )
+    print(json.dumps({"event": "checkpoint_load_start", "format": checkpoint_format}), flush=True)
     started_at = time.time()
-    load_kwargs = {"map_location": "cpu"}
-    try:
-        state_dict = torch.load(checkpoint_dir / "student_state.pt", mmap=True, **load_kwargs)
-    except TypeError:
-        state_dict = torch.load(checkpoint_dir / "student_state.pt", **load_kwargs)
-    print(json.dumps({"event": "load_state_dict_done", "elapsed_sec": round(time.time() - started_at, 3)}), flush=True)
-    try:
-        load_result = model.load_state_dict(state_dict, strict=False, assign=True)
-    except TypeError:
-        load_result = model.load_state_dict(state_dict, strict=False)
-    missing = load_result.missing_keys
-    unexpected = load_result.unexpected_keys
-    print(json.dumps({"event": "apply_state_dict_done", "missing_count": len(missing), "unexpected_count": len(unexpected)}), flush=True)
-    del state_dict
+    load_info = load_student_checkpoint(checkpoint_dir, model, use_lora=use_lora)
+    print(
+        json.dumps(
+            {
+                "event": "checkpoint_load_done",
+                "format": load_info["format"],
+                "elapsed_sec": round(time.time() - started_at, 3),
+                "missing_count": len(load_info.get("missing", [])),
+                "unexpected_count": len(load_info.get("unexpected", [])),
+            }
+        ),
+        flush=True,
+    )
     model = model.to(device).eval()
     print(json.dumps({"event": "model_to_device_done", "device": device}), flush=True)
-    return model, tokenizer, processor, {"missing": missing, "unexpected": unexpected, "use_lora": use_lora}
+    data_view = train_config.get("data_view") or {}
+    return model, tokenizer, processor, {**load_info, "use_lora": use_lora, "data_view": data_view}
 
 
 def infer_one(
@@ -135,10 +177,15 @@ def infer_one(
     *,
     device: str,
     max_new_tokens: int,
+    constrain_traj_decoding: bool,
+    forced_traj_token_count: int | None,
+    prompt_mode: str,
+    target_mode: str,
 ) -> dict[str, Any]:
-    prompt_text = build_user_prompt(sample, PROJECT_ROOT)
+    prompt_text = build_traj_only_prompt(sample, PROJECT_ROOT) if prompt_mode == "traj_only" else build_user_prompt(sample, PROJECT_ROOT)
     images = load_sample_images(sample, PROJECT_ROOT)
-    messages = build_messages(prompt_text, len(images), target_text=None)
+    assistant_prefix = "<|traj_future_start|>" if target_mode == "traj_only" else "<|cot_start|>"
+    messages = build_messages(prompt_text, len(images), target_text=None, assistant_prefix=assistant_prefix)
     text = processor.apply_chat_template(
         messages,
         tokenize=False,
@@ -153,6 +200,32 @@ def infer_one(
         truncation=True,
     )
     batch = {key: value.to(device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
+    prompt_lengths = batch["attention_mask"].sum(dim=1).tolist()
+    target_traj_token_count = int(
+        forced_traj_token_count
+        if forced_traj_token_count is not None
+        else len((sample.get("hard_target") or {}).get("traj_future_token_ids") or [])
+    )
+
+    logits_processor = None
+    stopping_criteria = None
+    if constrain_traj_decoding and target_traj_token_count > 0:
+        if target_mode == "traj_only":
+            contract = TrajOnlyDecodingContract.from_tokenizer(
+                tokenizer,
+                prompt_lengths=prompt_lengths,
+                traj_token_count=target_traj_token_count,
+            )
+            logits_processor = LogitsProcessorList([TrajOnlyLogitsProcessor(contract)])
+            stopping_criteria = StoppingCriteriaList([StopOnTrajOnlyEndCriteria(contract)])
+        else:
+            contract = TrajDecodingContract.from_tokenizer(
+                tokenizer,
+                prompt_lengths=prompt_lengths,
+                traj_token_count=target_traj_token_count,
+            )
+            logits_processor = LogitsProcessorList([TrajSpanLogitsProcessor(contract)])
+            stopping_criteria = StoppingCriteriaList([StopOnTrajEndCriteria(contract)])
 
     started_at = time.time()
     with torch.inference_mode():
@@ -161,23 +234,31 @@ def infer_one(
             max_new_tokens=max_new_tokens,
             do_sample=False,
             use_cache=True,
+            logits_processor=logits_processor,
+            stopping_criteria=stopping_criteria,
         )
     elapsed = time.time() - started_at
     generated_text = decode_generated_text(tokenizer, batch["input_ids"], generated)
-    action = action_record_from_text(generated_text) or {"value": "unknown", "confidence": 0.0, "method": "missing"}
-    gt_action = (((sample.get("derived") or {}).get("action_class_from_gt_path") or {}).get("value"))
-    teacher_action = (sample.get("soft_target") or {}).get("teacher_action_class")
-    teacher_long_cot = (sample.get("soft_target") or {}).get("teacher_long_cot")
+    generated_cot, generated_traj_tokens = extract_generated_spans(generated_text, target_mode=target_mode)
+    action = action_record_from_text(generated_cot) or {"value": "unknown", "confidence": 0.0, "method": "missing"}
+    gt_action = (sample.get("derived") or {}).get("gt_motion_class")
+    teacher_action = (sample.get("teacher_target") or {}).get("teacher_motion_class")
+    teacher_long_cot = (sample.get("teacher_target") or {}).get("cot_text")
     return {
-        "sample_id": sample["source_sample_id"],
+        "sample_id": sample["sample_id"],
         "split": sample.get("split"),
         "elapsed_sec": round(elapsed, 3),
         "generated_text": generated_text,
+        "generated_cot": generated_cot,
+        "generated_traj_token_count": len(generated_traj_tokens),
         "generated_action": action,
         "gt_action": gt_action,
         "teacher_action": teacher_action,
         "teacher_long_cot": teacher_long_cot,
-        "target_text": sample["target"]["text"],
+        "target_text": (sample.get("hard_target") or {}).get("cot_text"),
+        "target_traj_token_count": len((sample.get("hard_target") or {}).get("traj_future_token_ids") or []),
+        "forced_traj_token_count": target_traj_token_count,
+        "constrain_traj_decoding": constrain_traj_decoding,
     }
 
 
@@ -186,10 +267,13 @@ def main() -> None:
     rows = load_jsonl(args.corpus_jsonl)
     samples = pick_samples(rows, split=args.split, limit=args.num_samples)
     model, tokenizer, processor, load_info = load_model_and_processors(args.checkpoint_dir, args.device)
+    data_view = load_info.get("data_view") or {}
+    prompt_mode = str(data_view.get("prompt_mode", "joint"))
+    target_mode = str(data_view.get("target_mode", "joint"))
 
     results = []
     for sample in samples:
-        print(json.dumps({"event": "infer_sample_start", "sample_id": sample["source_sample_id"]}), flush=True)
+        print(json.dumps({"event": "infer_sample_start", "sample_id": sample["sample_id"]}), flush=True)
         result = infer_one(
             model,
             processor,
@@ -197,12 +281,16 @@ def main() -> None:
             sample,
             device=args.device,
             max_new_tokens=args.max_new_tokens,
+            constrain_traj_decoding=not args.disable_traj_constraint,
+            forced_traj_token_count=args.forced_traj_token_count,
+            prompt_mode=prompt_mode,
+            target_mode=target_mode,
         )
         print(
             json.dumps(
                 {
                     "event": "infer_sample_done",
-                    "sample_id": sample["source_sample_id"],
+                    "sample_id": sample["sample_id"],
                     "elapsed_sec": result["elapsed_sec"],
                 }
             ),
@@ -216,6 +304,8 @@ def main() -> None:
         "split": args.split,
         "num_samples": len(results),
         "max_new_tokens": args.max_new_tokens,
+        "constrain_traj_decoding": not args.disable_traj_constraint,
+        "forced_traj_token_count": args.forced_traj_token_count,
         "avg_latency_sec": round(avg_latency, 3),
         "load_info": load_info,
         "results": results,

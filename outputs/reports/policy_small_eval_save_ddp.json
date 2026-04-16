@@ -1,0 +1,112 @@
+{
+  "mode": "train",
+  "student_model": "/workspace/base_models_weights/Cosmos-Reason2-2B",
+  "stage_name": "stage_b",
+  "train_records": 4,
+  "all_train_records": 244,
+  "val_records": 40,
+  "all_val_records": 40,
+  "teacher_ready_records": 4,
+  "action_aux_ready_records": 3,
+  "val_teacher_ready_records": 39,
+  "val_action_aux_ready_records": 37,
+  "global_steps": 2,
+  "steps_per_epoch": 2,
+  "requested_epochs": 4.0,
+  "completed_epochs": 1.0,
+  "resolved_max_steps": 2,
+  "eval_every_steps": 1,
+  "save_every_steps": 2,
+  "effective_batch_size": 2,
+  "learning_rate": 2e-05,
+  "use_lora": true,
+  "multi_gpu_mode": "ddp",
+  "cuda_visible_devices": null,
+  "device_count": 2,
+  "device_ids": [
+    0,
+    1
+  ],
+  "best_val_total_loss": 12.264761352539063,
+  "consecutive_val_regressions": 0,
+  "early_stop_enabled": true,
+  "early_stop_stage": "stage_b",
+  "early_stop_patience": 2,
+  "early_stop_triggered": false,
+  "early_stop_reason": null,
+  "eval_history": [
+    {
+      "phase": "val",
+      "epoch_progress": 0.5,
+      "global_step": 1,
+      "logs": {
+        "action_aux": 5.808742523193359,
+        "feat_align": 0.0,
+        "hard_cot_acc": 0.43268661499023436,
+        "hard_cot_ce": 6.230859375,
+        "hard_token_acc": 0.05480341911315918,
+        "hard_traj_acc": 0.0,
+        "hard_traj_ce": 20.59375,
+        "teacher_cot_acc": 0.365436315536499,
+        "teacher_logit_kd": 3.607369232177734,
+        "teacher_seq_ce": 2.63994140625,
+        "teacher_traj_ce": 19.79375,
+        "total_loss": 12.664634704589844,
+        "traj_ce": 20.19375
+      },
+      "best_val_total_loss": 12.664634704589844,
+      "consecutive_val_regressions": 0
+    },
+    {
+      "phase": "val",
+      "epoch_progress": 1.0,
+      "global_step": 2,
+      "logs": {
+        "action_aux": 5.6483154296875,
+        "feat_align": 0.0,
+        "hard_cot_acc": 0.4287422180175781,
+        "hard_cot_ce": 6.040625,
+        "hard_token_acc": 0.05430006980895996,
+        "hard_traj_acc": 0.0,
+        "hard_traj_ce": 19.765625,
+        "teacher_cot_acc": 0.363873815536499,
+        "teacher_logit_kd": 3.5369186401367188,
+        "teacher_seq_ce": 2.5564453125,
+        "teacher_traj_ce": 19.1,
+        "total_loss": 12.264761352539063,
+        "traj_ce": 19.4328125
+      },
+      "best_val_total_loss": 12.264761352539063,
+      "consecutive_val_regressions": 0
+    }
+  ],
+  "saved_checkpoints": [
+    {
+      "global_step": 2,
+      "checkpoint_dir": "outputs/checkpoints/policy_small_eval_save_ddp/step_000002",
+      "checkpoint": {
+        "format": "lora_adapter",
+        "adapter_dir": "lora_adapter",
+        "meta_action_head": "meta_action_head.pt"
+      }
+    }
+  ],
+  "versions": {
+    "canonical_localization_version": "v2_explicit_t0_anchor",
+    "path_semantics_version": "v2_action_turn_stop_records",
+    "teacher_runtime_bundle_version": "v2_runtime_only_bundle",
+    "teacher_prompt_family_version": "v5_official_cot_plus_honest_vqa_probe",
+    "teacher_selection_policy_version": "v5_long_cot_primary_honest_teacher_contract",
+    "kd_schema_version": "v5_long_cot_primary_meta_derived_answer_probe",
+    "teacher_signal_cache_version": "v3_field_scoped_sparse_topk"
+  },
+  "elapsed_sec": 83.346,
+  "metrics_path": "outputs/checkpoints/policy_small_eval_save_ddp/metrics.jsonl",
+  "output_dir": "outputs/checkpoints/policy_small_eval_save_ddp",
+  "checkpoint_dir": "outputs/checkpoints/policy_small_eval_save_ddp/final",
+  "checkpoint": {
+    "format": "lora_adapter",
+    "adapter_dir": "lora_adapter",
+    "meta_action_head": "meta_action_head.pt"
+  }
+}

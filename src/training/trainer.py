@@ -9,12 +9,13 @@ import torch
 
 from src.training.losses import (
     DistillationLossWeights,
+    TrajectoryDecodeConfig,
     auxiliary_action_loss,
+    decoded_traj_geometry_losses,
+    export_metric_logs,
     feature_alignment_loss,
-    logit_kd_loss,
     masked_token_accuracy,
-    ranking_consistency_loss,
-    self_consistency_penalty,
+    teacher_logit_kd_loss,
     weighted_causal_ce,
 )
 
@@ -22,6 +23,7 @@ from src.training.losses import (
 @dataclass(slots=True)
 class TrainerConfig:
     stage_name: str
+    epochs: float = 1.0
     max_length: int = 4096
     bf16: bool = True
     learning_rate: float = 2e-5
@@ -52,104 +54,186 @@ def move_batch_to_device(batch: dict[str, Any], device: torch.device) -> dict[st
     return moved
 
 
+def _zero(device: torch.device) -> torch.Tensor:
+    return torch.tensor(0.0, device=device)
+
+
+def _fallback_teacher_view(batch: dict[str, Any]) -> dict[str, Any]:
+    """Build a zero-weight teacher view so the model graph stays consistent across steps."""
+    device = batch["input_ids"].device
+    batch_size = int(batch["input_ids"].shape[0])
+    zeros = torch.zeros((batch_size,), device=device, dtype=torch.float32)
+    return {
+        "input_ids": batch["input_ids"],
+        "attention_mask": batch["attention_mask"],
+        "pixel_values": batch.get("pixel_values"),
+        "image_grid_thw": batch.get("image_grid_thw"),
+        "labels": batch["labels"],
+        "cot_span_mask": batch["cot_span_mask"],
+        "cot_content_mask": batch["cot_span_mask"],
+        "traj_span_mask": batch["traj_span_mask"],
+        "traj_token_mask": batch["traj_token_mask"],
+        "teacher_view_weight": zeros,
+        "teacher_logit_kd_weight": zeros,
+        "traj_weights": zeros,
+        "teacher_quality_multiplier": torch.ones((batch_size,), device=device, dtype=torch.float32),
+    }
+
+
 def run_train_step(
     model,
     batch: dict[str, Any],
     weights: DistillationLossWeights,
+    traj_decode_config: TrajectoryDecodeConfig | None = None,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Run one train step and return total loss plus scalar logs."""
+    device = batch["input_ids"].device
     hard_outputs = model(
         input_ids=batch["input_ids"],
         attention_mask=batch["attention_mask"],
         pixel_values=batch.get("pixel_values"),
         image_grid_thw=batch.get("image_grid_thw"),
     )
-    hard_ce, _ = weighted_causal_ce(
+
+    hard_cot_ce, _ = weighted_causal_ce(
         hard_outputs["logits"],
         batch["labels"],
-        batch["hard_ce_weights"],
+        batch["hard_cot_weights"],
+        batch["cot_span_mask"],
     )
-    aux = auxiliary_action_loss(
+    hard_traj_ce, _ = weighted_causal_ce(
+        hard_outputs["logits"],
+        batch["labels"],
+        batch["traj_weights"],
+        batch["traj_span_mask"],
+        batch.get("traj_token_label_weights"),
+    )
+    format_ce, _ = weighted_causal_ce(
+        hard_outputs["logits"],
+        batch["labels"],
+        batch["hard_cot_weights"],
+        batch["format_token_mask"],
+    )
+    action_aux = auxiliary_action_loss(
         hard_outputs["meta_action_logits"],
         batch["action_class_labels"],
-        batch["hard_ce_weights"],
+        batch["action_aux_weight"],
     )
-    self_cons = self_consistency_penalty(
-        hard_outputs["meta_action_logits"],
-        batch["action_class_labels"],
-        batch["consistency_scores"],
+    traj_xyz_reg, traj_delta_reg, traj_final_reg = decoded_traj_geometry_losses(
+        hard_outputs["logits"],
+        batch["labels"],
+        batch["traj_token_mask"],
+        batch.get("ego_history_xyz"),
+        batch.get("ego_history_mask"),
+        batch.get("ego_future_xyz"),
+        batch.get("ego_future_mask"),
+        traj_decode_config,
     )
+    hard_token_mask = batch["cot_span_mask"] | batch["traj_span_mask"]
+    hard_token_acc = masked_token_accuracy(hard_outputs["logits"], batch["labels"], hard_token_mask)
+    hard_cot_acc = masked_token_accuracy(hard_outputs["logits"], batch["labels"], batch["cot_span_mask"])
+    hard_traj_acc = masked_token_accuracy(hard_outputs["logits"], batch["labels"], batch["traj_token_mask"])
+    del hard_outputs
 
-    seq_kd = torch.tensor(0.0, device=batch["input_ids"].device)
-    logit_kd = torch.tensor(0.0, device=batch["input_ids"].device)
-    feat_align = torch.tensor(0.0, device=batch["input_ids"].device)
-    teacher_target_batches = batch.get("teacher_target_batches") or []
-    if teacher_target_batches:
-        seq_losses = []
-        logit_losses = []
-        feat_losses = []
-        for teacher_batch in teacher_target_batches:
-            teacher_outputs = model(
-                input_ids=teacher_batch["input_ids"],
-                attention_mask=teacher_batch["attention_mask"],
-                pixel_values=teacher_batch.get("pixel_values"),
-                image_grid_thw=teacher_batch.get("image_grid_thw"),
-            )
-            target_weights = teacher_batch["weights"].to(batch["input_ids"].device)
-            seq_loss, _ = weighted_causal_ce(
-                teacher_outputs["logits"],
-                teacher_batch["labels"],
-                target_weights,
-            )
-            seq_losses.append(seq_loss)
-            logit_losses.append(
-                logit_kd_loss(
-                    teacher_outputs["logits"],
-                    teacher_batch.get("teacher_topk_indices"),
-                    teacher_batch.get("teacher_topk_logits"),
-                    teacher_batch.get("teacher_topk_mask"),
-                    teacher_batch["labels"],
-                    target_weights,
-                )
-            )
-            feat_losses.append(
-                feature_alignment_loss(
-                    teacher_outputs["hidden_states"],
-                    teacher_batch.get("teacher_pooled_hidden"),
-                    teacher_batch["attention_mask"],
-                    target_weights,
-                )
-            )
-        seq_kd = torch.stack(seq_losses).mean()
-        logit_kd = torch.stack(logit_losses).mean()
-        feat_align = torch.stack(feat_losses).mean()
+    teacher_seq_ce = _zero(device)
+    teacher_logit_kd = _zero(device)
+    teacher_traj_ce = _zero(device)
+    feat_align = _zero(device)
 
-    rank = ranking_consistency_loss(
-        hard_outputs["meta_action_logits"],
-        batch["teacher_action_class_labels"],
-        batch["teacher_action_present_mask"],
-        batch["teacher_selection_scores"],
-        batch["rank_weights"],
-    )
+    teacher_view = batch.get("teacher_view") or _fallback_teacher_view(batch)
+    teacher_cot_acc = _zero(device)
+    if teacher_view:
+        teacher_outputs = model(
+            input_ids=teacher_view["input_ids"],
+            attention_mask=teacher_view["attention_mask"],
+            pixel_values=teacher_view.get("pixel_values"),
+            image_grid_thw=teacher_view.get("image_grid_thw"),
+        )
+        seq_weights = teacher_view["teacher_view_weight"] * teacher_view["teacher_quality_multiplier"]
+        teacher_seq_ce, _ = weighted_causal_ce(
+            teacher_outputs["logits"],
+            teacher_view["labels"],
+            seq_weights,
+            teacher_view["cot_span_mask"],
+        )
+        teacher_logit_weights = teacher_view["teacher_logit_kd_weight"] * teacher_view["teacher_quality_multiplier"]
+        teacher_logit_kd = teacher_logit_kd_loss(
+            teacher_outputs["logits"],
+            teacher_view.get("cot_content_mask"),
+            teacher_view.get("teacher_topk_indices"),
+            teacher_view.get("teacher_topk_logprobs"),
+            teacher_view.get("teacher_topk_mask"),
+            teacher_logit_weights,
+        )
+        teacher_traj_ce, _ = weighted_causal_ce(
+            teacher_outputs["logits"],
+            teacher_view["labels"],
+            teacher_view["traj_weights"],
+            teacher_view["traj_span_mask"],
+            teacher_view.get("traj_token_label_weights"),
+        )
+        if weights.feat_align > 0 and teacher_view.get("teacher_pooled_hidden") is not None:
+            feat_weights = seq_weights
+            hidden_mask = teacher_view.get("teacher_pooled_hidden_mask")
+            if hidden_mask is not None:
+                feat_weights = feat_weights * hidden_mask.float()
+            feat_align = feature_alignment_loss(
+                teacher_outputs["hidden_states"],
+                teacher_view.get("teacher_pooled_hidden"),
+                teacher_view["attention_mask"],
+                feat_weights,
+            )
+        teacher_cot_acc = masked_token_accuracy(
+            teacher_outputs["logits"],
+            teacher_view["labels"],
+            teacher_view["cot_span_mask"],
+        )
+        del teacher_outputs
+
+    traj_components = [hard_traj_ce]
+    if teacher_view:
+        traj_components.append(teacher_traj_ce)
+    traj_ce = torch.stack(traj_components).mean()
+
+    if weights.teacher_traj_ce is None:
+        traj_total = weights.traj_ce * traj_ce
+    else:
+        traj_total = weights.traj_ce * hard_traj_ce
+        if teacher_view:
+            traj_total = traj_total + weights.teacher_traj_ce * teacher_traj_ce
 
     total = (
-        weights.hard_ce * hard_ce
-        + weights.seq_kd * seq_kd
-        + weights.logit_kd * logit_kd
-        + weights.feat * feat_align
-        + weights.aux * aux
-        + weights.self_cons * self_cons
-        + weights.rank * rank
+        weights.hard_cot_ce * hard_cot_ce
+        + weights.teacher_seq_ce * teacher_seq_ce
+        + weights.teacher_logit_kd * teacher_logit_kd
+        + traj_total
+        + weights.format_ce * format_ce
+        + weights.action_aux * action_aux
+        + weights.feat_align * feat_align
+        + weights.traj_xyz_reg * traj_xyz_reg
+        + weights.traj_delta_reg * traj_delta_reg
+        + weights.traj_final_reg * traj_final_reg
     )
-    metrics = {
-        "hard_ce": float(hard_ce.detach().cpu()),
-        "seq_kd": float(seq_kd.detach().cpu()),
-        "logit_kd": float(logit_kd.detach().cpu()),
+
+    metrics = export_metric_logs(
+        {
+        "hard_cot_ce": float(hard_cot_ce.detach().cpu()),
+        "teacher_seq_ce": float(teacher_seq_ce.detach().cpu()),
+        "teacher_logit_kd": float(teacher_logit_kd.detach().cpu()),
+        "hard_traj_ce": float(hard_traj_ce.detach().cpu()),
+        "teacher_traj_ce": float(teacher_traj_ce.detach().cpu()),
+        "traj_ce": float(traj_ce.detach().cpu()),
+        "format_ce": float(format_ce.detach().cpu()),
+        "action_aux": float(action_aux.detach().cpu()),
         "feat_align": float(feat_align.detach().cpu()),
-        "aux": float(aux.detach().cpu()),
-        "self_cons": float(self_cons.detach().cpu()),
-        "rank": float(rank.detach().cpu()),
-        "token_acc": float(masked_token_accuracy(hard_outputs["logits"], batch["labels"]).detach().cpu()),
+        "traj_xyz_reg": float(traj_xyz_reg.detach().cpu()),
+        "traj_delta_reg": float(traj_delta_reg.detach().cpu()),
+        "traj_final_reg": float(traj_final_reg.detach().cpu()),
+        "hard_token_acc": float(hard_token_acc.detach().cpu()),
+        "hard_cot_acc": float(hard_cot_acc.detach().cpu()),
+        "hard_traj_acc": float(hard_traj_acc.detach().cpu()),
+        "teacher_cot_acc": float(teacher_cot_acc.detach().cpu()),
         "total_loss": float(total.detach().cpu()),
-    }
+        }
+    )
     return total, metrics

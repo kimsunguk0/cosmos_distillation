@@ -1,0 +1,336 @@
+{
+  "target_for_same_samples": {
+    "num_sequences": 10,
+    "unique_tokens_global": 329,
+    "per_seq_unique_avg": 70.9,
+    "per_seq_unique_min": 60,
+    "per_seq_unique_max": 83,
+    "max_same_token_run_avg": 1.7,
+    "max_same_token_run_max": 3,
+    "top10": [
+      [
+        1497,
+        74
+      ],
+      [
+        1498,
+        71
+      ],
+      [
+        1496,
+        45
+      ],
+      [
+        1499,
+        35
+      ],
+      [
+        1495,
+        35
+      ],
+      [
+        1493,
+        29
+      ],
+      [
+        1500,
+        27
+      ],
+      [
+        1501,
+        24
+      ],
+      [
+        1504,
+        23
+      ],
+      [
+        1506,
+        20
+      ]
+    ]
+  },
+  "a2": {
+    "report_path": "/workspace/cosmos_distillation/outputs/reports/stage_a2_v3_2_infer_val10_constrained.json",
+    "generated": {
+      "num_sequences": 10,
+      "unique_tokens_global": 4,
+      "per_seq_unique_avg": 3.0,
+      "per_seq_unique_min": 3,
+      "per_seq_unique_max": 3,
+      "max_same_token_run_avg": 105.1,
+      "max_same_token_run_max": 110,
+      "top10": [
+        [
+          1498,
+          1020
+        ],
+        [
+          1496,
+          164
+        ],
+        [
+          1499,
+          86
+        ],
+        [
+          1495,
+          10
+        ]
+      ]
+    },
+    "avg_set_jaccard": 0.037,
+    "samples": [
+      {
+        "sample_id": "476fed83-ed85-4b2c-b6c3-cf780a2d0123__t0_16992755__evt_00",
+        "generated_unique": 3,
+        "target_unique": 78,
+        "set_jaccard": 0.0253
+      },
+      {
+        "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_4833965__evt_00",
+        "generated_unique": 3,
+        "target_unique": 67,
+        "set_jaccard": 0.0294
+      },
+      {
+        "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_13533965__evt_01",
+        "generated_unique": 3,
+        "target_unique": 72,
+        "set_jaccard": 0.0417
+      },
+      {
+        "sample_id": "594d2c54-ca9a-4bda-be8e-532b2fc359fb__t0_6659114__evt_00",
+        "generated_unique": 3,
+        "target_unique": 68,
+        "set_jaccard": 0.0441
+      },
+      {
+        "sample_id": "5fa56c61-e8ed-4c0b-95dd-3e15c40d9f78__t0_4493173__evt_00",
+        "generated_unique": 3,
+        "target_unique": 68,
+        "set_jaccard": 0.0441
+      },
+      {
+        "sample_id": "e0772c6e-1524-494f-b16f-84ca1a700a7b__t0_8590176__evt_00",
+        "generated_unique": 3,
+        "target_unique": 83,
+        "set_jaccard": 0.0361
+      },
+      {
+        "sample_id": "6c96345e-07e1-47c7-868f-c7fb35d2998a__t0_15933466__evt_00",
+        "generated_unique": 3,
+        "target_unique": 70,
+        "set_jaccard": 0.0429
+      },
+      {
+        "sample_id": "6fb0ec61-90f9-4424-8b9c-66fba2cfd86d__t0_14780381__evt_00",
+        "generated_unique": 3,
+        "target_unique": 60,
+        "set_jaccard": 0.05
+      },
+      {
+        "sample_id": "13f0af4c-2565-4a4d-b765-7f397f1d1684__t0_5148839__evt_00",
+        "generated_unique": 3,
+        "target_unique": 62,
+        "set_jaccard": 0.0317
+      },
+      {
+        "sample_id": "13f0af4c-2565-4a4d-b765-7f397f1d1684__t0_11048839__evt_01",
+        "generated_unique": 3,
+        "target_unique": 81,
+        "set_jaccard": 0.0244
+      }
+    ]
+  },
+  "a3": {
+    "report_path": "/workspace/cosmos_distillation/outputs/reports/stage_a3_v3_2_infer_val10_constrained.json",
+    "generated": {
+      "num_sequences": 10,
+      "unique_tokens_global": 3,
+      "per_seq_unique_avg": 2.4,
+      "per_seq_unique_min": 2,
+      "per_seq_unique_max": 3,
+      "max_same_token_run_avg": 78.8,
+      "max_same_token_run_max": 89,
+      "top10": [
+        [
+          1495,
+          766
+        ],
+        [
+          1496,
+          510
+        ],
+        [
+          1428,
+          4
+        ]
+      ]
+    },
+    "avg_set_jaccard": 0.0226,
+    "samples": [
+      {
+        "sample_id": "476fed83-ed85-4b2c-b6c3-cf780a2d0123__t0_16992755__evt_00",
+        "generated_unique": 2,
+        "target_unique": 78,
+        "set_jaccard": 0.0127
+      },
+      {
+        "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_4833965__evt_00",
+        "generated_unique": 2,
+        "target_unique": 67,
+        "set_jaccard": 0.0147
+      },
+      {
+        "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_13533965__evt_01",
+        "generated_unique": 3,
+        "target_unique": 72,
+        "set_jaccard": 0.0274
+      },
+      {
+        "sample_id": "594d2c54-ca9a-4bda-be8e-532b2fc359fb__t0_6659114__evt_00",
+        "generated_unique": 2,
+        "target_unique": 68,
+        "set_jaccard": 0.0294
+      },
+      {
+        "sample_id": "5fa56c61-e8ed-4c0b-95dd-3e15c40d9f78__t0_4493173__evt_00",
+        "generated_unique": 2,
+        "target_unique": 68,
+        "set_jaccard": 0.0294
+      },
+      {
+        "sample_id": "e0772c6e-1524-494f-b16f-84ca1a700a7b__t0_8590176__evt_00",
+        "generated_unique": 2,
+        "target_unique": 83,
+        "set_jaccard": 0.0241
+      },
+      {
+        "sample_id": "6c96345e-07e1-47c7-868f-c7fb35d2998a__t0_15933466__evt_00",
+        "generated_unique": 3,
+        "target_unique": 70,
+        "set_jaccard": 0.0282
+      },
+      {
+        "sample_id": "6fb0ec61-90f9-4424-8b9c-66fba2cfd86d__t0_14780381__evt_00",
+        "generated_unique": 3,
+        "target_unique": 60,
+        "set_jaccard": 0.0328
+      },
+      {
+        "sample_id": "13f0af4c-2565-4a4d-b765-7f397f1d1684__t0_5148839__evt_00",
+        "generated_unique": 3,
+        "target_unique": 62,
+        "set_jaccard": 0.0156
+      },
+      {
+        "sample_id": "13f0af4c-2565-4a4d-b765-7f397f1d1684__t0_11048839__evt_01",
+        "generated_unique": 2,
+        "target_unique": 81,
+        "set_jaccard": 0.0122
+      }
+    ]
+  },
+  "a4": {
+    "report_path": "/workspace/cosmos_distillation/outputs/reports/stage_a4_v3_2_infer_val10_constrained.json",
+    "generated": {
+      "num_sequences": 10,
+      "unique_tokens_global": 3,
+      "per_seq_unique_avg": 2.4,
+      "per_seq_unique_min": 2,
+      "per_seq_unique_max": 3,
+      "max_same_token_run_avg": 68.4,
+      "max_same_token_run_max": 77,
+      "top10": [
+        [
+          1495,
+          663
+        ],
+        [
+          1496,
+          613
+        ],
+        [
+          1428,
+          4
+        ]
+      ]
+    },
+    "avg_set_jaccard": 0.0227,
+    "samples": [
+      {
+        "sample_id": "476fed83-ed85-4b2c-b6c3-cf780a2d0123__t0_16992755__evt_00",
+        "generated_unique": 2,
+        "target_unique": 78,
+        "set_jaccard": 0.0127
+      },
+      {
+        "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_4833965__evt_00",
+        "generated_unique": 2,
+        "target_unique": 67,
+        "set_jaccard": 0.0147
+      },
+      {
+        "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_13533965__evt_01",
+        "generated_unique": 3,
+        "target_unique": 72,
+        "set_jaccard": 0.0274
+      },
+      {
+        "sample_id": "594d2c54-ca9a-4bda-be8e-532b2fc359fb__t0_6659114__evt_00",
+        "generated_unique": 2,
+        "target_unique": 68,
+        "set_jaccard": 0.0294
+      },
+      {
+        "sample_id": "5fa56c61-e8ed-4c0b-95dd-3e15c40d9f78__t0_4493173__evt_00",
+        "generated_unique": 2,
+        "target_unique": 68,
+        "set_jaccard": 0.0294
+      },
+      {
+        "sample_id": "e0772c6e-1524-494f-b16f-84ca1a700a7b__t0_8590176__evt_00",
+        "generated_unique": 2,
+        "target_unique": 83,
+        "set_jaccard": 0.0241
+      },
+      {
+        "sample_id": "6c96345e-07e1-47c7-868f-c7fb35d2998a__t0_15933466__evt_00",
+        "generated_unique": 2,
+        "target_unique": 70,
+        "set_jaccard": 0.0286
+      },
+      {
+        "sample_id": "6fb0ec61-90f9-4424-8b9c-66fba2cfd86d__t0_14780381__evt_00",
+        "generated_unique": 3,
+        "target_unique": 60,
+        "set_jaccard": 0.0328
+      },
+      {
+        "sample_id": "13f0af4c-2565-4a4d-b765-7f397f1d1684__t0_5148839__evt_00",
+        "generated_unique": 3,
+        "target_unique": 62,
+        "set_jaccard": 0.0156
+      },
+      {
+        "sample_id": "13f0af4c-2565-4a4d-b765-7f397f1d1684__t0_11048839__evt_01",
+        "generated_unique": 3,
+        "target_unique": 81,
+        "set_jaccard": 0.012
+      }
+    ]
+  },
+  "delta_vs_a2": {
+    "a3": {
+      "per_seq_unique_avg": -0.6,
+      "max_same_token_run_avg": -26.3,
+      "avg_set_jaccard": -0.0144
+    },
+    "a4": {
+      "per_seq_unique_avg": -0.6,
+      "max_same_token_run_avg": -36.7,
+      "avg_set_jaccard": -0.0143
+    }
+  }
+}

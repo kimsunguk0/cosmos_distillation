@@ -1,0 +1,25 @@
+{
+  "event_manifest": "/data/state/event_manifest.parquet",
+  "semantic_gate_parquet": "/data/state/split_semantic_gate.parquet",
+  "teacher_index_jsonl": "/data/teacher_cache/text/index.jsonl",
+  "materialized_root": "/data/materialized",
+  "output_jsonl": "/workspace/cosmos_distillation/data/corpus/distill_v3_2.jsonl",
+  "records_written": 284,
+  "counts_by_split": {
+    "train": 244,
+    "val": 40
+  },
+  "teacher_view_allowed_count": 279,
+  "teacher_topk_ready_count": 279,
+  "action_aux_allowed_count": 262,
+  "teacher_vs_gt_motion_counts": {
+    "soft_fail": 137,
+    "pass": 115,
+    "unknown": 14,
+    "soft_pass": 13,
+    "hard_fail": 5
+  },
+  "skipped_missing_materialized": 3,
+  "skipped_missing_teacher": 0,
+  "skipped_missing_traj": 0
+}

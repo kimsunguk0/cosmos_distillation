@@ -1,0 +1,447 @@
+{
+  "corpus_path": "/workspace/cosmos_distillation/data/corpus/distill_v3_2.jsonl",
+  "train": {
+    "num_sequences": 244,
+    "total_tokens": 31232,
+    "unique_tokens": 1449,
+    "entropy_bits": 8.6046,
+    "per_seq_unique_avg": 79.7582,
+    "per_seq_unique_min": 8,
+    "per_seq_unique_max": 118,
+    "max_same_token_run_avg": 1.2828,
+    "max_same_token_run_max": 4,
+    "top20_tokens": [
+      [
+        1498,
+        1019
+      ],
+      [
+        1499,
+        789
+      ],
+      [
+        1493,
+        741
+      ],
+      [
+        1500,
+        717
+      ],
+      [
+        1496,
+        692
+      ],
+      [
+        1497,
+        688
+      ],
+      [
+        1501,
+        612
+      ],
+      [
+        1495,
+        554
+      ],
+      [
+        1494,
+        422
+      ],
+      [
+        1502,
+        421
+      ],
+      [
+        1503,
+        359
+      ],
+      [
+        1504,
+        357
+      ],
+      [
+        1505,
+        334
+      ],
+      [
+        1506,
+        278
+      ],
+      [
+        1491,
+        272
+      ],
+      [
+        1492,
+        270
+      ],
+      [
+        1489,
+        263
+      ],
+      [
+        1490,
+        251
+      ],
+      [
+        1486,
+        228
+      ],
+      [
+        1507,
+        220
+      ]
+    ],
+    "band_1488_1500": {
+      "1488": 206,
+      "1489": 263,
+      "1490": 251,
+      "1491": 272,
+      "1492": 270,
+      "1493": 741,
+      "1494": 422,
+      "1495": 554,
+      "1496": 692,
+      "1497": 688,
+      "1498": 1019,
+      "1499": 789,
+      "1500": 717
+    },
+    "band_1488_1500_frac": 0.2204
+  },
+  "val": {
+    "num_sequences": 40,
+    "total_tokens": 5120,
+    "unique_tokens": 669,
+    "entropy_bits": 8.2633,
+    "per_seq_unique_avg": 80.875,
+    "per_seq_unique_min": 40,
+    "per_seq_unique_max": 107,
+    "max_same_token_run_avg": 1.4,
+    "max_same_token_run_max": 3,
+    "top20_tokens": [
+      [
+        1497,
+        126
+      ],
+      [
+        1498,
+        121
+      ],
+      [
+        1493,
+        97
+      ],
+      [
+        1499,
+        96
+      ],
+      [
+        1500,
+        87
+      ],
+      [
+        1496,
+        75
+      ],
+      [
+        1495,
+        69
+      ],
+      [
+        1501,
+        68
+      ],
+      [
+        1508,
+        61
+      ],
+      [
+        1506,
+        54
+      ],
+      [
+        1505,
+        49
+      ],
+      [
+        1512,
+        48
+      ],
+      [
+        1489,
+        47
+      ],
+      [
+        1502,
+        47
+      ],
+      [
+        1494,
+        45
+      ],
+      [
+        1491,
+        44
+      ],
+      [
+        1504,
+        43
+      ],
+      [
+        1488,
+        41
+      ],
+      [
+        1509,
+        40
+      ],
+      [
+        1503,
+        40
+      ]
+    ],
+    "band_1488_1500": {
+      "1488": 41,
+      "1489": 47,
+      "1490": 29,
+      "1491": 44,
+      "1492": 35,
+      "1493": 97,
+      "1494": 45,
+      "1495": 69,
+      "1496": 75,
+      "1497": 126,
+      "1498": 121,
+      "1499": 96,
+      "1500": 87
+    },
+    "band_1488_1500_frac": 0.1781
+  },
+  "train_val_js_divergence_bits": 0.094817,
+  "token_overlap": {
+    "intersection": 654,
+    "train_only": 795,
+    "val_only": 15
+  },
+  "stage_a2_constrained_decode": {
+    "report_path": "/workspace/cosmos_distillation/outputs/reports/stage_a2_v3_2_infer_val10_constrained.json",
+    "generated": {
+      "num_sequences": 10,
+      "total_tokens": 1280,
+      "unique_tokens": 4,
+      "entropy_bits": 0.9573,
+      "per_seq_unique_avg": 3.0,
+      "per_seq_unique_min": 3,
+      "per_seq_unique_max": 3,
+      "max_same_token_run_avg": 105.1,
+      "max_same_token_run_max": 110,
+      "top20_tokens": [
+        [
+          1498,
+          1020
+        ],
+        [
+          1496,
+          164
+        ],
+        [
+          1499,
+          86
+        ],
+        [
+          1495,
+          10
+        ]
+      ],
+      "band_1488_1500": {
+        "1488": 0,
+        "1489": 0,
+        "1490": 0,
+        "1491": 0,
+        "1492": 0,
+        "1493": 0,
+        "1494": 0,
+        "1495": 10,
+        "1496": 164,
+        "1497": 0,
+        "1498": 1020,
+        "1499": 86,
+        "1500": 0
+      },
+      "band_1488_1500_frac": 1.0
+    },
+    "target_for_same_samples": {
+      "num_sequences": 10,
+      "total_tokens": 1280,
+      "unique_tokens": 329,
+      "entropy_bits": 7.2637,
+      "per_seq_unique_avg": 70.9,
+      "per_seq_unique_min": 60,
+      "per_seq_unique_max": 83,
+      "max_same_token_run_avg": 1.7,
+      "max_same_token_run_max": 3,
+      "top20_tokens": [
+        [
+          1497,
+          74
+        ],
+        [
+          1498,
+          71
+        ],
+        [
+          1496,
+          45
+        ],
+        [
+          1499,
+          35
+        ],
+        [
+          1495,
+          35
+        ],
+        [
+          1493,
+          29
+        ],
+        [
+          1500,
+          27
+        ],
+        [
+          1501,
+          24
+        ],
+        [
+          1504,
+          23
+        ],
+        [
+          1506,
+          20
+        ],
+        [
+          1502,
+          19
+        ],
+        [
+          1494,
+          19
+        ],
+        [
+          1507,
+          16
+        ],
+        [
+          1492,
+          15
+        ],
+        [
+          1523,
+          13
+        ],
+        [
+          1503,
+          13
+        ],
+        [
+          1491,
+          12
+        ],
+        [
+          1477,
+          11
+        ],
+        [
+          1481,
+          11
+        ],
+        [
+          1461,
+          11
+        ]
+      ],
+      "band_1488_1500": {
+        "1488": 8,
+        "1489": 8,
+        "1490": 8,
+        "1491": 12,
+        "1492": 15,
+        "1493": 29,
+        "1494": 19,
+        "1495": 35,
+        "1496": 45,
+        "1497": 74,
+        "1498": 71,
+        "1499": 35,
+        "1500": 27
+      },
+      "band_1488_1500_frac": 0.3016
+    },
+    "avg_set_jaccard": 0.037,
+    "samples": [
+      {
+        "sample_id": "476fed83-ed85-4b2c-b6c3-cf780a2d0123__t0_16992755__evt_00",
+        "generated_unique": 3,
+        "target_unique": 78,
+        "set_jaccard": 0.0253
+      },
+      {
+        "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_4833965__evt_00",
+        "generated_unique": 3,
+        "target_unique": 67,
+        "set_jaccard": 0.0294
+      },
+      {
+        "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_13533965__evt_01",
+        "generated_unique": 3,
+        "target_unique": 72,
+        "set_jaccard": 0.0417
+      },
+      {
+        "sample_id": "594d2c54-ca9a-4bda-be8e-532b2fc359fb__t0_6659114__evt_00",
+        "generated_unique": 3,
+        "target_unique": 68,
+        "set_jaccard": 0.0441
+      },
+      {
+        "sample_id": "5fa56c61-e8ed-4c0b-95dd-3e15c40d9f78__t0_4493173__evt_00",
+        "generated_unique": 3,
+        "target_unique": 68,
+        "set_jaccard": 0.0441
+      },
+      {
+        "sample_id": "e0772c6e-1524-494f-b16f-84ca1a700a7b__t0_8590176__evt_00",
+        "generated_unique": 3,
+        "target_unique": 83,
+        "set_jaccard": 0.0361
+      },
+      {
+        "sample_id": "6c96345e-07e1-47c7-868f-c7fb35d2998a__t0_15933466__evt_00",
+        "generated_unique": 3,
+        "target_unique": 70,
+        "set_jaccard": 0.0429
+      },
+      {
+        "sample_id": "6fb0ec61-90f9-4424-8b9c-66fba2cfd86d__t0_14780381__evt_00",
+        "generated_unique": 3,
+        "target_unique": 60,
+        "set_jaccard": 0.05
+      },
+      {
+        "sample_id": "13f0af4c-2565-4a4d-b765-7f397f1d1684__t0_5148839__evt_00",
+        "generated_unique": 3,
+        "target_unique": 62,
+        "set_jaccard": 0.0317
+      },
+      {
+        "sample_id": "13f0af4c-2565-4a4d-b765-7f397f1d1684__t0_11048839__evt_01",
+        "generated_unique": 3,
+        "target_unique": 81,
+        "set_jaccard": 0.0244
+      }
+    ]
+  }
+}
