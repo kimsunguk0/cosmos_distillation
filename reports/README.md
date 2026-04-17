@@ -96,3 +96,5 @@ Latest known high-level state:
     - [040-hybrid-traj-decode-breaks-body-collapse.md](./040-hybrid-traj-decode-breaks-body-collapse.md)
   - latest prefix-only pseudo-CE run partially absorbing hybrid body into LM decode:
     - [041-prefix16-pseudoce-partially-absorbs-hybrid-body.md](./041-prefix16-pseudoce-partially-absorbs-hybrid-body.md)
+  - latest follow-up absorption tests showing regression back to plateau:
+    - [042-followup-absorption-tests-regressed-to-plateau.md](./042-followup-absorption-tests-regressed-to-plateau.md)

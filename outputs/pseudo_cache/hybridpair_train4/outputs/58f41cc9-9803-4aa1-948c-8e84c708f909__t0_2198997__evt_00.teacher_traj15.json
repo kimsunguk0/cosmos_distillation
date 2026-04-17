@@ -1,0 +1,6 @@
+{
+  "status": "ready",
+  "teacher_quality_multiplier": 1.0,
+  "source": "hybrid_decode_pseudo_pair",
+  "traj_token_count": 128
+}
