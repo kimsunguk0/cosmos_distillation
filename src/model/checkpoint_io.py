@@ -92,6 +92,7 @@ def save_student_checkpoint(
             "adapter_dir": adapter_dir.name,
             "meta_action_head": _meta_head_path(checkpoint_dir).name,
             "traj_aux_head": _traj_aux_head_path(checkpoint_dir).name,
+            "traj_aux_num_buckets": int(getattr(model, "traj_aux_num_buckets", 1) or 1),
         }
         if getattr(model, "traj_hidden_projector", None) is not None:
             torch.save(_cpu_state_dict(model.traj_hidden_projector), _traj_hidden_projector_path(checkpoint_dir))
@@ -104,6 +105,7 @@ def save_student_checkpoint(
             "format": "full_state_dict",
             "state_dict": _legacy_state_path(checkpoint_dir).name,
             "float_dtype": str(full_state_dtype) if full_state_dtype is not None else None,
+            "traj_aux_num_buckets": int(getattr(model, "traj_aux_num_buckets", 1) or 1),
         }
         if getattr(model, "traj_hidden_projector", None) is not None:
             payload["traj_teacher_hidden_size"] = int(getattr(model, "traj_teacher_hidden_size", 0) or 0)
@@ -125,6 +127,9 @@ def load_student_checkpoint(
     if checkpoint_format == "lora_adapter":
         from peft import PeftModel
         manifest = json.loads(_manifest_path(checkpoint_dir).read_text(encoding="utf-8"))
+        traj_aux_num_buckets = manifest.get("traj_aux_num_buckets")
+        if traj_aux_num_buckets not in (None, 0):
+            model.configure_traj_aux_head(int(traj_aux_num_buckets))
         traj_teacher_hidden_size = manifest.get("traj_teacher_hidden_size")
         if traj_teacher_hidden_size not in (None, 0):
             model.configure_traj_hidden_projector(int(traj_teacher_hidden_size))
@@ -147,6 +152,10 @@ def load_student_checkpoint(
                 traj_aux_head_state = torch.load(traj_aux_head_path, map_location="cpu", weights_only=True)
             except TypeError:
                 traj_aux_head_state = torch.load(traj_aux_head_path, map_location="cpu")
+            aux_weight = traj_aux_head_state.get("weight")
+            if isinstance(aux_weight, torch.Tensor):
+                inferred_num_buckets = max(int(aux_weight.shape[0] // 2), 1)
+                model.configure_traj_aux_head(inferred_num_buckets)
             model.traj_aux_head.load_state_dict(traj_aux_head_state, strict=True)
         traj_hidden_projector_path = _traj_hidden_projector_path(checkpoint_dir)
         if traj_hidden_projector_path.exists():
@@ -169,6 +178,9 @@ def load_student_checkpoint(
 
     if checkpoint_format == "full_state_dict":
         manifest = json.loads(_manifest_path(checkpoint_dir).read_text(encoding="utf-8"))
+        traj_aux_num_buckets = manifest.get("traj_aux_num_buckets")
+        if traj_aux_num_buckets not in (None, 0):
+            model.configure_traj_aux_head(int(traj_aux_num_buckets))
         traj_teacher_hidden_size = manifest.get("traj_teacher_hidden_size")
         if traj_teacher_hidden_size not in (None, 0):
             model.configure_traj_hidden_projector(int(traj_teacher_hidden_size))

@@ -40,3 +40,18 @@ def test_distill_student_model_projects_traj_hidden_states() -> None:
     assert outputs["traj_hidden_states"].shape == (1, 3, 6)
     assert outputs["traj_aux_values"].shape == (1, 3, 2)
     assert model.traj_hidden_projector is not None
+
+
+def test_distill_student_model_supports_bucketed_traj_aux_head() -> None:
+    model = DistillStudentModel(
+        _DummyBackbone(hidden_size=4),
+        hidden_size=4,
+        num_action_classes=3,
+        traj_aux_num_buckets=4,
+    )
+    outputs = model(
+        input_ids=torch.tensor([[1, 2, 3]], dtype=torch.long),
+        attention_mask=torch.tensor([[1, 1, 1]], dtype=torch.long),
+    )
+    assert model.traj_aux_num_buckets == 4
+    assert outputs["traj_aux_values"].shape == (1, 3, 8)

@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 import json
+import math
 import re
 import sys
 import time
@@ -65,6 +67,26 @@ def parse_args() -> argparse.Namespace:
         "--summary-json",
         type=Path,
         default=PROJECT_ROOT / "outputs" / "reports" / "student_infer_smoke_v3_2.json",
+    )
+    parser.add_argument(
+        "--traj-source",
+        choices=("lm", "aux_head", "aux_lm_blend"),
+        default="lm",
+        help="Use LM logits or the training-time trajectory auxiliary head for the 128-token traj body.",
+    )
+    parser.add_argument("--aux-blend-sigma", type=float, default=96.0)
+    parser.add_argument("--aux-blend-weight", type=float, default=4.0)
+    parser.add_argument(
+        "--aux-bound-scale",
+        type=float,
+        default=1.0,
+        help="Scale the aux-head tanh bound at inference time to reduce extreme control saturation.",
+    )
+    parser.add_argument(
+        "--aux-edge-margin",
+        type=int,
+        default=0,
+        help="Clamp aux-predicted traj token ids away from the vocab edges by this many bins.",
     )
     return parser.parse_args()
 
@@ -166,7 +188,186 @@ def load_model_and_processors(checkpoint_dir: Path, device: str):
     model = model.to(device).eval()
     print(json.dumps({"event": "model_to_device_done", "device": device}), flush=True)
     data_view = train_config.get("data_view") or {}
-    return model, tokenizer, processor, {**load_info, "use_lora": use_lora, "data_view": data_view}
+    return model, tokenizer, processor, {
+        **load_info,
+        "use_lora": use_lora,
+        "data_view": data_view,
+        "traj_decode": train_config.get("traj_decode") or {},
+    }
+
+
+def _single_token_id(tokenizer, token: str) -> int:
+    token_ids = tokenizer.encode(token, add_special_tokens=False)
+    if len(token_ids) != 1:
+        raise ValueError(f"Expected single-token encoding for {token!r}, got {token_ids}")
+    return int(token_ids[0])
+
+
+def _traj_token_start_id(tokenizer) -> int:
+    value = getattr(tokenizer, "traj_token_start_idx", None)
+    if isinstance(value, int) and value >= 0:
+        return int(value)
+    return int(tokenizer.convert_tokens_to_ids("<i0>"))
+
+
+def _load_traj_decode_runtime(load_info: dict[str, Any]) -> dict[str, Any]:
+    traj_decode = dict(load_info.get("traj_decode") or {})
+    config_path = traj_decode.get("config_path")
+    if not config_path:
+        raise ValueError("Checkpoint is missing traj_decode.config_path required for aux_head decoding.")
+    payload = json.loads(Path(config_path).read_text(encoding="utf-8"))
+    traj_cfg = payload.get("traj_tokenizer_cfg") or {}
+    return {
+        "num_bins": int(traj_cfg["num_bins"]),
+        "dims_min": tuple(float(value) for value in traj_cfg["dims_min"]),
+        "dims_max": tuple(float(value) for value in traj_cfg["dims_max"]),
+        "n_waypoints": int((traj_cfg.get("action_space_cfg") or {}).get("n_waypoints", traj_decode.get("n_waypoints", 64))),
+    }
+
+
+def _predict_aux_traj_token_id(
+    *,
+    aux_logits: torch.Tensor,
+    token_index: int,
+    tokenizer,
+    aux_runtime: dict[str, Any],
+    traj_runtime: dict[str, Any],
+    aux_bound_scale: float,
+    aux_edge_margin: int,
+) -> int:
+    num_buckets = max(int(aux_runtime.get("num_buckets", max(aux_logits.numel() // 2, 1))), 1)
+    waypoint_index = int(token_index // 2)
+    parity = int(token_index % 2)
+    bucket_index = min((waypoint_index * num_buckets) // max(int(traj_runtime["n_waypoints"]), 1), num_buckets - 1)
+    channel_index = bucket_index * 2 + parity
+    scalar = float(aux_logits[channel_index].item())
+    if bool(aux_runtime.get("normalize_targets", False)):
+        tanh_bound = float(aux_runtime.get("tanh_bound", 3.0)) * max(float(aux_bound_scale), 0.0)
+        scalar = tanh_bound * math.tanh(scalar)
+        target_means = aux_runtime.get("target_means") or []
+        target_stds = aux_runtime.get("target_stds") or []
+        if target_means and target_stds:
+            mean = float(target_means[bucket_index][parity])
+            std = max(float(target_stds[bucket_index][parity]), 1e-3)
+            scalar = mean + std * scalar
+    dims_min = traj_runtime["dims_min"][parity]
+    dims_max = traj_runtime["dims_max"][parity]
+    scalar = max(min(scalar, dims_max), dims_min)
+    ratio = 0.0 if dims_max <= dims_min else (scalar - dims_min) / (dims_max - dims_min)
+    token_offset = int(round(ratio * max(int(traj_runtime["num_bins"]) - 1, 1)))
+    token_offset = max(0, min(token_offset, int(traj_runtime["num_bins"]) - 1))
+    edge_margin = max(int(aux_edge_margin), 0)
+    if edge_margin > 0 and int(traj_runtime["num_bins"]) > edge_margin * 2:
+        token_offset = max(edge_margin, min(token_offset, int(traj_runtime["num_bins"]) - 1 - edge_margin))
+    return _traj_token_start_id(tokenizer) + token_offset
+
+
+def _manual_generate_with_aux_head(
+    model,
+    batch: dict[str, Any],
+    tokenizer,
+    *,
+    target_traj_token_count: int,
+    max_new_tokens: int,
+    load_info: dict[str, Any],
+    traj_source: str,
+    aux_blend_sigma: float,
+    aux_blend_weight: float,
+    aux_bound_scale: float,
+    aux_edge_margin: int,
+) -> torch.Tensor:
+    device = batch["input_ids"].device
+    autocast_context = (
+        torch.autocast("cuda", dtype=torch.bfloat16)
+        if str(device).startswith("cuda")
+        else nullcontext()
+    )
+    cot_end_id = _single_token_id(tokenizer, "<|cot_end|>")
+    traj_start_id = _single_token_id(tokenizer, "<|traj_future_start|>")
+    traj_end_id = _single_token_id(tokenizer, "<|traj_future_end|>")
+    aux_runtime = dict(((load_info.get("data_view") or {}).get("traj_aux_interface_runtime")) or {})
+    traj_runtime = _load_traj_decode_runtime(load_info)
+    traj_token_start_id = _traj_token_start_id(tokenizer)
+    traj_token_ids = torch.arange(
+        traj_token_start_id,
+        traj_token_start_id + int(traj_runtime["num_bins"]),
+        device=device,
+        dtype=torch.long,
+    )
+
+    input_ids = batch["input_ids"]
+    attention_mask = batch["attention_mask"]
+    generated: list[int] = []
+
+    cot_closed = False
+    traj_started = False
+    for _ in range(max_new_tokens):
+        with autocast_context:
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                pixel_values=batch.get("pixel_values"),
+                image_grid_thw=batch.get("image_grid_thw"),
+            )
+        next_logits = outputs["logits"][:, -1, :]
+        if not cot_closed:
+            next_token_id = int(torch.argmax(next_logits, dim=-1).item())
+            cot_closed = next_token_id == cot_end_id
+        elif not traj_started:
+            next_token_id = traj_start_id
+            traj_started = True
+        else:
+            break
+        next_token = torch.tensor([[next_token_id]], device=device, dtype=input_ids.dtype)
+        input_ids = torch.cat([input_ids, next_token], dim=1)
+        attention_mask = torch.cat(
+            [attention_mask, torch.ones((attention_mask.shape[0], 1), device=device, dtype=attention_mask.dtype)],
+            dim=1,
+        )
+        generated.append(next_token_id)
+        if traj_started:
+            break
+
+    if not traj_started:
+        return input_ids
+
+    for token_index in range(target_traj_token_count):
+        with autocast_context:
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                pixel_values=batch.get("pixel_values"),
+                image_grid_thw=batch.get("image_grid_thw"),
+            )
+        aux_logits = outputs["traj_aux_values"][0, -1]
+        aux_token_id = _predict_aux_traj_token_id(
+            aux_logits=aux_logits,
+            token_index=token_index,
+            tokenizer=tokenizer,
+            aux_runtime=aux_runtime,
+            traj_runtime=traj_runtime,
+            aux_bound_scale=aux_bound_scale,
+            aux_edge_margin=aux_edge_margin,
+        )
+        next_token_id = aux_token_id
+        if traj_source == "aux_lm_blend":
+            lm_scores = outputs["logits"][0, -1, traj_token_ids].float()
+            aux_offset = float(aux_token_id - traj_token_start_id)
+            offsets = torch.arange(int(traj_runtime["num_bins"]), device=device, dtype=torch.float32)
+            sigma = max(float(aux_blend_sigma), 1.0)
+            prior = -torch.square((offsets - aux_offset) / sigma)
+            blended_scores = lm_scores + float(aux_blend_weight) * prior
+            next_token_id = int(traj_token_ids[int(torch.argmax(blended_scores).item())].item())
+        next_token = torch.tensor([[next_token_id]], device=device, dtype=input_ids.dtype)
+        input_ids = torch.cat([input_ids, next_token], dim=1)
+        attention_mask = torch.cat(
+            [attention_mask, torch.ones((attention_mask.shape[0], 1), device=device, dtype=attention_mask.dtype)],
+            dim=1,
+        )
+
+    end_token = torch.tensor([[traj_end_id]], device=device, dtype=input_ids.dtype)
+    input_ids = torch.cat([input_ids, end_token], dim=1)
+    return input_ids
 
 
 def infer_one(
@@ -181,6 +382,12 @@ def infer_one(
     forced_traj_token_count: int | None,
     prompt_mode: str,
     target_mode: str,
+    traj_source: str,
+    load_info: dict[str, Any],
+    aux_blend_sigma: float,
+    aux_blend_weight: float,
+    aux_bound_scale: float,
+    aux_edge_margin: int,
 ) -> dict[str, Any]:
     prompt_text = build_traj_only_prompt(sample, PROJECT_ROOT) if prompt_mode == "traj_only" else build_user_prompt(sample, PROJECT_ROOT)
     images = load_sample_images(sample, PROJECT_ROOT)
@@ -229,14 +436,43 @@ def infer_one(
 
     started_at = time.time()
     with torch.inference_mode():
-        generated = model.backbone.generate(
-            **batch,
-            max_new_tokens=max_new_tokens,
-            do_sample=False,
-            use_cache=True,
-            logits_processor=logits_processor,
-            stopping_criteria=stopping_criteria,
-        )
+        if traj_source == "aux_head" and target_mode == "joint" and target_traj_token_count > 0:
+            generated = _manual_generate_with_aux_head(
+                model,
+                batch,
+                tokenizer,
+                target_traj_token_count=target_traj_token_count,
+                max_new_tokens=max_new_tokens,
+                load_info=load_info,
+                traj_source=traj_source,
+                aux_blend_sigma=aux_blend_sigma,
+                aux_blend_weight=aux_blend_weight,
+                aux_bound_scale=aux_bound_scale,
+                aux_edge_margin=aux_edge_margin,
+            )
+        elif traj_source == "aux_lm_blend" and target_mode == "joint" and target_traj_token_count > 0:
+            generated = _manual_generate_with_aux_head(
+                model,
+                batch,
+                tokenizer,
+                target_traj_token_count=target_traj_token_count,
+                max_new_tokens=max_new_tokens,
+                load_info=load_info,
+                traj_source=traj_source,
+                aux_blend_sigma=aux_blend_sigma,
+                aux_blend_weight=aux_blend_weight,
+                aux_bound_scale=aux_bound_scale,
+                aux_edge_margin=aux_edge_margin,
+            )
+        else:
+            generated = model.backbone.generate(
+                **batch,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                use_cache=True,
+                logits_processor=logits_processor,
+                stopping_criteria=stopping_criteria,
+            )
     elapsed = time.time() - started_at
     generated_text = decode_generated_text(tokenizer, batch["input_ids"], generated)
     generated_cot, generated_traj_tokens = extract_generated_spans(generated_text, target_mode=target_mode)
@@ -259,6 +495,7 @@ def infer_one(
         "target_traj_token_count": len((sample.get("hard_target") or {}).get("traj_future_token_ids") or []),
         "forced_traj_token_count": target_traj_token_count,
         "constrain_traj_decoding": constrain_traj_decoding,
+        "traj_source": traj_source,
     }
 
 
@@ -285,6 +522,12 @@ def main() -> None:
             forced_traj_token_count=args.forced_traj_token_count,
             prompt_mode=prompt_mode,
             target_mode=target_mode,
+            traj_source=args.traj_source,
+            load_info=load_info,
+            aux_blend_sigma=args.aux_blend_sigma,
+            aux_blend_weight=args.aux_blend_weight,
+            aux_bound_scale=args.aux_bound_scale,
+            aux_edge_margin=args.aux_edge_margin,
         )
         print(
             json.dumps(
@@ -306,6 +549,11 @@ def main() -> None:
         "max_new_tokens": args.max_new_tokens,
         "constrain_traj_decoding": not args.disable_traj_constraint,
         "forced_traj_token_count": args.forced_traj_token_count,
+        "traj_source": args.traj_source,
+        "aux_blend_sigma": args.aux_blend_sigma,
+        "aux_blend_weight": args.aux_blend_weight,
+        "aux_bound_scale": args.aux_bound_scale,
+        "aux_edge_margin": args.aux_edge_margin,
         "avg_latency_sec": round(avg_latency, 3),
         "load_info": load_info,
         "results": results,

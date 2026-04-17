@@ -49,6 +49,8 @@ Current issue list:
 - [031-teacher-traj-token-topk-subset-probe.md](./031-teacher-traj-token-topk-subset-probe.md)
 - [032-teacher-traj-hidden-projector-subset-probe.md](./032-teacher-traj-hidden-projector-subset-probe.md)
 - [033-traj-aux-head-subset-probe.md](./033-traj-aux-head-subset-probe.md)
+- [034-teacher-pair-t1-bootstrap.md](./034-teacher-pair-t1-bootstrap.md)
+- [035-p0-manifest-and-p2-paired-interface-v2.md](./035-p0-manifest-and-p2-paired-interface-v2.md)
 
 Latest known high-level state:
 
@@ -78,3 +80,19 @@ Latest known high-level state:
     - [032-teacher-traj-hidden-projector-subset-probe.md](./032-teacher-traj-hidden-projector-subset-probe.md)
   - latest training-only trajectory auxiliary-head subset probe:
     - [033-traj-aux-head-subset-probe.md](./033-traj-aux-head-subset-probe.md)
+  - latest honest teacher-pair T1 bootstrap:
+    - [034-teacher-pair-t1-bootstrap.md](./034-teacher-pair-t1-bootstrap.md)
+  - latest P0 manifest + paired-interface-v2 status:
+    - [035-p0-manifest-and-p2-paired-interface-v2.md](./035-p0-manifest-and-p2-paired-interface-v2.md)
+  - latest frozen paired-interface fit:
+    - [036-p2a-frozen-interface-fit.md](./036-p2a-frozen-interface-fit.md)
+  - latest prefix-8 anchored frozen paired-interface fit:
+    - [037-p2b-prefix8-anchor.md](./037-p2b-prefix8-anchor.md)
+  - latest mixed pair-LM + interface curriculum:
+    - [038-p2c-mixed-curriculum.md](./038-p2c-mixed-curriculum.md)
+  - latest mixed run showing restored trajectory emission:
+    - [039-mixed-from-format-restores-traj-emission.md](./039-mixed-from-format-restores-traj-emission.md)
+  - latest hybrid decode run showing non-collapsed trajectory body emission:
+    - [040-hybrid-traj-decode-breaks-body-collapse.md](./040-hybrid-traj-decode-breaks-body-collapse.md)
+  - latest prefix-only pseudo-CE run partially absorbing hybrid body into LM decode:
+    - [041-prefix16-pseudoce-partially-absorbs-hybrid-body.md](./041-prefix16-pseudoce-partially-absorbs-hybrid-body.md)

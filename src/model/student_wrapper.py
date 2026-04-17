@@ -37,6 +37,7 @@ class StudentWrapperConfig:
     trust_remote_code: bool = True
     local_files_only: bool = False
     traj_teacher_hidden_size: int | None = None
+    traj_aux_num_buckets: int = 1
 
 
 def _effective_local_files_only(config: StudentWrapperConfig) -> bool:
@@ -53,18 +54,33 @@ class DistillStudentModel(nn.Module):
         num_action_classes: int,
         *,
         traj_teacher_hidden_size: int | None = None,
+        traj_aux_num_buckets: int = 1,
     ) -> None:
         super().__init__()
         self.backbone = backbone
         self.hidden_size = int(hidden_size)
         self.meta_action_head = nn.Linear(hidden_size, num_action_classes)
-        # Training-time auxiliary trajectory interface head.
-        # Channel 0 predicts accel-like control tokens, channel 1 predicts curvature-like tokens.
-        self.traj_aux_head = nn.Linear(hidden_size, 2)
+        self.traj_aux_num_buckets: int = 1
+        self.traj_aux_head: nn.Linear | None = None
+        self.configure_traj_aux_head(traj_aux_num_buckets)
         self.num_action_classes = num_action_classes
         self.traj_teacher_hidden_size: int | None = None
         self.traj_hidden_projector: nn.Linear | None = None
         self.configure_traj_hidden_projector(traj_teacher_hidden_size)
+
+    def configure_traj_aux_head(self, num_buckets: int | None) -> None:
+        """Attach or resize the training-time trajectory auxiliary head."""
+        resolved_buckets = max(int(num_buckets or 1), 1)
+        output_dim = resolved_buckets * 2
+        self.traj_aux_num_buckets = resolved_buckets
+        head = self.traj_aux_head
+        if (
+            isinstance(head, nn.Linear)
+            and head.in_features == self.hidden_size
+            and head.out_features == output_dim
+        ):
+            return
+        self.traj_aux_head = nn.Linear(self.hidden_size, output_dim)
 
     def configure_traj_hidden_projector(self, output_dim: int | None) -> None:
         """Attach or remove a trainable projector for teacher trajectory hidden alignment."""
@@ -118,6 +134,8 @@ class DistillStudentModel(nn.Module):
             pooled = (hidden * mask).sum(dim=1) / denom
         traj_hidden = self.traj_hidden_projector(hidden) if self.traj_hidden_projector is not None else hidden
         meta_action_logits = self.meta_action_head(pooled)
+        if self.traj_aux_head is None:
+            raise ValueError("Trajectory auxiliary head is not configured.")
         traj_aux_values = self.traj_aux_head(hidden)
         return {
             "backbone_outputs": outputs,
@@ -202,4 +220,5 @@ def build_student_model(config: StudentWrapperConfig, tokenizer) -> DistillStude
         hidden_size=hidden_size,
         num_action_classes=len(ACTION_CLASSES),
         traj_teacher_hidden_size=config.traj_teacher_hidden_size,
+        traj_aux_num_buckets=config.traj_aux_num_buckets,
     )

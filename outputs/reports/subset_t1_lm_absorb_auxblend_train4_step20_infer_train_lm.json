@@ -1,0 +1,202 @@
+{
+  "checkpoint_dir": "/workspace/cosmos_distillation/outputs/checkpoints/subset_t1_lm_absorb_auxblend_train4_step20/final",
+  "corpus_jsonl": "/workspace/cosmos_distillation/data/corpus/distill_v3_2.jsonl",
+  "split": "train",
+  "num_samples": 4,
+  "max_new_tokens": 160,
+  "constrain_traj_decoding": true,
+  "forced_traj_token_count": null,
+  "traj_source": "lm",
+  "aux_blend_sigma": 96.0,
+  "aux_blend_weight": 4.0,
+  "aux_bound_scale": 1.0,
+  "aux_edge_margin": 0,
+  "avg_latency_sec": 4.65,
+  "load_info": {
+    "format": "lora_adapter",
+    "missing": [],
+    "unexpected": [],
+    "use_lora": true,
+    "data_view": {
+      "prompt_mode": "joint",
+      "target_mode": "joint",
+      "teacher_pair_target": true,
+      "enable_teacher_view": false,
+      "enable_action_aux": false,
+      "teacher_traj_cache_dir": "/data/teacher_cache/traj15",
+      "teacher_traj_hidden_size": null,
+      "traj_aux_num_buckets": 4,
+      "traj_aux_interface": {
+        "num_buckets": 4,
+        "normalize_targets": true,
+        "tanh_bound": 3.0,
+        "huber_delta": 1.0,
+        "decode_tanh_scale": 0.5,
+        "decode_edge_margin": 128,
+        "decode_prior_sigma": 64.0
+      },
+      "traj_aux_interface_runtime": {
+        "enabled": true,
+        "used_records": 4,
+        "num_buckets": 4,
+        "target_means": [
+          [
+            -0.24831193731243745,
+            -0.0457444148049351
+          ],
+          [
+            -0.23007669223074356,
+            -0.01365038346115402
+          ],
+          [
+            -0.38408636212070674,
+            0.019798266088696115
+          ],
+          [
+            -0.8659136378792932,
+            -0.01479659886628909
+          ]
+        ],
+        "target_stds": [
+          [
+            0.7807571046178022,
+            0.08147556744476966
+          ],
+          [
+            0.6674951396426393,
+            0.054036137701142774
+          ],
+          [
+            0.5966056074849191,
+            0.057585204884080324
+          ],
+          [
+            1.3280984335685464,
+            0.02350336446705113
+          ]
+        ],
+        "counts": [
+          [
+            64,
+            64
+          ],
+          [
+            64,
+            64
+          ],
+          [
+            64,
+            64
+          ],
+          [
+            64,
+            64
+          ]
+        ],
+        "decode_tanh_scale": 0.5,
+        "decode_edge_margin": 128,
+        "decode_prior_sigma": 64.0
+      },
+      "optimization": {
+        "freeze_all_but_traj_aux_head": false,
+        "freeze_traj_aux_head": true
+      },
+      "curriculum": {},
+      "interface_loss_weights": null
+    },
+    "traj_decode": {
+      "enabled": true,
+      "config_path": "/workspace/base_models_weights/Alpamayo-1.5-10B/config.json",
+      "num_bins": 3000,
+      "n_waypoints": 64,
+      "short_horizon_steps": 8,
+      "short_horizon_weight": 1.0
+    }
+  },
+  "results": [
+    {
+      "sample_id": "0262ea23-9be7-430e-8c62-d251b4cd9b01__t0_14887532__evt_00",
+      "split": "train",
+      "elapsed_sec": 4.656,
+      "generated_text": "Keep lane since the lane is clear ahead<|cot_end|><|traj_future_start|><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><|traj_future_end|>",
+      "generated_cot": "Keep lane since the lane is clear ahead",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "keep_lane",
+        "confidence": 0.86,
+        "method": "keyword_parser_v2"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep lane since the lane is clear ahead",
+      "target_text": "Go straight and navigate through the construction zone with traffic cones.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true,
+      "traj_source": "lm"
+    },
+    {
+      "sample_id": "400e1e49-bea2-4c37-be90-6da97fc90c98__t0_4397762__evt_00",
+      "split": "train",
+      "elapsed_sec": 4.67,
+      "generated_text": "Stop for the red traffic light since the pedestrians are crossing the road ahead<|cot_end|><|traj_future_start|><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><|traj_future_end|>",
+      "generated_cot": "Stop for the red traffic light since the pedestrians are crossing the road ahead",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "stop",
+        "confidence": 0.7,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "stop",
+      "teacher_long_cot": "Stop for the red traffic light ahead",
+      "target_text": "Yield to the pedestrians crossing the road at the crosswalk.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true,
+      "traj_source": "lm"
+    },
+    {
+      "sample_id": "58f41cc9-9803-4aa1-948c-8e84c708f909__t0_2198997__evt_00",
+      "split": "train",
+      "elapsed_sec": 4.77,
+      "generated_text": "Nudge left due to the person standing beside the vehicle encroaching from the right<|cot_end|><|traj_future_start|><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><|traj_future_end|>",
+      "generated_cot": "Nudge left due to the person standing beside the vehicle encroaching from the right",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "nudge_left",
+        "confidence": 0.82,
+        "method": "keyword_parser_v2"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge left due to the person standing beside the vehicle encroaching from the right",
+      "target_text": "Steer right to avoid the traffic cone in the road.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true,
+      "traj_source": "lm"
+    },
+    {
+      "sample_id": "f1429141-3729-4b3c-a531-1a0dc652ebe1__t0_7947035__evt_00",
+      "split": "train",
+      "elapsed_sec": 4.505,
+      "generated_text": "Keep lane since the lane is clear<|cot_end|><|traj_future_start|><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><i1500><|traj_future_end|>",
+      "generated_cot": "Keep lane since the lane is clear",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "keep_lane",
+        "confidence": 0.86,
+        "method": "keyword_parser_v2"
+      },
+      "gt_action": "change_lane_left",
+      "teacher_action": "slow_down",
+      "teacher_long_cot": "Lane change to the right due to slower vehicles ahead in our lane and a clear gap in the right lane, then match speed with right-lane traffic after merging.",
+      "target_text": "Steer left since the right road is closed and signs direct to the left.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true,
+      "traj_source": "lm"
+    }
+  ]
+}

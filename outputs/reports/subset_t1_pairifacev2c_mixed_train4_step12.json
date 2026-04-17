@@ -1,0 +1,191 @@
+{
+  "mode": "train",
+  "student_model": "/workspace/base_models_weights/Cosmos-Reason2-2B",
+  "stage_name": "stage_a",
+  "train_records": 4,
+  "all_train_records": 244,
+  "val_records": 40,
+  "all_val_records": 40,
+  "teacher_ready_records": 4,
+  "action_aux_ready_records": 3,
+  "val_teacher_ready_records": 39,
+  "val_action_aux_ready_records": 37,
+  "global_steps": 12,
+  "steps_per_epoch": 4,
+  "requested_epochs": 1.0,
+  "completed_epochs": 3.0,
+  "resolved_max_steps": 12,
+  "eval_every_steps": 4,
+  "save_every_steps": 4,
+  "effective_batch_size": 1,
+  "learning_rate": 2e-05,
+  "use_lora": true,
+  "multi_gpu_mode": "single",
+  "cuda_visible_devices": null,
+  "device_count": 2,
+  "device_ids": [
+    0
+  ],
+  "best_val_total_loss": 5.690961635112762,
+  "best_decode_score": null,
+  "best_decode_checkpoint_dir": null,
+  "consecutive_val_regressions": 0,
+  "early_stop_enabled": false,
+  "early_stop_stage": "stage_b",
+  "early_stop_patience": 2,
+  "early_stop_triggered": false,
+  "early_stop_reason": null,
+  "eval_history": [
+    {
+      "phase": "val",
+      "epoch_progress": 1.0,
+      "global_step": 4,
+      "logs": {
+        "gt_cot_loss": 2.88671875,
+        "teacher_cot_loss": 0.0,
+        "teacher_topk_kd_loss": 1.5094391450285911,
+        "gt_traj_loss": 12.5828125,
+        "traj_aux_loss": 2.613046723604202,
+        "traj_aux_xyz_loss": 0.022499801865342305,
+        "traj_aux_final_loss": 7.599419988691807,
+        "teacher_traj_loss": 0.0,
+        "teacher_traj_topk_kd_loss": 1.9073015034198761,
+        "teacher_traj_hidden_align_loss": 0.0,
+        "traj_loss": 12.5828125,
+        "output_format_loss": 11.9765625,
+        "meta_action_loss": 0.0,
+        "feature_align_loss": 0.0,
+        "traj_xyz_loss": 2.770105143636465,
+        "traj_delta_loss": 0.021338945080060512,
+        "traj_final_loss": 8.157077127695084,
+        "response_token_acc": 0.05110980230383575,
+        "gt_cot_token_acc": 0.4973424464464188,
+        "traj_token_acc": 0.0,
+        "teacher_cot_token_acc": 0.0,
+        "traj_aux_abs_max": 106.325,
+        "total_loss": 5.775186014175415
+      },
+      "best_val_total_loss": 5.775186014175415,
+      "consecutive_val_regressions": 0
+    },
+    {
+      "phase": "val",
+      "epoch_progress": 2.0,
+      "global_step": 8,
+      "logs": {
+        "gt_cot_loss": 2.801953125,
+        "teacher_cot_loss": 0.0,
+        "teacher_topk_kd_loss": 1.501712766289711,
+        "gt_traj_loss": 12.590625,
+        "traj_aux_loss": 2.6191963970661165,
+        "traj_aux_xyz_loss": 0.025453071077936328,
+        "traj_aux_final_loss": 7.679855568706989,
+        "teacher_traj_loss": 0.0,
+        "teacher_traj_topk_kd_loss": 1.915244534611702,
+        "teacher_traj_hidden_align_loss": 0.0,
+        "traj_loss": 12.590625,
+        "output_format_loss": 11.825,
+        "meta_action_loss": 0.0,
+        "feature_align_loss": 0.0,
+        "traj_xyz_loss": 2.7136663824319838,
+        "traj_delta_loss": 0.020657161669805645,
+        "traj_final_loss": 7.9696427345275875,
+        "response_token_acc": 0.05142791327089071,
+        "gt_cot_token_acc": 0.49892022982239725,
+        "traj_token_acc": 0.0,
+        "teacher_cot_token_acc": 0.0,
+        "traj_aux_abs_max": 105.5,
+        "total_loss": 5.717869114875794
+      },
+      "best_val_total_loss": 5.717869114875794,
+      "consecutive_val_regressions": 0
+    },
+    {
+      "phase": "val",
+      "epoch_progress": 3.0,
+      "global_step": 12,
+      "logs": {
+        "gt_cot_loss": 2.7451171875,
+        "teacher_cot_loss": 0.0,
+        "teacher_topk_kd_loss": 1.518903709948063,
+        "gt_traj_loss": 12.5953125,
+        "traj_aux_loss": 2.620534324645996,
+        "traj_aux_xyz_loss": 0.027268387256845016,
+        "traj_aux_final_loss": 7.678099708259106,
+        "teacher_traj_loss": 0.0,
+        "teacher_traj_topk_kd_loss": 1.9244730412960052,
+        "teacher_traj_hidden_align_loss": 0.0,
+        "traj_loss": 12.5953125,
+        "output_format_loss": 11.7234375,
+        "meta_action_loss": 0.0,
+        "feature_align_loss": 0.0,
+        "traj_xyz_loss": 2.679316497594118,
+        "traj_delta_loss": 0.020237909044953994,
+        "traj_final_loss": 7.8713567614555355,
+        "response_token_acc": 0.05262319119647145,
+        "gt_cot_token_acc": 0.509677029401064,
+        "traj_token_acc": 0.0,
+        "teacher_cot_token_acc": 0.0,
+        "traj_aux_abs_max": 104.35,
+        "total_loss": 5.690961635112762
+      },
+      "best_val_total_loss": 5.690961635112762,
+      "consecutive_val_regressions": 0
+    }
+  ],
+  "saved_checkpoints": [
+    {
+      "global_step": 4,
+      "checkpoint_dir": "outputs/checkpoints/subset_t1_pairifacev2c_mixed_train4_step12/step_000004",
+      "checkpoint": {
+        "format": "lora_adapter",
+        "adapter_dir": "lora_adapter",
+        "meta_action_head": "meta_action_head.pt",
+        "traj_aux_head": "traj_aux_head.pt",
+        "traj_aux_num_buckets": 4
+      }
+    },
+    {
+      "global_step": 8,
+      "checkpoint_dir": "outputs/checkpoints/subset_t1_pairifacev2c_mixed_train4_step12/step_000008",
+      "checkpoint": {
+        "format": "lora_adapter",
+        "adapter_dir": "lora_adapter",
+        "meta_action_head": "meta_action_head.pt",
+        "traj_aux_head": "traj_aux_head.pt",
+        "traj_aux_num_buckets": 4
+      }
+    },
+    {
+      "global_step": 12,
+      "checkpoint_dir": "outputs/checkpoints/subset_t1_pairifacev2c_mixed_train4_step12/step_000012",
+      "checkpoint": {
+        "format": "lora_adapter",
+        "adapter_dir": "lora_adapter",
+        "meta_action_head": "meta_action_head.pt",
+        "traj_aux_head": "traj_aux_head.pt",
+        "traj_aux_num_buckets": 4
+      }
+    }
+  ],
+  "versions": {
+    "canonical_localization_version": "v2_explicit_t0_anchor",
+    "path_semantics_version": "v2_action_turn_stop_records",
+    "teacher_runtime_bundle_version": "v2_runtime_only_bundle",
+    "teacher_prompt_family_version": "v5_official_cot_plus_honest_vqa_probe",
+    "teacher_selection_policy_version": "v5_long_cot_primary_honest_teacher_contract",
+    "kd_schema_version": "v5_long_cot_primary_meta_derived_answer_probe",
+    "teacher_signal_cache_version": "v3_field_scoped_sparse_topk"
+  },
+  "elapsed_sec": 156.872,
+  "metrics_path": "outputs/checkpoints/subset_t1_pairifacev2c_mixed_train4_step12/metrics.jsonl",
+  "output_dir": "outputs/checkpoints/subset_t1_pairifacev2c_mixed_train4_step12",
+  "checkpoint_dir": "outputs/checkpoints/subset_t1_pairifacev2c_mixed_train4_step12/final",
+  "checkpoint": {
+    "format": "lora_adapter",
+    "adapter_dir": "lora_adapter",
+    "meta_action_head": "meta_action_head.pt",
+    "traj_aux_head": "traj_aux_head.pt",
+    "traj_aux_num_buckets": 4
+  }
+}

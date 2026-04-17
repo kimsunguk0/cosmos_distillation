@@ -39,8 +39,10 @@ from src.model.student_wrapper import (
 )
 from src.model.tokenizer_ext import distill_trainable_token_ids
 from src.training.collator import DistillationCollator
+from src.training.collator import _teacher_traj15_signal_from_sample
 from src.training.losses import (
     DistillationLossWeights,
+    TrajectoryAuxInterfaceConfig,
     TrajectoryDecodeConfig,
     export_loss_weights,
     get_stage_weights,
@@ -177,6 +179,43 @@ def stage_weights_from_yaml(path: Path) -> tuple[TrainerConfig, DistillationLoss
     config = yaml.safe_load(path.read_text(encoding="utf-8"))
     defaults = get_stage_weights(str(config["stage_name"]))
     weights = config.get("loss_weights") or {}
+
+    def _resolve_weights(weights_map: dict[str, object]) -> DistillationLossWeights:
+        return DistillationLossWeights(
+            hard_cot_ce=resolve_loss_weight_value(weights_map, "hard_cot_ce", defaults.hard_cot_ce),
+            teacher_seq_ce=resolve_loss_weight_value(weights_map, "teacher_seq_ce", defaults.teacher_seq_ce),
+            teacher_logit_kd=resolve_loss_weight_value(weights_map, "teacher_logit_kd", defaults.teacher_logit_kd),
+            traj_ce=resolve_loss_weight_value(weights_map, "traj_ce", defaults.traj_ce),
+            traj_aux_reg=resolve_loss_weight_value(weights_map, "traj_aux_reg", defaults.traj_aux_reg),
+            format_ce=resolve_loss_weight_value(weights_map, "format_ce", defaults.format_ce),
+            action_aux=resolve_loss_weight_value(weights_map, "action_aux", defaults.action_aux),
+            feat_align=resolve_loss_weight_value(weights_map, "feat_align", defaults.feat_align),
+            teacher_traj_ce=resolve_optional_loss_weight_value(weights_map, "teacher_traj_ce"),
+            teacher_traj_topk_kd=resolve_loss_weight_value(
+                weights_map,
+                "teacher_traj_topk_kd",
+                defaults.teacher_traj_topk_kd,
+            ),
+            teacher_traj_hidden_align=resolve_loss_weight_value(
+                weights_map,
+                "teacher_traj_hidden_align",
+                defaults.teacher_traj_hidden_align,
+            ),
+            traj_xyz_reg=resolve_loss_weight_value(weights_map, "traj_xyz_reg", defaults.traj_xyz_reg),
+            traj_delta_reg=resolve_loss_weight_value(weights_map, "traj_delta_reg", defaults.traj_delta_reg),
+            traj_final_reg=resolve_loss_weight_value(weights_map, "traj_final_reg", defaults.traj_final_reg),
+            traj_control_reg=resolve_loss_weight_value(weights_map, "traj_control_reg", defaults.traj_control_reg),
+            traj_control_delta_reg=resolve_loss_weight_value(
+                weights_map,
+                "traj_control_delta_reg",
+                defaults.traj_control_delta_reg,
+            ),
+            traj_aux_xyz_reg=resolve_loss_weight_value(weights_map, "traj_aux_xyz_reg", defaults.traj_aux_xyz_reg),
+            traj_aux_final_reg=resolve_loss_weight_value(weights_map, "traj_aux_final_reg", defaults.traj_aux_final_reg),
+            traj_aux_guided_kd=resolve_loss_weight_value(weights_map, "traj_aux_guided_kd", defaults.traj_aux_guided_kd),
+            traj_aux_pseudo_ce=resolve_loss_weight_value(weights_map, "traj_aux_pseudo_ce", defaults.traj_aux_pseudo_ce),
+        )
+
     trainer_config = TrainerConfig(
         stage_name=str(config["stage_name"]),
         epochs=float(config.get("epochs", 1.0)),
@@ -185,35 +224,16 @@ def stage_weights_from_yaml(path: Path) -> tuple[TrainerConfig, DistillationLoss
         batch_size=int(config.get("batch_size", 1)),
         learning_rate=float(config.get("learning_rate", 2e-5)),
     )
-    loss_weights = DistillationLossWeights(
-        hard_cot_ce=resolve_loss_weight_value(weights, "hard_cot_ce", defaults.hard_cot_ce),
-        teacher_seq_ce=resolve_loss_weight_value(weights, "teacher_seq_ce", defaults.teacher_seq_ce),
-        teacher_logit_kd=resolve_loss_weight_value(weights, "teacher_logit_kd", defaults.teacher_logit_kd),
-        traj_ce=resolve_loss_weight_value(weights, "traj_ce", defaults.traj_ce),
-        traj_aux_reg=resolve_loss_weight_value(weights, "traj_aux_reg", defaults.traj_aux_reg),
-        format_ce=resolve_loss_weight_value(weights, "format_ce", defaults.format_ce),
-        action_aux=resolve_loss_weight_value(weights, "action_aux", defaults.action_aux),
-        feat_align=resolve_loss_weight_value(weights, "feat_align", defaults.feat_align),
-        teacher_traj_ce=resolve_optional_loss_weight_value(weights, "teacher_traj_ce"),
-        teacher_traj_topk_kd=resolve_loss_weight_value(
-            weights,
-            "teacher_traj_topk_kd",
-            defaults.teacher_traj_topk_kd,
-        ),
-        teacher_traj_hidden_align=resolve_loss_weight_value(
-            weights,
-            "teacher_traj_hidden_align",
-            defaults.teacher_traj_hidden_align,
-        ),
-        traj_xyz_reg=resolve_loss_weight_value(weights, "traj_xyz_reg", defaults.traj_xyz_reg),
-        traj_delta_reg=resolve_loss_weight_value(weights, "traj_delta_reg", defaults.traj_delta_reg),
-        traj_final_reg=resolve_loss_weight_value(weights, "traj_final_reg", defaults.traj_final_reg),
-    )
+    loss_weights = _resolve_weights(weights)
     stage_options = {
         "data_view": dict(config.get("data_view") or {}),
         "traj_token_reweighting": dict(config.get("traj_token_reweighting") or {}),
         "decode_eval": dict(config.get("decode_eval") or {}),
         "traj_decode_reg": dict(config.get("traj_decode_reg") or {}),
+        "traj_aux_interface": dict(config.get("traj_aux_interface") or {}),
+        "optimization": dict(config.get("optimization") or {}),
+        "curriculum": dict(config.get("curriculum") or {}),
+        "interface_loss_weights": dict(config.get("interface_loss_weights") or {}),
     }
     return trainer_config, loss_weights, stage_options
 
@@ -221,6 +241,34 @@ def stage_weights_from_yaml(path: Path) -> tuple[TrainerConfig, DistillationLoss
 def unwrap_model(model):
     """Return the underlying model when wrapped by DataParallel/DDP."""
     return getattr(model, "module", model)
+
+
+def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None) -> dict[str, object]:
+    """Apply stage-specific trainability rules and return a small summary."""
+    cfg = dict(optimization_cfg or {})
+    summary = {"freeze_all_but_traj_aux_head": False, "freeze_traj_aux_head": False}
+    if not bool(cfg.get("freeze_all_but_traj_aux_head", False)):
+        if bool(cfg.get("freeze_traj_aux_head", False)):
+            traj_aux_head = getattr(model, "traj_aux_head", None)
+            if traj_aux_head is None:
+                raise RuntimeError("freeze_traj_aux_head requires model.traj_aux_head to exist.")
+            for parameter in traj_aux_head.parameters():
+                parameter.requires_grad = False
+            summary["freeze_traj_aux_head"] = True
+        return summary
+
+    for parameter in model.parameters():
+        parameter.requires_grad = False
+    traj_aux_head = getattr(model, "traj_aux_head", None)
+    if traj_aux_head is None:
+        raise RuntimeError("freeze_all_but_traj_aux_head requires model.traj_aux_head to exist.")
+    for parameter in traj_aux_head.parameters():
+        parameter.requires_grad = True
+    return {
+        "freeze_all_but_traj_aux_head": True,
+        "freeze_traj_aux_head": False,
+        "trainable_modules": ["traj_aux_head"],
+    }
 
 
 def resolve_parallelism(multi_gpu: str) -> tuple[str, list[int]]:
@@ -428,6 +476,88 @@ def load_traj_decode_config(
     }
 
 
+def build_teacher_traj_aux_target_stats(
+    records: list[dict],
+    *,
+    teacher_traj_cache_dir: Path | None,
+    traj_decode_config: TrajectoryDecodeConfig | None,
+    num_buckets: int,
+) -> tuple[TrajectoryAuxInterfaceConfig | None, dict[str, object]]:
+    """Estimate bucket/channel control statistics from teacher discrete trajectory bodies."""
+    if teacher_traj_cache_dir is None or traj_decode_config is None:
+        return None, {"enabled": False, "reason": "missing_teacher_cache_or_decode_config"}
+    num_buckets = max(int(num_buckets), 1)
+    counts = np.zeros((num_buckets, 2), dtype=np.int64)
+    sums = np.zeros((num_buckets, 2), dtype=np.float64)
+    sq_sums = np.zeros((num_buckets, 2), dtype=np.float64)
+    dims_min = np.asarray(traj_decode_config.dims_min, dtype=np.float64)
+    dims_max = np.asarray(traj_decode_config.dims_max, dtype=np.float64)
+    used_records = 0
+
+    for record in records:
+        signal = _teacher_traj15_signal_from_sample(
+            record,
+            teacher_traj_cache_dir=teacher_traj_cache_dir,
+        )
+        if signal is None or "token_ids" not in signal:
+            continue
+        token_ids = np.asarray(signal["token_ids"], dtype=np.int64).reshape(-1)
+        usable_count = min(int(token_ids.shape[0]), int(traj_decode_config.n_waypoints * 2))
+        usable_count -= usable_count % 2
+        if usable_count <= 0:
+            continue
+        token_ids = np.clip(token_ids[:usable_count], 0, int(traj_decode_config.num_bins) - 1).astype(np.float64)
+        token_indices = np.arange(usable_count, dtype=np.int64)
+        waypoint_ids = token_indices // 2
+        parity = token_indices % 2
+        bucket_ids = np.clip(
+            (waypoint_ids * num_buckets) // max(int(traj_decode_config.n_waypoints), 1),
+            0,
+            num_buckets - 1,
+        )
+        dim_min = dims_min[parity]
+        dim_max = dims_max[parity]
+        controls = token_ids / float(max(int(traj_decode_config.num_bins) - 1, 1)) * (dim_max - dim_min) + dim_min
+        for bucket_index in range(num_buckets):
+            for channel_index in range(2):
+                mask = (bucket_ids == bucket_index) & (parity == channel_index)
+                if not np.any(mask):
+                    continue
+                values = controls[mask]
+                counts[bucket_index, channel_index] += int(values.shape[0])
+                sums[bucket_index, channel_index] += float(values.sum())
+                sq_sums[bucket_index, channel_index] += float(np.square(values).sum())
+        used_records += 1
+
+    if used_records <= 0 or not np.all(counts > 0):
+        return None, {
+            "enabled": False,
+            "reason": "insufficient_teacher_traj_stats",
+            "used_records": used_records,
+            "counts": counts.tolist(),
+        }
+
+    means = sums / counts
+    variances = np.maximum((sq_sums / counts) - np.square(means), 1e-4)
+    stds = np.sqrt(variances)
+    aux_config = TrajectoryAuxInterfaceConfig(
+        num_buckets=num_buckets,
+        normalize_targets=True,
+        tanh_bound=3.0,
+        huber_delta=1.0,
+        target_means=tuple(tuple(float(value) for value in row) for row in means.tolist()),
+        target_stds=tuple(tuple(float(value) for value in row) for row in stds.tolist()),
+    )
+    return aux_config, {
+        "enabled": True,
+        "used_records": used_records,
+        "num_buckets": num_buckets,
+        "target_means": means.tolist(),
+        "target_stds": stds.tolist(),
+        "counts": counts.tolist(),
+    }
+
+
 def decode_eval_config_from_yaml(config: dict[str, object] | None, *, fallback_split: str = "val") -> DecodeEvalConfig:
     cfg = dict(config or {})
     return DecodeEvalConfig(
@@ -479,6 +609,8 @@ def evaluate_model(
     world_size: int,
     loss_weights: DistillationLossWeights,
     traj_decode_config: TrajectoryDecodeConfig | None,
+    traj_aux_interface_config: TrajectoryAuxInterfaceConfig | None,
+    traj_body_prefix_tokens: int | None = None,
 ) -> dict[str, float]:
     """Run a validation pass and return mean scalar metrics."""
     metric_sums: dict[str, float] = {}
@@ -492,7 +624,14 @@ def evaluate_model(
             else nullcontext()
         )
         with autocast_context:
-            _, logs = run_train_step(model, batch, loss_weights, traj_decode_config=traj_decode_config)
+            _, logs = run_train_step(
+                model,
+                batch,
+                loss_weights,
+                traj_decode_config=traj_decode_config,
+                traj_aux_interface_config=traj_aux_interface_config,
+                traj_body_prefix_tokens=traj_body_prefix_tokens,
+            )
         local_batches += 1
         for key, value in logs.items():
             metric_sums[key] = metric_sums.get(key, 0.0) + float(value)
@@ -579,6 +718,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         raise ValueError(f"Unsupported data_view.target_mode={target_mode!r}")
     enable_teacher_view = bool(data_view_cfg.get("enable_teacher_view", True))
     enable_action_aux = bool(data_view_cfg.get("enable_action_aux", True))
+    teacher_pair_target = bool(data_view_cfg.get("teacher_pair_target", False))
     teacher_traj_cache_dir_raw = data_view_cfg.get("teacher_traj_cache_dir")
     teacher_traj_cache_dir = (
         Path(str(remap_external_path(teacher_traj_cache_dir_raw)))
@@ -592,12 +732,23 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             raise RuntimeError(
                 "teacher_traj_hidden_align is enabled but no teacher trajectory hidden cache dimension could be inferred."
             )
+    traj_aux_interface_cfg = dict(stage_options.get("traj_aux_interface") or {})
+    traj_aux_num_buckets = max(int(traj_aux_interface_cfg.get("num_buckets", 1) or 1), 1)
+    optimization_cfg = dict(stage_options.get("optimization") or {})
+    curriculum_cfg = dict(stage_options.get("curriculum") or {})
+    traj_body_prefix_tokens = (
+        int(curriculum_cfg.get("traj_body_prefix_tokens"))
+        if curriculum_cfg.get("traj_body_prefix_tokens") not in (None, "", 0)
+        else None
+    )
+    interface_loss_weights_cfg = dict(stage_options.get("interface_loss_weights") or {})
     wrapper_cfg = StudentWrapperConfig(
         student_model_name=student_model,
         max_length=trainer_cfg.max_length,
         torch_dtype=preferred_model_dtype(bf16=trainer_cfg.bf16),
         local_files_only=Path(student_model).expanduser().exists(),
         traj_teacher_hidden_size=teacher_traj_hidden_size,
+        traj_aux_num_buckets=traj_aux_num_buckets,
     )
     tokenizer = load_student_tokenizer(wrapper_cfg)
     processor = load_student_processor(wrapper_cfg, tokenizer=tokenizer)
@@ -613,6 +764,76 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         or loss_weights.traj_final_reg > 0
     ) and traj_decode_config is None:
         raise RuntimeError("Decoded trajectory regularization is enabled but no traj tokenizer config could be loaded.")
+    traj_aux_interface_runtime_config = None
+    traj_aux_interface_summary = {"enabled": False}
+    if bool(traj_aux_interface_cfg.get("normalize_targets", False)):
+        traj_aux_interface_runtime_config, traj_aux_interface_summary = build_teacher_traj_aux_target_stats(
+            train_records,
+            teacher_traj_cache_dir=teacher_traj_cache_dir,
+            traj_decode_config=traj_decode_config,
+            num_buckets=traj_aux_num_buckets,
+        )
+        if traj_aux_interface_runtime_config is None:
+            raise RuntimeError(
+                "traj_aux_interface.normalize_targets is enabled but teacher trajectory target stats could not be built."
+            )
+        traj_aux_interface_runtime_config.tanh_bound = float(traj_aux_interface_cfg.get("tanh_bound", 3.0))
+        traj_aux_interface_runtime_config.huber_delta = float(traj_aux_interface_cfg.get("huber_delta", 1.0))
+        traj_aux_interface_runtime_config.decode_tanh_scale = float(traj_aux_interface_cfg.get("decode_tanh_scale", 1.0))
+        traj_aux_interface_runtime_config.decode_edge_margin = int(traj_aux_interface_cfg.get("decode_edge_margin", 0))
+        traj_aux_interface_runtime_config.decode_prior_sigma = float(traj_aux_interface_cfg.get("decode_prior_sigma", 96.0))
+        traj_aux_interface_summary["decode_tanh_scale"] = traj_aux_interface_runtime_config.decode_tanh_scale
+        traj_aux_interface_summary["decode_edge_margin"] = traj_aux_interface_runtime_config.decode_edge_margin
+        traj_aux_interface_summary["decode_prior_sigma"] = traj_aux_interface_runtime_config.decode_prior_sigma
+    else:
+        traj_aux_interface_runtime_config = TrajectoryAuxInterfaceConfig(
+            num_buckets=traj_aux_num_buckets,
+            normalize_targets=False,
+            tanh_bound=float(traj_aux_interface_cfg.get("tanh_bound", 3.0)),
+            huber_delta=float(traj_aux_interface_cfg.get("huber_delta", 1.0)),
+            decode_tanh_scale=float(traj_aux_interface_cfg.get("decode_tanh_scale", 1.0)),
+            decode_edge_margin=int(traj_aux_interface_cfg.get("decode_edge_margin", 0)),
+            decode_prior_sigma=float(traj_aux_interface_cfg.get("decode_prior_sigma", 96.0)),
+        )
+        traj_aux_interface_summary = {
+            "enabled": True,
+            "num_buckets": traj_aux_num_buckets,
+            "normalize_targets": False,
+            "tanh_bound": traj_aux_interface_runtime_config.tanh_bound,
+            "huber_delta": traj_aux_interface_runtime_config.huber_delta,
+            "decode_tanh_scale": traj_aux_interface_runtime_config.decode_tanh_scale,
+            "decode_edge_margin": traj_aux_interface_runtime_config.decode_edge_margin,
+            "decode_prior_sigma": traj_aux_interface_runtime_config.decode_prior_sigma,
+        }
+    interface_loss_weights = None
+    if interface_loss_weights_cfg:
+        defaults = get_stage_weights(trainer_cfg.stage_name)
+        interface_loss_weights = DistillationLossWeights(
+            hard_cot_ce=resolve_loss_weight_value(interface_loss_weights_cfg, "hard_cot_ce", defaults.hard_cot_ce),
+            teacher_seq_ce=resolve_loss_weight_value(interface_loss_weights_cfg, "teacher_seq_ce", defaults.teacher_seq_ce),
+            teacher_logit_kd=resolve_loss_weight_value(interface_loss_weights_cfg, "teacher_logit_kd", defaults.teacher_logit_kd),
+            traj_ce=resolve_loss_weight_value(interface_loss_weights_cfg, "traj_ce", defaults.traj_ce),
+            traj_aux_reg=resolve_loss_weight_value(interface_loss_weights_cfg, "traj_aux_reg", defaults.traj_aux_reg),
+            format_ce=resolve_loss_weight_value(interface_loss_weights_cfg, "format_ce", defaults.format_ce),
+            action_aux=resolve_loss_weight_value(interface_loss_weights_cfg, "action_aux", defaults.action_aux),
+            feat_align=resolve_loss_weight_value(interface_loss_weights_cfg, "feat_align", defaults.feat_align),
+            teacher_traj_ce=resolve_optional_loss_weight_value(interface_loss_weights_cfg, "teacher_traj_ce"),
+            teacher_traj_topk_kd=resolve_loss_weight_value(interface_loss_weights_cfg, "teacher_traj_topk_kd", defaults.teacher_traj_topk_kd),
+            teacher_traj_hidden_align=resolve_loss_weight_value(interface_loss_weights_cfg, "teacher_traj_hidden_align", defaults.teacher_traj_hidden_align),
+            traj_xyz_reg=resolve_loss_weight_value(interface_loss_weights_cfg, "traj_xyz_reg", defaults.traj_xyz_reg),
+            traj_delta_reg=resolve_loss_weight_value(interface_loss_weights_cfg, "traj_delta_reg", defaults.traj_delta_reg),
+            traj_final_reg=resolve_loss_weight_value(interface_loss_weights_cfg, "traj_final_reg", defaults.traj_final_reg),
+            traj_control_reg=resolve_loss_weight_value(interface_loss_weights_cfg, "traj_control_reg", defaults.traj_control_reg),
+            traj_control_delta_reg=resolve_loss_weight_value(
+                interface_loss_weights_cfg,
+                "traj_control_delta_reg",
+                defaults.traj_control_delta_reg,
+            ),
+            traj_aux_xyz_reg=resolve_loss_weight_value(interface_loss_weights_cfg, "traj_aux_xyz_reg", defaults.traj_aux_xyz_reg),
+            traj_aux_final_reg=resolve_loss_weight_value(interface_loss_weights_cfg, "traj_aux_final_reg", defaults.traj_aux_final_reg),
+            traj_aux_guided_kd=resolve_loss_weight_value(interface_loss_weights_cfg, "traj_aux_guided_kd", defaults.traj_aux_guided_kd),
+            traj_aux_pseudo_ce=resolve_loss_weight_value(interface_loss_weights_cfg, "traj_aux_pseudo_ce", defaults.traj_aux_pseudo_ce),
+        )
     traj_token_weight_map, traj_token_reweight_summary = build_traj_token_weight_map(
         train_records,
         tokenizer,
@@ -634,6 +855,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         max_length=trainer_cfg.max_length,
         prompt_mode=prompt_mode,
         target_mode=target_mode,
+        teacher_pair_target=teacher_pair_target,
         enable_teacher_view=enable_teacher_view,
         enable_action_aux=enable_action_aux,
         traj_token_weight_map=traj_token_weight_map,
@@ -711,10 +933,17 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "student_model": student_model,
             "prompt_mode": prompt_mode,
             "target_mode": target_mode,
+            "teacher_pair_target": teacher_pair_target,
             "enable_teacher_view": enable_teacher_view,
             "enable_action_aux": enable_action_aux,
             "teacher_traj_cache_dir": str(teacher_traj_cache_dir) if teacher_traj_cache_dir is not None else None,
             "teacher_traj_hidden_size": teacher_traj_hidden_size,
+            "traj_aux_num_buckets": traj_aux_num_buckets,
+            "traj_aux_interface": traj_aux_interface_summary,
+            "optimization": optimization_cfg,
+            "curriculum": curriculum_cfg,
+            "traj_body_prefix_tokens": traj_body_prefix_tokens,
+            "interface_loss_weights": export_loss_weights(interface_loss_weights) if interface_loss_weights is not None else None,
             "traj_token_reweighting": traj_token_reweight_summary,
             "traj_decode": traj_decode_summary,
             "decode_eval": {
@@ -791,6 +1020,9 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             use_lora=use_lora,
             adapter_trainable=use_lora,
         )
+    if getattr(model, "traj_aux_num_buckets", 1) != traj_aux_num_buckets:
+        model.configure_traj_aux_head(traj_aux_num_buckets)
+    optimization_summary = apply_optimization_policy(model, optimization_cfg)
     for parameter in model.parameters():
         if parameter.requires_grad and parameter.dtype != torch.float32:
             parameter.data = parameter.data.float()
@@ -803,6 +1035,8 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     if world_size > 1:
         model = DDP(model, device_ids=[rank], output_device=rank, static_graph=True)
     trainable_params = [param for param in model.parameters() if param.requires_grad]
+    if not trainable_params:
+        raise RuntimeError("No trainable parameters remain after applying the optimization policy.")
     optimizer = torch.optim.AdamW(trainable_params, lr=trainer_cfg.learning_rate)
     if is_rank_zero:
         print(
@@ -815,7 +1049,11 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                 f"devices={device_ids} use_lora={use_lora} "
                 f"trainable_token_rows={len(lora_spec.trainable_token_indices or ())} "
                 f"prompt_mode={prompt_mode} target_mode={target_mode} "
-                f"teacher_traj_hidden_size={teacher_traj_hidden_size}"
+                f"teacher_pair_target={teacher_pair_target} "
+                f"teacher_traj_hidden_size={teacher_traj_hidden_size} "
+                f"traj_aux_num_buckets={traj_aux_num_buckets} "
+                f"freeze_aux_only={bool(optimization_cfg.get('freeze_all_but_traj_aux_head', False))} "
+                f"interface_every_n={curriculum_cfg.get('interface_every_n_steps')}"
             ),
             flush=True,
         )
@@ -864,10 +1102,17 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         "data_view": {
             "prompt_mode": prompt_mode,
             "target_mode": target_mode,
+            "teacher_pair_target": teacher_pair_target,
             "enable_teacher_view": enable_teacher_view,
             "enable_action_aux": enable_action_aux,
             "teacher_traj_cache_dir": str(teacher_traj_cache_dir) if teacher_traj_cache_dir is not None else None,
             "teacher_traj_hidden_size": teacher_traj_hidden_size,
+            "traj_aux_num_buckets": traj_aux_num_buckets,
+            "traj_aux_interface": traj_aux_interface_cfg,
+            "traj_aux_interface_runtime": traj_aux_interface_summary,
+            "optimization": {**optimization_cfg, **optimization_summary},
+            "curriculum": curriculum_cfg,
+            "interface_loss_weights": export_loss_weights(interface_loss_weights) if interface_loss_weights is not None else None,
         },
         "traj_token_reweighting": traj_token_reweight_summary,
         "traj_decode": traj_decode_summary,
@@ -893,13 +1138,29 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                 batch = move_batch_to_device(batch, device)
                 model.train()
                 optimizer.zero_grad(set_to_none=True)
+                next_step = global_step + 1
+                interface_every_n_steps = int(curriculum_cfg.get("interface_every_n_steps", 0) or 0)
+                use_interface_step = (
+                    interface_loss_weights is not None
+                    and interface_every_n_steps > 0
+                    and next_step % interface_every_n_steps == 0
+                )
+                active_loss_weights = interface_loss_weights if use_interface_step else loss_weights
+                active_phase = "interface" if use_interface_step else "pair_lm"
                 autocast_context = (
                     torch.autocast("cuda", dtype=torch.bfloat16)
                     if trainer_cfg.bf16 and device.type == "cuda"
                     else nullcontext()
                 )
                 with autocast_context:
-                    loss, logs = run_train_step(model, batch, loss_weights, traj_decode_config=traj_decode_config)
+                    loss, logs = run_train_step(
+                        model,
+                        batch,
+                        active_loss_weights,
+                        traj_decode_config=traj_decode_config,
+                        traj_aux_interface_config=traj_aux_interface_runtime_config,
+                        traj_body_prefix_tokens=traj_body_prefix_tokens,
+                    )
                 loss.backward()
                 grad_norm = torch.nn.utils.clip_grad_norm_(trainable_params, args.grad_clip_norm)
                 optimizer.step()
@@ -912,6 +1173,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                     row = {
                         "timestamp": time.time(),
                         "phase": "train",
+                        "train_subphase": active_phase,
                         "epoch_index": epoch_index,
                         "global_step": global_step,
                         "logs": {**logs, "grad_norm": grad_norm_value},
@@ -927,6 +1189,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                         print(
                             (
                                 f"[train][{trainer_cfg.stage_name}] "
+                                f"mode={active_phase} "
                                 f"step={global_step}/{resolved_max_steps or '?'} "
                                 f"epoch={epoch_progress:.3f} "
                                 f"total={_format_metric(logs.get('total_loss'))} "
@@ -934,6 +1197,8 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                                 f"teacher_cot={_format_metric(logs.get('teacher_cot_loss'))} "
                                 f"topk_kd={_format_metric(logs.get('teacher_topk_kd_loss'))} "
                                 f"traj={_format_metric(logs.get('traj_loss'))} "
+                                f"traj_aux={_format_metric(logs.get('traj_aux_loss'))} "
+                                f"traj_aux_abs={_format_metric(logs.get('traj_aux_abs_max'))} "
                                 f"traj_xyz={_format_metric(logs.get('traj_xyz_loss'))} "
                                 f"traj_delta={_format_metric(logs.get('traj_delta_loss'))} "
                                 f"meta_action={_format_metric(logs.get('meta_action_loss'))} "
@@ -952,14 +1217,16 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                     if val_sampler is not None:
                         val_sampler.set_epoch(global_step)
                     val_logs = evaluate_model(
-                        model,
-                        val_dataloader,
-                        device=device,
-                        bf16=trainer_cfg.bf16,
-                        world_size=world_size,
-                        loss_weights=loss_weights,
-                        traj_decode_config=traj_decode_config,
-                    )
+                            model,
+                            val_dataloader,
+                            device=device,
+                            bf16=trainer_cfg.bf16,
+                            world_size=world_size,
+                            loss_weights=loss_weights,
+                            traj_decode_config=traj_decode_config,
+                            traj_aux_interface_config=traj_aux_interface_runtime_config,
+                            traj_body_prefix_tokens=traj_body_prefix_tokens,
+                        )
                     val_total_loss = float(val_logs.get("total_loss", float("inf")))
                     if best_val_total_loss is None or val_total_loss <= best_val_total_loss:
                         best_val_total_loss = val_total_loss

@@ -28,6 +28,12 @@ class DistillationLossWeights:
     traj_xyz_reg: float = 0.0
     traj_delta_reg: float = 0.0
     traj_final_reg: float = 0.0
+    traj_control_reg: float = 0.0
+    traj_control_delta_reg: float = 0.0
+    traj_aux_xyz_reg: float = 0.0
+    traj_aux_final_reg: float = 0.0
+    traj_aux_guided_kd: float = 0.0
+    traj_aux_pseudo_ce: float = 0.0
 
 
 @dataclass(slots=True)
@@ -44,6 +50,19 @@ class TrajectoryDecodeConfig:
     n_waypoints: int
     short_horizon_steps: int = 24
     short_horizon_weight: float = 1.0
+
+
+@dataclass(slots=True)
+class TrajectoryAuxInterfaceConfig:
+    num_buckets: int = 1
+    normalize_targets: bool = False
+    tanh_bound: float = 3.0
+    huber_delta: float = 1.0
+    decode_tanh_scale: float = 1.0
+    decode_edge_margin: int = 0
+    decode_prior_sigma: float = 96.0
+    target_means: tuple[tuple[float, float], ...] | None = None
+    target_stds: tuple[tuple[float, float], ...] | None = None
 
 
 STAGE_DEFAULTS = {
@@ -68,6 +87,12 @@ LOSS_WEIGHT_ALIASES: dict[str, tuple[str, ...]] = {
     "traj_xyz_reg": ("traj_xyz_loss",),
     "traj_delta_reg": ("traj_delta_loss",),
     "traj_final_reg": ("traj_final_loss",),
+    "traj_control_reg": ("traj_control_loss",),
+    "traj_control_delta_reg": ("traj_control_delta_loss",),
+    "traj_aux_xyz_reg": ("traj_aux_xyz_loss", "traj_aux_gt_xyz_loss"),
+    "traj_aux_final_reg": ("traj_aux_final_loss", "traj_aux_gt_final_loss"),
+    "traj_aux_guided_kd": ("traj_aux_guided_kd_loss", "traj_aux_prior_kd_loss"),
+    "traj_aux_pseudo_ce": ("traj_aux_pseudo_ce_loss", "traj_aux_token_ce_loss"),
 }
 
 
@@ -86,6 +111,12 @@ LOSS_WEIGHT_EXPORT_NAMES: dict[str, str] = {
     "traj_xyz_reg": "traj_xyz_loss",
     "traj_delta_reg": "traj_delta_loss",
     "traj_final_reg": "traj_final_loss",
+    "traj_control_reg": "traj_control_loss",
+    "traj_control_delta_reg": "traj_control_delta_loss",
+    "traj_aux_xyz_reg": "traj_aux_xyz_loss",
+    "traj_aux_final_reg": "traj_aux_final_loss",
+    "traj_aux_guided_kd": "traj_aux_guided_kd_loss",
+    "traj_aux_pseudo_ce": "traj_aux_pseudo_ce_loss",
 }
 
 
@@ -105,6 +136,12 @@ METRIC_EXPORT_NAMES: dict[str, str] = {
     "traj_xyz_reg": "traj_xyz_loss",
     "traj_delta_reg": "traj_delta_loss",
     "traj_final_reg": "traj_final_loss",
+    "traj_control_reg": "traj_control_loss",
+    "traj_control_delta_reg": "traj_control_delta_loss",
+    "traj_aux_xyz_reg": "traj_aux_xyz_loss",
+    "traj_aux_final_reg": "traj_aux_final_loss",
+    "traj_aux_guided_kd": "traj_aux_guided_kd_loss",
+    "traj_aux_pseudo_ce": "traj_aux_pseudo_ce_loss",
     "hard_token_acc": "response_token_acc",
     "hard_cot_acc": "gt_cot_token_acc",
     "hard_traj_acc": "traj_token_acc",
@@ -155,6 +192,12 @@ def export_loss_weights(weights: DistillationLossWeights) -> dict[str, float]:
         "traj_xyz_reg": weights.traj_xyz_reg,
         "traj_delta_reg": weights.traj_delta_reg,
         "traj_final_reg": weights.traj_final_reg,
+        "traj_control_reg": weights.traj_control_reg,
+        "traj_control_delta_reg": weights.traj_control_delta_reg,
+        "traj_aux_xyz_reg": weights.traj_aux_xyz_reg,
+        "traj_aux_final_reg": weights.traj_aux_final_reg,
+        "traj_aux_guided_kd": weights.traj_aux_guided_kd,
+        "traj_aux_pseudo_ce": weights.traj_aux_pseudo_ce,
     }
     exported = {LOSS_WEIGHT_EXPORT_NAMES[key]: float(value) for key, value in values.items()}
     if weights.teacher_traj_ce is not None:
@@ -461,12 +504,253 @@ def _gather_expected_traj_controls(
     return predicted_controls, target_controls
 
 
+def _gather_aux_predicted_controls(
+    traj_aux_values: torch.Tensor,
+    labels: torch.Tensor,
+    traj_token_mask: torch.Tensor | None,
+    config: TrajectoryDecodeConfig,
+    aux_config: TrajectoryAuxInterfaceConfig | None = None,
+) -> list[torch.Tensor]:
+    """Gather bucketed auxiliary-head control predictions over traj body positions."""
+    if traj_token_mask is None:
+        return []
+    shift_aux = traj_aux_values[:, :-1, :].contiguous()
+    shift_labels = labels[:, 1:].contiguous()
+    valid_mask = (shift_labels != IGNORE_INDEX) & traj_token_mask[:, 1:].to(dtype=torch.bool, device=shift_labels.device)
+    num_buckets = max(int(shift_aux.shape[-1] // 2), 1)
+    dims_min = torch.tensor(config.dims_min, device=shift_aux.device, dtype=shift_aux.dtype)
+    dims_max = torch.tensor(config.dims_max, device=shift_aux.device, dtype=shift_aux.dtype)
+    stats_mean, stats_std = _resolve_aux_target_stats(aux_config, shift_aux.device, shift_aux.dtype, num_buckets)
+
+    predicted_controls: list[torch.Tensor] = []
+    for sample_index in range(shift_aux.shape[0]):
+        sample_mask = valid_mask[sample_index]
+        if not sample_mask.any():
+            predicted_controls.append(torch.empty((0, 2), device=shift_aux.device, dtype=shift_aux.dtype))
+            continue
+        selected_aux = shift_aux[sample_index][sample_mask]
+        usable_count = min(selected_aux.shape[0], config.n_waypoints * 2)
+        usable_count -= usable_count % 2
+        if usable_count <= 0:
+            predicted_controls.append(torch.empty((0, 2), device=shift_aux.device, dtype=shift_aux.dtype))
+            continue
+
+        selected_aux = selected_aux[:usable_count]
+        token_indices = torch.arange(usable_count, device=shift_aux.device)
+        waypoint_ids = token_indices // 2
+        parity = token_indices % 2
+        bucket_ids = torch.clamp((waypoint_ids * num_buckets) // max(int(config.n_waypoints), 1), max=num_buckets - 1)
+        channel_ids = bucket_ids * 2 + parity
+        flat_controls = selected_aux[token_indices, channel_ids]
+        if stats_mean is not None and stats_std is not None:
+            tanh_bound = max(float(aux_config.tanh_bound if aux_config is not None else 3.0), 1e-6)
+            flat_controls = tanh_bound * torch.tanh(flat_controls)
+            flat_controls = stats_mean[bucket_ids, parity] + stats_std[bucket_ids, parity] * flat_controls
+            flat_controls = torch.clamp(flat_controls, dims_min[parity], dims_max[parity])
+        predicted_controls.append(flat_controls.reshape(-1, 2))
+    return predicted_controls
+
+
+def trajectory_aux_guided_kd_loss(
+    logits: torch.Tensor,
+    traj_aux_values: torch.Tensor | None,
+    labels: torch.Tensor,
+    traj_token_mask: torch.Tensor | None,
+    sample_weights: torch.Tensor | None,
+    config: TrajectoryDecodeConfig | None,
+    aux_config: TrajectoryAuxInterfaceConfig | None = None,
+) -> torch.Tensor:
+    """Use the bounded auxiliary trajectory head as a soft prior for LM traj-token logits."""
+    if traj_aux_values is None or config is None or traj_token_mask is None:
+        device = labels.device if isinstance(labels, torch.Tensor) else torch.device("cpu")
+        return _zero(device)
+
+    shift_logits = logits[:, :-1, :].contiguous()
+    shift_aux = traj_aux_values[:, :-1, :].contiguous()
+    shift_labels = labels[:, 1:].contiguous()
+    valid_mask = (shift_labels != IGNORE_INDEX) & traj_token_mask[:, 1:].to(dtype=torch.bool, device=shift_labels.device)
+    num_buckets = max(int(shift_aux.shape[-1] // 2), 1)
+    dims_min = torch.tensor(config.dims_min, device=shift_aux.device, dtype=shift_aux.dtype)
+    dims_max = torch.tensor(config.dims_max, device=shift_aux.device, dtype=shift_aux.dtype)
+    stats_mean, stats_std = _resolve_aux_target_stats(aux_config, shift_aux.device, shift_aux.dtype, num_buckets)
+    traj_slice = slice(config.traj_token_start_idx, config.traj_token_start_idx + config.num_bins)
+    bin_indices = torch.arange(config.num_bins, device=shift_aux.device, dtype=shift_aux.dtype)
+    sigma = max(float(aux_config.decode_prior_sigma if aux_config is not None else 96.0), 1.0)
+    tanh_scale = max(float(aux_config.decode_tanh_scale if aux_config is not None else 1.0), 0.0)
+    edge_margin = max(int(aux_config.decode_edge_margin if aux_config is not None else 0), 0)
+
+    per_sample_losses: list[torch.Tensor] = []
+    per_sample_weights: list[torch.Tensor] = []
+    for sample_index in range(shift_aux.shape[0]):
+        sample_mask = valid_mask[sample_index]
+        if not sample_mask.any():
+            continue
+        selected_logits = shift_logits[sample_index][sample_mask][:, traj_slice]
+        selected_aux = shift_aux[sample_index][sample_mask]
+        usable_count = min(selected_logits.shape[0], selected_aux.shape[0], config.n_waypoints * 2)
+        if usable_count <= 0:
+            continue
+        selected_logits = selected_logits[:usable_count]
+        selected_aux = selected_aux[:usable_count]
+
+        token_indices = torch.arange(usable_count, device=shift_aux.device)
+        waypoint_ids = token_indices // 2
+        parity = token_indices % 2
+        bucket_ids = torch.clamp((waypoint_ids * num_buckets) // max(int(config.n_waypoints), 1), max=num_buckets - 1)
+        channel_ids = bucket_ids * 2 + parity
+        pred_scalar = selected_aux[token_indices, channel_ids]
+
+        dim_min = dims_min[parity]
+        dim_max = dims_max[parity]
+        if stats_mean is not None and stats_std is not None:
+            tanh_bound = max(float(aux_config.tanh_bound if aux_config is not None else 3.0), 1e-6) * tanh_scale
+            pred_scalar = tanh_bound * torch.tanh(pred_scalar)
+            pred_scalar = stats_mean[bucket_ids, parity] + stats_std[bucket_ids, parity] * pred_scalar
+        pred_scalar = torch.clamp(pred_scalar, dim_min, dim_max)
+
+        ratio = torch.where(
+            (dim_max - dim_min) > 1e-6,
+            (pred_scalar - dim_min) / (dim_max - dim_min),
+            torch.zeros_like(pred_scalar),
+        )
+        center_bins = torch.round(ratio * float(config.num_bins - 1)).clamp(min=0, max=config.num_bins - 1)
+        if edge_margin > 0 and config.num_bins > edge_margin * 2:
+            center_bins = center_bins.clamp(min=edge_margin, max=config.num_bins - 1 - edge_margin)
+
+        prior_logits = -torch.square((bin_indices.unsqueeze(0) - center_bins.unsqueeze(1)) / sigma)
+        target_probs = F.softmax(prior_logits, dim=-1).to(dtype=selected_logits.dtype)
+        student_log_probs = F.log_softmax(selected_logits, dim=-1)
+        per_token_loss = -(target_probs * student_log_probs).sum(dim=-1)
+
+        token_weights = torch.ones((usable_count,), device=shift_aux.device, dtype=shift_aux.dtype)
+        short_steps = max(int(config.short_horizon_steps), 1)
+        short_weight = max(float(config.short_horizon_weight), 1.0)
+        token_weights[waypoint_ids < short_steps] = short_weight
+        per_sample_losses.append((per_token_loss * token_weights).sum() / token_weights.sum().clamp(min=1e-6))
+        if sample_weights is None:
+            per_sample_weights.append(torch.tensor(1.0, device=shift_aux.device))
+        else:
+            per_sample_weights.append(sample_weights[sample_index].to(shift_aux.device))
+
+    if not per_sample_losses:
+        return _zero(shift_aux.device)
+
+    losses = torch.stack(per_sample_losses)
+    weights = None if sample_weights is None else torch.stack(per_sample_weights)
+    return _apply_sample_weights(losses, weights)
+
+
+def trajectory_aux_pseudo_ce_loss(
+    logits: torch.Tensor,
+    traj_aux_values: torch.Tensor | None,
+    labels: torch.Tensor,
+    traj_token_mask: torch.Tensor | None,
+    sample_weights: torch.Tensor | None,
+    config: TrajectoryDecodeConfig | None,
+    aux_config: TrajectoryAuxInterfaceConfig | None = None,
+) -> torch.Tensor:
+    """Train LM traj logits toward the bounded aux-derived token ids used by hybrid decode."""
+    if traj_aux_values is None or config is None or traj_token_mask is None:
+        device = labels.device if isinstance(labels, torch.Tensor) else torch.device("cpu")
+        return _zero(device)
+
+    shift_logits = logits[:, :-1, :].contiguous()
+    shift_aux = traj_aux_values[:, :-1, :].contiguous()
+    shift_labels = labels[:, 1:].contiguous()
+    valid_mask = (shift_labels != IGNORE_INDEX) & traj_token_mask[:, 1:].to(dtype=torch.bool, device=shift_labels.device)
+    num_buckets = max(int(shift_aux.shape[-1] // 2), 1)
+    dims_min = torch.tensor(config.dims_min, device=shift_aux.device, dtype=shift_aux.dtype)
+    dims_max = torch.tensor(config.dims_max, device=shift_aux.device, dtype=shift_aux.dtype)
+    stats_mean, stats_std = _resolve_aux_target_stats(aux_config, shift_aux.device, shift_aux.dtype, num_buckets)
+    traj_slice = slice(config.traj_token_start_idx, config.traj_token_start_idx + config.num_bins)
+    tanh_scale = max(float(aux_config.decode_tanh_scale if aux_config is not None else 1.0), 0.0)
+    edge_margin = max(int(aux_config.decode_edge_margin if aux_config is not None else 0), 0)
+
+    per_sample_losses: list[torch.Tensor] = []
+    per_sample_weights: list[torch.Tensor] = []
+    for sample_index in range(shift_aux.shape[0]):
+        sample_mask = valid_mask[sample_index]
+        if not sample_mask.any():
+            continue
+        selected_logits = shift_logits[sample_index][sample_mask][:, traj_slice]
+        selected_aux = shift_aux[sample_index][sample_mask]
+        usable_count = min(selected_logits.shape[0], selected_aux.shape[0], config.n_waypoints * 2)
+        if usable_count <= 0:
+            continue
+        selected_logits = selected_logits[:usable_count]
+        selected_aux = selected_aux[:usable_count]
+
+        token_indices = torch.arange(usable_count, device=shift_aux.device)
+        waypoint_ids = token_indices // 2
+        parity = token_indices % 2
+        bucket_ids = torch.clamp((waypoint_ids * num_buckets) // max(int(config.n_waypoints), 1), max=num_buckets - 1)
+        channel_ids = bucket_ids * 2 + parity
+        pred_scalar = selected_aux[token_indices, channel_ids]
+
+        dim_min = dims_min[parity]
+        dim_max = dims_max[parity]
+        if stats_mean is not None and stats_std is not None:
+            tanh_bound = max(float(aux_config.tanh_bound if aux_config is not None else 3.0), 1e-6) * tanh_scale
+            pred_scalar = tanh_bound * torch.tanh(pred_scalar)
+            pred_scalar = stats_mean[bucket_ids, parity] + stats_std[bucket_ids, parity] * pred_scalar
+        pred_scalar = torch.clamp(pred_scalar, dim_min, dim_max)
+
+        ratio = torch.where(
+            (dim_max - dim_min) > 1e-6,
+            (pred_scalar - dim_min) / (dim_max - dim_min),
+            torch.zeros_like(pred_scalar),
+        )
+        center_bins = torch.round(ratio * float(config.num_bins - 1)).clamp(min=0, max=config.num_bins - 1).to(dtype=torch.long)
+        if edge_margin > 0 and config.num_bins > edge_margin * 2:
+            center_bins = center_bins.clamp(min=edge_margin, max=config.num_bins - 1 - edge_margin)
+
+        per_token_loss = F.cross_entropy(selected_logits, center_bins, reduction="none")
+        token_weights = torch.ones((usable_count,), device=shift_aux.device, dtype=shift_aux.dtype)
+        short_steps = max(int(config.short_horizon_steps), 1)
+        short_weight = max(float(config.short_horizon_weight), 1.0)
+        token_weights[waypoint_ids < short_steps] = short_weight
+        per_sample_losses.append((per_token_loss * token_weights).sum() / token_weights.sum().clamp(min=1e-6))
+        if sample_weights is None:
+            per_sample_weights.append(torch.tensor(1.0, device=shift_aux.device))
+        else:
+            per_sample_weights.append(sample_weights[sample_index].to(shift_aux.device))
+
+    if not per_sample_losses:
+        return _zero(shift_aux.device)
+
+    losses = torch.stack(per_sample_losses)
+    weights = None if sample_weights is None else torch.stack(per_sample_weights)
+    return _apply_sample_weights(losses, weights)
+
+
+def _resolve_aux_target_stats(
+    aux_config: TrajectoryAuxInterfaceConfig | None,
+    device: torch.device,
+    dtype: torch.dtype,
+    num_buckets: int,
+) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+    if (
+        aux_config is None
+        or not aux_config.normalize_targets
+        or aux_config.target_means is None
+        or aux_config.target_stds is None
+    ):
+        return None, None
+    means = torch.tensor(aux_config.target_means, device=device, dtype=dtype)
+    stds = torch.tensor(aux_config.target_stds, device=device, dtype=dtype)
+    if means.shape != (num_buckets, 2) or stds.shape != (num_buckets, 2):
+        return None, None
+    stds = stds.clamp(min=1e-3)
+    return means, stds
+
+
 def trajectory_aux_regression_loss(
     traj_aux_values: torch.Tensor | None,
     labels: torch.Tensor,
     traj_token_mask: torch.Tensor | None,
     sample_weights: torch.Tensor | None,
     config: TrajectoryDecodeConfig | None,
+    aux_config: TrajectoryAuxInterfaceConfig | None = None,
 ) -> torch.Tensor:
     """Supervise a training-only trajectory interface head in continuous control space."""
     if traj_aux_values is None or config is None or traj_token_mask is None:
@@ -478,6 +762,8 @@ def trajectory_aux_regression_loss(
     valid_mask = (shift_labels != IGNORE_INDEX) & traj_token_mask[:, 1:].to(dtype=torch.bool, device=shift_labels.device)
     dims_min = torch.tensor(config.dims_min, device=shift_aux.device, dtype=shift_aux.dtype)
     dims_max = torch.tensor(config.dims_max, device=shift_aux.device, dtype=shift_aux.dtype)
+    num_buckets = max(int(shift_aux.shape[-1] // 2), 1)
+    stats_mean, stats_std = _resolve_aux_target_stats(aux_config, shift_aux.device, shift_aux.dtype, num_buckets)
 
     per_sample_losses: list[torch.Tensor] = []
     per_sample_weights: list[torch.Tensor] = []
@@ -495,14 +781,25 @@ def trajectory_aux_regression_loss(
 
         parity = torch.arange(usable_count, device=shift_aux.device) % 2
         token_indices = torch.arange(usable_count, device=shift_aux.device)
-        pred_scalar = selected_aux[token_indices, parity]
+        waypoint_ids = token_indices // 2
+        bucket_ids = torch.clamp((waypoint_ids * num_buckets) // max(int(config.n_waypoints), 1), max=num_buckets - 1)
+        channel_ids = bucket_ids * 2 + parity
+        pred_scalar = selected_aux[token_indices, channel_ids]
 
         dim_min = dims_min[parity]
         dim_max = dims_max[parity]
         target_scalar = selected_labels / float(config.num_bins - 1) * (dim_max - dim_min) + dim_min
 
-        per_token_loss = F.smooth_l1_loss(pred_scalar, target_scalar, reduction="none")
-        waypoint_ids = token_indices // 2
+        if stats_mean is not None and stats_std is not None:
+            tanh_bound = max(float(aux_config.tanh_bound if aux_config is not None else 3.0), 1e-6)
+            huber_delta = max(float(aux_config.huber_delta if aux_config is not None else 1.0), 1e-6)
+            target_mean = stats_mean[bucket_ids, parity]
+            target_std = stats_std[bucket_ids, parity]
+            pred_scalar = tanh_bound * torch.tanh(pred_scalar)
+            target_scalar = torch.clamp((target_scalar - target_mean) / target_std, -tanh_bound, tanh_bound)
+            per_token_loss = F.huber_loss(pred_scalar, target_scalar, reduction="none", delta=huber_delta)
+        else:
+            per_token_loss = F.smooth_l1_loss(pred_scalar, target_scalar, reduction="none")
         token_weights = torch.ones((usable_count,), device=shift_aux.device, dtype=shift_aux.dtype)
         short_steps = max(int(config.short_horizon_steps), 1)
         short_weight = max(float(config.short_horizon_weight), 1.0)
@@ -519,6 +816,75 @@ def trajectory_aux_regression_loss(
     losses = torch.stack(per_sample_losses)
     weights = None if sample_weights is None else torch.stack(per_sample_weights)
     return _apply_sample_weights(losses, weights)
+
+
+def decoded_traj_aux_anchor_losses(
+    traj_aux_values: torch.Tensor | None,
+    labels: torch.Tensor,
+    traj_token_mask: torch.Tensor | None,
+    ego_history_xyz: torch.Tensor | None,
+    ego_history_mask: torch.Tensor | None,
+    ego_future_xyz: torch.Tensor | None,
+    ego_future_mask: torch.Tensor | None,
+    config: TrajectoryDecodeConfig | None,
+    aux_config: TrajectoryAuxInterfaceConfig | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Decode auxiliary-head controls into xyz and compare with GT prefix/final anchors."""
+    if (
+        traj_aux_values is None
+        or config is None
+        or traj_token_mask is None
+        or ego_history_xyz is None
+        or ego_future_xyz is None
+    ):
+        device = labels.device if isinstance(labels, torch.Tensor) else torch.device("cpu")
+        return _zero(device), _zero(device)
+
+    predicted_controls = _gather_aux_predicted_controls(
+        traj_aux_values,
+        labels,
+        traj_token_mask,
+        config,
+        aux_config=aux_config,
+    )
+    xyz_losses: list[torch.Tensor] = []
+    final_losses: list[torch.Tensor] = []
+
+    for sample_index, controls in enumerate(predicted_controls):
+        if controls.numel() == 0:
+            continue
+        pred_xyz = _decode_expected_future_xyz(
+            controls,
+            ego_history_xyz[sample_index],
+            None if ego_history_mask is None else ego_history_mask[sample_index],
+            config,
+        )
+        gt_mask = None if ego_future_mask is None else ego_future_mask[sample_index]
+        if gt_mask is None:
+            gt_steps = ego_future_xyz[sample_index].shape[0]
+        else:
+            gt_steps = int(gt_mask.to(dtype=torch.long).sum().item())
+        common_steps = min(pred_xyz.shape[0], gt_steps, config.n_waypoints)
+        if common_steps <= 0:
+            continue
+        pred_xy = pred_xyz[:common_steps, :2]
+        gt_xy = ego_future_xyz[sample_index, :common_steps, :2].to(device=pred_xy.device, dtype=pred_xy.dtype)
+
+        prefix_steps = min(common_steps, max(int(config.short_horizon_steps), 1))
+        if prefix_steps > 0:
+            xyz_losses.append(
+                F.smooth_l1_loss(
+                    pred_xy[:prefix_steps],
+                    gt_xy[:prefix_steps],
+                    reduction="none",
+                ).mean(dim=-1).mean()
+            )
+        final_losses.append(F.smooth_l1_loss(pred_xy[common_steps - 1], gt_xy[common_steps - 1], reduction="mean"))
+
+    device = traj_aux_values.device
+    xyz_loss = torch.stack(xyz_losses).mean() if xyz_losses else _zero(device)
+    final_loss = torch.stack(final_losses).mean() if final_losses else _zero(device)
+    return xyz_loss, final_loss
 
 
 def _decode_expected_future_xyz(
@@ -635,3 +1001,58 @@ def decoded_traj_geometry_losses(
     delta_loss = torch.stack(delta_losses).mean() if delta_losses else _zero(device)
     final_loss = torch.stack(final_losses).mean() if final_losses else _zero(device)
     return xyz_loss, delta_loss, final_loss
+
+
+def trajectory_control_regression_losses(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    traj_token_mask: torch.Tensor | None,
+    sample_weights: torch.Tensor | None,
+    config: TrajectoryDecodeConfig | None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Compare LM expected traj controls directly against the target traj control sequence."""
+    if config is None or traj_token_mask is None:
+        device = labels.device if isinstance(labels, torch.Tensor) else torch.device("cpu")
+        return _zero(device), _zero(device)
+
+    predicted_controls, target_controls = _gather_expected_traj_controls(logits, labels, traj_token_mask, config)
+    control_losses: list[torch.Tensor] = []
+    delta_losses: list[torch.Tensor] = []
+    sample_weight_values: list[torch.Tensor] = []
+
+    for sample_index, (pred_controls, tgt_controls) in enumerate(zip(predicted_controls, target_controls)):
+        common_steps = min(pred_controls.shape[0], tgt_controls.shape[0], config.n_waypoints)
+        if common_steps <= 0:
+            continue
+        pred_controls = pred_controls[:common_steps]
+        tgt_controls = tgt_controls[:common_steps]
+        control_loss = F.smooth_l1_loss(pred_controls, tgt_controls, reduction="none").mean(dim=-1)
+        step_weights = torch.ones((common_steps,), device=pred_controls.device, dtype=pred_controls.dtype)
+        short_steps = min(common_steps, max(int(config.short_horizon_steps), 1))
+        if short_steps > 0:
+            step_weights[:short_steps] = max(float(config.short_horizon_weight), 1.0)
+        control_losses.append((control_loss * step_weights).sum() / step_weights.sum().clamp(min=1e-6))
+
+        if common_steps >= 2:
+            pred_delta = pred_controls[1:] - pred_controls[:-1]
+            tgt_delta = tgt_controls[1:] - tgt_controls[:-1]
+            delta_loss = F.smooth_l1_loss(pred_delta, tgt_delta, reduction="none").mean(dim=-1)
+            delta_step_weights = step_weights[1:]
+            delta_losses.append(
+                (delta_loss * delta_step_weights).sum() / delta_step_weights.sum().clamp(min=1e-6)
+            )
+        else:
+            delta_losses.append(_zero(pred_controls.device))
+
+        if sample_weights is None:
+            sample_weight_values.append(torch.tensor(1.0, device=pred_controls.device))
+        else:
+            sample_weight_values.append(sample_weights[sample_index].to(pred_controls.device))
+
+    if not control_losses:
+        return _zero(logits.device), _zero(logits.device)
+
+    weights = None if sample_weights is None else torch.stack(sample_weight_values)
+    control = _apply_sample_weights(torch.stack(control_losses), weights)
+    delta = _apply_sample_weights(torch.stack(delta_losses), weights)
+    return control, delta

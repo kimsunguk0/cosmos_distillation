@@ -1,0 +1,14 @@
+{
+  "manifest_version": "traj15_pair_v1",
+  "cache_dir": "/data/teacher_cache/traj15",
+  "records": 284,
+  "syntax_ok_records": 284,
+  "exact_128_records": 284,
+  "decoded_motion_records": 284,
+  "source_model": "nvidia/Alpamayo-1.5-10B",
+  "source_weights": "patched_local_discrete_extraction",
+  "source_commit": "local_patched_1p5",
+  "extraction_mode": "patched_alpamayo15_direct_discrete_teacher_forced",
+  "teacher_kind": "alpamayo1.5_patched_direct_discrete",
+  "output_jsonl": "outputs/reports/teacher_traj15_manifest.jsonl"
+}

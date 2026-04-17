@@ -516,6 +516,7 @@ class DistillationCollator:
     max_length: int = 4096
     prompt_mode: str = "joint"
     target_mode: str = "joint"
+    teacher_pair_target: bool = False
     enable_teacher_view: bool = True
     enable_action_aux: bool = True
     traj_token_weight_map: Mapping[int, float] | None = None
@@ -541,6 +542,9 @@ class DistillationCollator:
         teacher_view_weight: list[float] = []
         action_aux_allowed: list[bool] = []
         action_aux_weight: list[float] = []
+        hard_teacher_signal_items: list[dict[str, np.ndarray | int] | None] = []
+        hard_teacher_signal_weights: list[float] = []
+        hard_teacher_quality_multiplier: list[float] = []
 
         teacher_prompt_messages: list[list[dict[str, Any]]] = []
         teacher_full_messages: list[list[dict[str, Any]]] = []
@@ -557,9 +561,32 @@ class DistillationCollator:
 
         for sample_index, sample in enumerate(features):
             hard_target = sample.get("hard_target") or {}
+            weights = sample.get("weights") or {}
+            gate = sample.get("gate") or {}
+            teacher_target = sample.get("teacher_target") or {}
+            teacher_signal = _teacher_signal_from_sample(sample, self.project_root)
+            teacher_traj_signal = _teacher_traj15_signal_from_sample(sample, teacher_traj_cache_dir=self.teacher_traj_cache_dir)
+            explicit_teacher_traj_weight = resolve_optional_loss_weight_value(weights, "teacher_traj_ce")
+
             traj_token_ids = [int(token_id) for token_id in hard_target.get("traj_future_token_ids") or []]
+            target_cot_text = hard_target.get("cot_text")
+            target_provenance = "hard_target"
+            if self.teacher_pair_target:
+                teacher_pair_traj_ids = [int(token_id) for token_id in (teacher_traj_signal or {}).get("token_ids", [])]
+                if not teacher_pair_traj_ids:
+                    raise ValueError(
+                        f"Sample {sample.get('sample_id')} is missing teacher traj15 token_ids required for teacher_pair_target"
+                    )
+                teacher_pair_cot = str(teacher_target.get("cot_text") or "").strip()
+                if not teacher_pair_cot:
+                    raise ValueError(
+                        f"Sample {sample.get('sample_id')} is missing teacher_target.cot_text required for teacher_pair_target"
+                    )
+                traj_token_ids = teacher_pair_traj_ids
+                target_cot_text = teacher_pair_cot
+                target_provenance = "teacher_pair"
             if not traj_token_ids:
-                raise ValueError(f"Sample {sample.get('sample_id')} is missing hard_target.traj_future_token_ids")
+                raise ValueError(f"Sample {sample.get('sample_id')} is missing target traj_future_token_ids")
 
             ego_history_xyz = load_ego_history_xyz(sample, self.project_root)
             if self.prompt_mode == "traj_only":
@@ -572,7 +599,7 @@ class DistillationCollator:
                 hard_layout = _build_traj_only_target_layout(self.tokenizer, traj_token_ids)
                 assistant_prefix = "<|traj_future_start|>"
             else:
-                hard_layout = _build_target_layout(self.tokenizer, hard_target.get("cot_text"), traj_token_ids)
+                hard_layout = _build_target_layout(self.tokenizer, target_cot_text, traj_token_ids)
                 assistant_prefix = "<|cot_start|>"
 
             prompt_messages.append(build_messages(prompt_text, len(images), assistant_prefix=assistant_prefix))
@@ -589,11 +616,6 @@ class DistillationCollator:
             ego_futures.append(ego_future_xyz)
             hard_layouts.append(hard_layout)
 
-            weights = sample.get("weights") or {}
-            gate = sample.get("gate") or {}
-            teacher_target = sample.get("teacher_target") or {}
-            explicit_teacher_traj_weight = resolve_optional_loss_weight_value(weights, "teacher_traj_ce")
-
             sample_ids.append(str(sample.get("sample_id")))
             splits.append(str(sample.get("split", "train")))
             image_paths.append([str(path) for path in (sample.get("input") or {}).get("image_paths") or []])
@@ -603,6 +625,7 @@ class DistillationCollator:
                     "hard_text": (sample.get("provenance") or {}).get("hard_text"),
                     "soft_text": (sample.get("provenance") or {}).get("soft_text"),
                     "traj_target": (sample.get("provenance") or {}).get("traj_target"),
+                    "active_target": target_provenance,
                     "teacher_gt_joint_pair_forbidden": bool(
                         (sample.get("provenance") or {}).get("teacher_gt_joint_pair_forbidden", True)
                     ),
@@ -624,19 +647,26 @@ class DistillationCollator:
             aux_weight = float(gate.get("action_aux_weight") or 0.0)
             action_aux_allowed.append(aux_allowed)
             action_aux_weight.append(aux_weight if aux_allowed else 0.0)
-            teacher_traj_signal_items.append(
-                _teacher_traj15_signal_from_sample(sample, teacher_traj_cache_dir=self.teacher_traj_cache_dir)
-            )
+            teacher_traj_signal_items.append(teacher_traj_signal)
+            hard_teacher_signal_items.append(teacher_signal if self.teacher_pair_target else None)
+            hard_teacher_signal_weights.append(1.0 if self.teacher_pair_target and teacher_signal is not None else 0.0)
+            hard_teacher_quality_multiplier.append(float(teacher_target.get("teacher_quality_multiplier", 1.0)))
 
             if not teacher_allowed:
                 continue
 
-            teacher_layout = _build_target_layout(self.tokenizer, teacher_target.get("cot_text"), traj_token_ids)
+            teacher_layout_traj_ids = traj_token_ids
+            if not self.teacher_pair_target:
+                teacher_layout_traj_ids = [int(token_id) for token_id in hard_target.get("traj_future_token_ids") or []]
+            teacher_layout = _build_target_layout(
+                self.tokenizer,
+                teacher_target.get("cot_text"),
+                teacher_layout_traj_ids,
+            )
             teacher_prompt_messages.append(build_messages(prompt_text, len(images)))
             teacher_full_messages.append(build_messages(prompt_text, len(images), teacher_layout.completion_text))
             teacher_image_batch.append(images)
             teacher_layouts.append(teacher_layout)
-            teacher_signal = _teacher_signal_from_sample(sample, self.project_root)
             teacher_signal_items.append(teacher_signal)
             teacher_sample_ids.append(str(sample.get("sample_id")))
             teacher_source_indices.append(sample_index)
@@ -679,6 +709,7 @@ class DistillationCollator:
             "image_grid_thw": full_batch.get("image_grid_thw"),
             "labels": labels,
             "cot_span_mask": hard_masks["cot_span_mask"],
+            "cot_content_mask": hard_masks["cot_content_mask"],
             "traj_span_mask": hard_masks["traj_span_mask"],
             "traj_token_mask": hard_masks["traj_token_mask"],
             "format_token_mask": hard_masks["format_token_mask"],
@@ -696,10 +727,14 @@ class DistillationCollator:
             "action_aux_allowed": torch.tensor(action_aux_allowed, dtype=torch.bool),
             "action_aux_weight": torch.tensor(action_aux_weight, dtype=torch.float32),
             "teacher_quality_multiplier": torch.ones((len(features),), dtype=torch.float32),
+            "teacher_pair_weight": torch.tensor(hard_teacher_signal_weights, dtype=torch.float32),
+            "teacher_pair_quality_multiplier": torch.tensor(hard_teacher_quality_multiplier, dtype=torch.float32),
             "action_class_labels": torch.tensor(action_labels, dtype=torch.long),
             "hard_cot_weights": torch.tensor(hard_cot_weights, dtype=torch.float32),
             "traj_weights": torch.tensor(traj_weights, dtype=torch.float32),
         }
+        if any(item is not None for item in hard_teacher_signal_items):
+            batch.update(_pad_teacher_signal_batch(hard_teacher_signal_items, hard_masks["cot_content_positions"]))
         teacher_traj_available = torch.tensor(
             [item is not None for item in teacher_traj_signal_items],
             dtype=torch.bool,

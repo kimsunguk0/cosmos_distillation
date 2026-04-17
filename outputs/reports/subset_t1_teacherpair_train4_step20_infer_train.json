@@ -1,0 +1,107 @@
+{
+  "checkpoint_dir": "outputs/checkpoints/subset_t1_teacherpair_train4_step20/final",
+  "corpus_jsonl": "data/corpus/subset_probe/distill_v3_2_train4.jsonl",
+  "split": "train",
+  "num_samples": 4,
+  "max_new_tokens": 220,
+  "constrain_traj_decoding": true,
+  "forced_traj_token_count": null,
+  "avg_latency_sec": 2.723,
+  "load_info": {
+    "format": "lora_adapter",
+    "missing": [],
+    "unexpected": [],
+    "use_lora": true,
+    "data_view": {
+      "prompt_mode": "joint",
+      "target_mode": "joint",
+      "teacher_pair_target": true,
+      "enable_teacher_view": false,
+      "enable_action_aux": false,
+      "teacher_traj_cache_dir": "/data/teacher_cache/traj15",
+      "teacher_traj_hidden_size": null
+    }
+  },
+  "results": [
+    {
+      "sample_id": "0262ea23-9be7-430e-8c62-d251b4cd9b01__t0_14887532__evt_00",
+      "split": "train",
+      "elapsed_sec": 1.837,
+      "generated_text": "Keep lane since the lane is clear ahead and no obstacles are present, maintaining the current trajectory through the curve.",
+      "generated_cot": "Keep lane since the lane is clear ahead and no obstacles are present, maintaining the current trajectory through the curve.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "keep_lane",
+        "confidence": 0.86,
+        "method": "keyword_parser_v2"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep lane since the lane is clear ahead",
+      "target_text": "Go straight and navigate through the construction zone with traffic cones.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "400e1e49-bea2-4c37-be90-6da97fc90c98__t0_4397762__evt_00",
+      "split": "train",
+      "elapsed_sec": 1.551,
+      "generated_text": "Stop at the red traffic light ahead since the signal is red and the vehicle is stopped in the queue.",
+      "generated_cot": "Stop at the red traffic light ahead since the signal is red and the vehicle is stopped in the queue.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "stop",
+        "confidence": 0.7,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "stop",
+      "teacher_long_cot": "Stop for the red traffic light ahead",
+      "target_text": "Yield to the pedestrians crossing the road at the crosswalk.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "58f41cc9-9803-4aa1-948c-8e84c708f909__t0_2198997__evt_00",
+      "split": "train",
+      "elapsed_sec": 3.619,
+      "generated_text": "Stop because the person is standing beside the vehicle, creating a potential hazard if the vehicle moves forward. The person is likely waiting to exit the vehicle or interact with it, so the ego vehicle must stop to avoid a collision. After stopping, the ego vehicle will proceed cautiously, maintaining a safe distance from the person and the vehicle.",
+      "generated_cot": "Stop because the person is standing beside the vehicle, creating a potential hazard if the vehicle moves forward. The person is likely waiting to exit the vehicle or interact with it, so the ego vehicle must stop to avoid a collision. After stopping, the ego vehicle will proceed cautiously, maintaining a safe distance from the person and the vehicle.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "stop",
+        "confidence": 0.7,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge left due to the person standing beside the vehicle encroaching from the right",
+      "target_text": "Steer right to avoid the traffic cone in the road.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "f1429141-3729-4b3c-a531-1a0dc652ebe1__t0_7947035__evt_00",
+      "split": "train",
+      "elapsed_sec": 3.883,
+      "generated_text": "Keep lane since the lane is clear ahead and no immediate threats are present. Proceed straight through the intersection as the path is unobstructed and visibility is adequate. Avoid drifting into adjacent lanes due to the presence of oncoming traffic in the left lane. Maintain a steady speed while monitoring surrounding vehicles for any sudden changes. Continue straight until encountering a need to change lanes or adjust speed.",
+      "generated_cot": "Keep lane since the lane is clear ahead and no immediate threats are present. Proceed straight through the intersection as the path is unobstructed and visibility is adequate. Avoid drifting into adjacent lanes due to the presence of oncoming traffic in the left lane. Maintain a steady speed while monitoring surrounding vehicles for any sudden changes. Continue straight until encountering a need to change lanes or adjust speed.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "keep_lane",
+        "confidence": 0.86,
+        "method": "keyword_parser_v2"
+      },
+      "gt_action": "change_lane_left",
+      "teacher_action": "slow_down",
+      "teacher_long_cot": "Lane change to the right due to slower vehicles ahead in our lane and a clear gap in the right lane, then match speed with right-lane traffic after merging.",
+      "target_text": "Steer left since the right road is closed and signs direct to the left.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    }
+  ]
+}

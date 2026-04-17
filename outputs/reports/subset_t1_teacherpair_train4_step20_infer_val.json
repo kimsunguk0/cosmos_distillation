@@ -1,0 +1,227 @@
+{
+  "checkpoint_dir": "outputs/checkpoints/subset_t1_teacherpair_train4_step20/final",
+  "corpus_jsonl": "data/corpus/subset_probe/distill_v3_2_train4.jsonl",
+  "split": "val",
+  "num_samples": 10,
+  "max_new_tokens": 220,
+  "constrain_traj_decoding": true,
+  "forced_traj_token_count": null,
+  "avg_latency_sec": 5.549,
+  "load_info": {
+    "format": "lora_adapter",
+    "missing": [],
+    "unexpected": [],
+    "use_lora": true,
+    "data_view": {
+      "prompt_mode": "joint",
+      "target_mode": "joint",
+      "teacher_pair_target": true,
+      "enable_teacher_view": false,
+      "enable_action_aux": false,
+      "teacher_traj_cache_dir": "/data/teacher_cache/traj15",
+      "teacher_traj_hidden_size": null
+    }
+  },
+  "results": [
+    {
+      "sample_id": "476fed83-ed85-4b2c-b6c3-cf780a2d0123__t0_16992755__evt_00",
+      "split": "val",
+      "elapsed_sec": 3.558,
+      "generated_text": "Stop since the red van is blocking the lane ahead, preventing forward motion; the van is stationary and occupies the entire lane, requiring the ego vehicle to halt to avoid collision. After stopping, proceed cautiously as the van is stationary and the lane is clear ahead, allowing safe passage once the van moves.",
+      "generated_cot": "Stop since the red van is blocking the lane ahead, preventing forward motion; the van is stationary and occupies the entire lane, requiring the ego vehicle to halt to avoid collision. After stopping, proceed cautiously as the van is stationary and the lane is clear ahead, allowing safe passage once the van moves.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "keep_lane",
+        "confidence": 0.86,
+        "method": "keyword_parser_v2"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge to the left to clear the stopped van blocking the right side of our lane",
+      "target_text": "Slightly shift left to maintain a safe distance from the vehicle parked on the right side of the road.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_4833965__evt_00",
+      "split": "val",
+      "elapsed_sec": 9.194,
+      "generated_text": "Stop for the red traffic light ahead since the signal is red and the path is clear to proceed safely. The white SUV ahead is signaling left, so I must wait until it completes its turn before proceeding. The school zone sign warns of potential pedestrians, so I must remain vigilant and cautious. The construction cones on the right side of the road indicate ongoing work, so I must avoid them and proceed carefully. The pedestrian crossing sign reminds me to watch for people crossing the street, so I must yield to any pedestrians. The white truck ahead is signaling left, so I must wait until it completes its turn before proceeding. The white SUV ahead is signaling left, so I must wait until it completes its turn before proceeding. The school zone sign warns of potential pedestrians, so I must remain vigilant and cautious. The construction cones on the right side of the road indicate ongoing work, so I must avoid them and proceed carefully. The pedestrian crossing sign reminds me to watch for people crossing the street, so I must yield to any pedestrians. The white truck ahead is signaling left, so I must wait until it completes",
+      "generated_cot": "Stop for the red traffic light ahead since the signal is red and the path is clear to proceed safely. The white SUV ahead is signaling left, so I must wait until it completes its turn before proceeding. The school zone sign warns of potential pedestrians, so I must remain vigilant and cautious. The construction cones on the right side of the road indicate ongoing work, so I must avoid them and proceed carefully. The pedestrian crossing sign reminds me to watch for people crossing the street, so I must yield to any pedestrians. The white truck ahead is signaling left, so I must wait until it completes its turn before proceeding. The white SUV ahead is signaling left, so I must wait until it completes its turn before proceeding. The school zone sign warns of potential pedestrians, so I must remain vigilant and cautious. The construction cones on the right side of the road indicate ongoing work, so I must avoid them and proceed carefully. The pedestrian crossing sign reminds me to watch for people crossing the street, so I must yield to any pedestrians. The white truck ahead is signaling left, so I must wait until it completes",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "left_turn",
+        "confidence": 0.7,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge left due to construction barrels blocking the right side of our lane",
+      "target_text": "Steer left to maintain a safe distance from the pedestrian ahead.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_13533965__evt_01",
+      "split": "val",
+      "elapsed_sec": 2.084,
+      "generated_text": "Stop because the ego vehicle is halted at a STOP sign ahead, waiting for the way to clear before proceeding. The driver anticipates the need to yield to any oncoming traffic or pedestrians before moving forward. Once the path is clear, the ego vehicle will proceed straight through the intersection.",
+      "generated_cot": "Stop because the ego vehicle is halted at a STOP sign ahead, waiting for the way to clear before proceeding. The driver anticipates the need to yield to any oncoming traffic or pedestrians before moving forward. Once the path is clear, the ego vehicle will proceed straight through the intersection.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "yield",
+        "confidence": 0.7,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Change lanes to the left due to a slow/parked vehicle blocking the right lane ahead, then match speed with left-lane traffic after merging.",
+      "target_text": "Steer left to pass the vehicle parking on the driving lane.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "594d2c54-ca9a-4bda-be8e-532b2fc359fb__t0_6659114__evt_00",
+      "split": "val",
+      "elapsed_sec": 6.865,
+      "generated_text": "Stop at the red traffic light ahead since the signal is red and the vehicle is stopped in the queue. The red light mandates a halt until it turns green, and the queue of vehicles ahead confirms the need to wait. The lane is clear ahead, so no lane change is necessary. The traffic light is the primary control influencing the ego vehicle\u2019s behavior. The red light dictates the stop, and the queue ahead confirms the need to wait until the light changes. The lane is clear, so the vehicle will remain stopped until the light turns green. The traffic light is the key factor determining the vehicle\u2019s future actions. The red light mandates a stop, and the queue ahead confirms the need to wait until the light changes. The lane is clear, so the vehicle will remain stopped until the light turns green. The traffic light is the primary control influencing the vehicle\u2019s behavior. The red light mandates a stop, and the queue ahead confirms the need to wait until the light changes. The lane is clear, so the vehicle will remain stopped until the light turns green. The traffic light is the key factor determining",
+      "generated_cot": "Stop at the red traffic light ahead since the signal is red and the vehicle is stopped in the queue. The red light mandates a halt until it turns green, and the queue of vehicles ahead confirms the need to wait. The lane is clear ahead, so no lane change is necessary. The traffic light is the primary control influencing the ego vehicle\u2019s behavior. The red light dictates the stop, and the queue ahead confirms the need to wait until the light changes. The lane is clear, so the vehicle will remain stopped until the light turns green. The traffic light is the key factor determining the vehicle\u2019s future actions. The red light mandates a stop, and the queue ahead confirms the need to wait until the light changes. The lane is clear, so the vehicle will remain stopped until the light turns green. The traffic light is the primary control influencing the vehicle\u2019s behavior. The red light mandates a stop, and the queue ahead confirms the need to wait until the light changes. The lane is clear, so the vehicle will remain stopped until the light turns green. The traffic light is the key factor determining",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "keep_lane",
+        "confidence": 0.86,
+        "method": "keyword_parser_v2"
+      },
+      "gt_action": "slow_down",
+      "teacher_action": "stop",
+      "teacher_long_cot": "Stop due to red traffic light",
+      "target_text": "Stop for the red traffic light at the intersection while pedestrians cross the crosswalk.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "5fa56c61-e8ed-4c0b-95dd-3e15c40d9f78__t0_4493173__evt_00",
+      "split": "val",
+      "elapsed_sec": 6.823,
+      "generated_text": "Stop because the garbage truck is blocking the lane ahead, restricting forward movement. The garbage truck is directly in front of the ego vehicle, requiring a stop to avoid collision. The truck is stationary, so the ego vehicle cannot proceed forward safely. The lane is blocked, necessitating a stop to maintain safety. The garbage truck is the primary obstacle, dictating the need to halt. The truck is stationary, so the ego vehicle cannot proceed forward safely. The lane is blocked, necessitating a stop to maintain safety. The garbage truck is the primary obstacle, dictating the need to halt. The truck is stationary, so the ego vehicle cannot proceed forward safely. The lane is blocked, necessitating a stop to maintain safety. The garbage truck is the primary obstacle, dictating the need to halt. The truck is stationary, so the ego vehicle cannot proceed forward safely. The lane is blocked, necessitating a stop to maintain safety. The garbage truck is the primary obstacle, dictating the need to halt. The truck is stationary, so the ego vehicle cannot proceed forward safely. The lane is blocked",
+      "generated_cot": "Stop because the garbage truck is blocking the lane ahead, restricting forward movement. The garbage truck is directly in front of the ego vehicle, requiring a stop to avoid collision. The truck is stationary, so the ego vehicle cannot proceed forward safely. The lane is blocked, necessitating a stop to maintain safety. The garbage truck is the primary obstacle, dictating the need to halt. The truck is stationary, so the ego vehicle cannot proceed forward safely. The lane is blocked, necessitating a stop to maintain safety. The garbage truck is the primary obstacle, dictating the need to halt. The truck is stationary, so the ego vehicle cannot proceed forward safely. The lane is blocked, necessitating a stop to maintain safety. The garbage truck is the primary obstacle, dictating the need to halt. The truck is stationary, so the ego vehicle cannot proceed forward safely. The lane is blocked, necessitating a stop to maintain safety. The garbage truck is the primary obstacle, dictating the need to halt. The truck is stationary, so the ego vehicle cannot proceed forward safely. The lane is blocked",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "stop",
+        "confidence": 0.7,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "stop",
+      "teacher_action": "stop",
+      "teacher_long_cot": "Slow down due to the stopped lead vehicle blocking the lane",
+      "target_text": "Decelerate to maintain a safe distance from the garbage truck ahead while navigating through the construction zone on the left.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "e0772c6e-1524-494f-b16f-84ca1a700a7b__t0_8590176__evt_00",
+      "split": "val",
+      "elapsed_sec": 6.924,
+      "generated_text": "Slow down because the construction site ahead restricts the lane width and requires reduced speed for safety.\u2075\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\ufffd",
+      "generated_cot": "Slow down because the construction site ahead restricts the lane width and requires reduced speed for safety.\u2075\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\u2070\ufffd",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "slow_down",
+        "confidence": 0.6,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "slow_down",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge to the left to clear the construction barricades blocking the right side of our lane",
+      "target_text": "Decelerate to maintain a safe distance from the construction zone on the right side of the road.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "6c96345e-07e1-47c7-868f-c7fb35d2998a__t0_15933466__evt_00",
+      "split": "val",
+      "elapsed_sec": 6.886,
+      "generated_text": "Slow down because the black sedan is moving ahead of me, creating a potential collision risk. I need to brake to maintain a safe distance from the vehicle in front. I will continue to monitor the black sedan\u2019s speed and position to ensure a safe gap is maintained. I will also keep an eye on the white sedan and other vehicles ahead to anticipate any sudden braking or lane changes. I will proceed cautiously, maintaining a safe buffer zone from the black sedan and other nearby vehicles. I will keep my lane and avoid drifting into the adjacent lane due to the parked vehicles on the right. I will anticipate any changes in traffic flow ahead and adjust my speed accordingly to ensure safety. I will continue to drive cautiously, respecting the reduced speed limit and maintaining a safe distance from all surrounding vehicles. I will keep my lane and avoid drifting into the adjacent lane due to the parked vehicles on the right. I will anticipate any changes in traffic flow ahead and adjust my speed accordingly to ensure safety. I will keep my lane and avoid drifting into the adjacent lane due to the parked vehicles on the right. I will anticipate any",
+      "generated_cot": "Slow down because the black sedan is moving ahead of me, creating a potential collision risk. I need to brake to maintain a safe distance from the vehicle in front. I will continue to monitor the black sedan\u2019s speed and position to ensure a safe gap is maintained. I will also keep an eye on the white sedan and other vehicles ahead to anticipate any sudden braking or lane changes. I will proceed cautiously, maintaining a safe buffer zone from the black sedan and other nearby vehicles. I will keep my lane and avoid drifting into the adjacent lane due to the parked vehicles on the right. I will anticipate any changes in traffic flow ahead and adjust my speed accordingly to ensure safety. I will continue to drive cautiously, respecting the reduced speed limit and maintaining a safe distance from all surrounding vehicles. I will keep my lane and avoid drifting into the adjacent lane due to the parked vehicles on the right. I will anticipate any changes in traffic flow ahead and adjust my speed accordingly to ensure safety. I will keep my lane and avoid drifting into the adjacent lane due to the parked vehicles on the right. I will anticipate any",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "change_lane_right",
+        "confidence": 0.8,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge left due to the stopped van blocking the right side of our lane",
+      "target_text": "Strong deceleration when approaching the construction zone with traffic barriers.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "6fb0ec61-90f9-4424-8b9c-66fba2cfd86d__t0_14780381__evt_00",
+      "split": "val",
+      "elapsed_sec": 6.896,
+      "generated_text": "Keep lane since the lane is clear ahead and the lane is designated for left turns only, allowing the ego vehicle to proceed safely through the intersection. Follow the lane guidance to maintain a safe path through the intersection. Proceed straight through the intersection since the traffic light is green, ensuring compliance with the signal and safe passage. Proceed straight through the intersection since the traffic light is green, ensuring compliance with the signal and safe passage. Proceed straight through the intersection since the traffic light is green, ensuring compliance with the signal and safe passage. Proceed straight through the intersection since the traffic light is green, ensuring compliance with the signal and safe passage. Proceed straight through the intersection since the traffic light is green, ensuring compliance with the signal and safe passage. Proceed straight through the intersection since the traffic light is green, ensuring compliance with the signal and safe passage. Proceed straight through the intersection since the traffic light is green, ensuring compliance with the signal and safe passage. Proceed straight through the intersection since the traffic light is green, ensuring compliance with the signal and safe passage. Proceed straight through the intersection since the traffic light is",
+      "generated_cot": "Keep lane since the lane is clear ahead and the lane is designated for left turns only, allowing the ego vehicle to proceed safely through the intersection. Follow the lane guidance to maintain a safe path through the intersection. Proceed straight through the intersection since the traffic light is green, ensuring compliance with the signal and safe passage. Proceed straight through the intersection since the traffic light is green, ensuring compliance with the signal and safe passage. Proceed straight through the intersection since the traffic light is green, ensuring compliance with the signal and safe passage. Proceed straight through the intersection since the traffic light is green, ensuring compliance with the signal and safe passage. Proceed straight through the intersection since the traffic light is green, ensuring compliance with the signal and safe passage. Proceed straight through the intersection since the traffic light is green, ensuring compliance with the signal and safe passage. Proceed straight through the intersection since the traffic light is green, ensuring compliance with the signal and safe passage. Proceed straight through the intersection since the traffic light is green, ensuring compliance with the signal and safe passage. Proceed straight through the intersection since the traffic light is",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "left_turn",
+        "confidence": 0.7,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "change_lane_left",
+      "teacher_action": "unknown",
+      "teacher_long_cot": "Keep speed through the intersection since the traffic light is green",
+      "target_text": "Steer left to maintain a safe distance from the construction zone with traffic barriers ahead.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "13f0af4c-2565-4a4d-b765-7f397f1d1684__t0_5148839__evt_00",
+      "split": "val",
+      "elapsed_sec": 3.515,
+      "generated_text": "Stop for the red traffic light ahead since the signal is red and the vehicle is stopped before the intersection. The red light mandates a full stop, and the vehicle is already halted, so no further action is needed beyond waiting for the light to turn green. The vehicle is aligned with the intersection, and the lane markings indicate a straight path through the intersection. The presence of a motorcycle and a pedestrian ahead necessitates patience and adherence to traffic rules. Once the light turns green, the vehicle will proceed straight through the intersection.",
+      "generated_cot": "Stop for the red traffic light ahead since the signal is red and the vehicle is stopped before the intersection. The red light mandates a full stop, and the vehicle is already halted, so no further action is needed beyond waiting for the light to turn green. The vehicle is aligned with the intersection, and the lane markings indicate a straight path through the intersection. The presence of a motorcycle and a pedestrian ahead necessitates patience and adherence to traffic rules. Once the light turns green, the vehicle will proceed straight through the intersection.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "stop",
+        "confidence": 0.7,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Yield due to a pedestrian walking across the crosswalk ahead",
+      "target_text": "Yield to the pedestrian crossing the road.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    },
+    {
+      "sample_id": "13f0af4c-2565-4a4d-b765-7f397f1d1684__t0_11048839__evt_01",
+      "split": "val",
+      "elapsed_sec": 2.747,
+      "generated_text": "Stop for the red traffic light ahead since the signal is red and the vehicle is stopped before the intersection. The traffic light is red, requiring the ego vehicle to halt. The vehicle is positioned at the intersection, waiting for the light to turn green. The lane is clear ahead, but the red light mandates a stop. Once the light changes, the vehicle will proceed straight through the intersection.",
+      "generated_cot": "Stop for the red traffic light ahead since the signal is red and the vehicle is stopped before the intersection. The traffic light is red, requiring the ego vehicle to halt. The vehicle is positioned at the intersection, waiting for the light to turn green. The lane is clear ahead, but the red light mandates a stop. Once the light changes, the vehicle will proceed straight through the intersection.",
+      "generated_traj_token_count": 0,
+      "generated_action": {
+        "value": "keep_lane",
+        "confidence": 0.86,
+        "method": "keyword_parser_v2"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "unknown",
+      "teacher_long_cot": "Keep speed through the intersection since the traffic light is green",
+      "target_text": "Decelerate to maintain a safe distance from the pedestrian crossing the road.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true
+    }
+  ]
+}

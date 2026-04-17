@@ -1,0 +1,171 @@
+{
+  "checkpoint_dir": "/workspace/cosmos_distillation/outputs/checkpoints/subset_t1_pairifacev2c_mixed_from_format_train4_step12/final",
+  "corpus_jsonl": "/workspace/cosmos_distillation/data/corpus/distill_v3_2.jsonl",
+  "split": "train",
+  "num_samples": 2,
+  "max_new_tokens": 160,
+  "constrain_traj_decoding": true,
+  "forced_traj_token_count": null,
+  "traj_source": "aux_lm_blend",
+  "aux_blend_sigma": 96.0,
+  "aux_blend_weight": 2.0,
+  "aux_bound_scale": 0.5,
+  "aux_edge_margin": 128,
+  "avg_latency_sec": 58.334,
+  "load_info": {
+    "format": "lora_adapter",
+    "missing": [],
+    "unexpected": [],
+    "use_lora": true,
+    "data_view": {
+      "prompt_mode": "joint",
+      "target_mode": "joint",
+      "teacher_pair_target": true,
+      "enable_teacher_view": false,
+      "enable_action_aux": false,
+      "teacher_traj_cache_dir": "/data/teacher_cache/traj15",
+      "teacher_traj_hidden_size": null,
+      "traj_aux_num_buckets": 4,
+      "traj_aux_interface": {
+        "num_buckets": 4,
+        "normalize_targets": true,
+        "tanh_bound": 3.0,
+        "huber_delta": 1.0
+      },
+      "traj_aux_interface_runtime": {
+        "enabled": true,
+        "used_records": 4,
+        "num_buckets": 4,
+        "target_means": [
+          [
+            -0.24831193731243745,
+            -0.0457444148049351
+          ],
+          [
+            -0.23007669223074356,
+            -0.01365038346115402
+          ],
+          [
+            -0.38408636212070674,
+            0.019798266088696115
+          ],
+          [
+            -0.8659136378792932,
+            -0.01479659886628909
+          ]
+        ],
+        "target_stds": [
+          [
+            0.7807571046178022,
+            0.08147556744476966
+          ],
+          [
+            0.6674951396426393,
+            0.054036137701142774
+          ],
+          [
+            0.5966056074849191,
+            0.057585204884080324
+          ],
+          [
+            1.3280984335685464,
+            0.02350336446705113
+          ]
+        ],
+        "counts": [
+          [
+            64,
+            64
+          ],
+          [
+            64,
+            64
+          ],
+          [
+            64,
+            64
+          ],
+          [
+            64,
+            64
+          ]
+        ]
+      },
+      "optimization": {
+        "freeze_all_but_traj_aux_head": false
+      },
+      "curriculum": {
+        "interface_every_n_steps": 4
+      },
+      "interface_loss_weights": {
+        "gt_cot_loss": 0.0,
+        "teacher_cot_loss": 0.0,
+        "teacher_topk_kd_loss": 0.0,
+        "traj_loss": 0.0,
+        "traj_aux_loss": 1.0,
+        "output_format_loss": 0.0,
+        "meta_action_loss": 0.0,
+        "feature_align_loss": 0.0,
+        "teacher_traj_topk_kd_loss": 0.0,
+        "teacher_traj_hidden_align_loss": 0.0,
+        "traj_xyz_loss": 0.0,
+        "traj_delta_loss": 0.0,
+        "traj_final_loss": 0.0,
+        "traj_aux_xyz_loss": 0.1,
+        "traj_aux_final_loss": 0.0
+      }
+    },
+    "traj_decode": {
+      "enabled": true,
+      "config_path": "/workspace/base_models_weights/Alpamayo-1.5-10B/config.json",
+      "num_bins": 3000,
+      "n_waypoints": 64,
+      "short_horizon_steps": 8,
+      "short_horizon_weight": 1.0
+    }
+  },
+  "results": [
+    {
+      "sample_id": "0262ea23-9be7-430e-8c62-d251b4cd9b01__t0_14887532__evt_00",
+      "split": "train",
+      "elapsed_sec": 58.815,
+      "generated_text": "Keep lane since the lane is clear ahead<|cot_end|><|traj_future_start|><i177><i2860><i177><i2860><i177><i2860><i177><i2860><i177><i2860><i177><i2860><i177><i2854><i177><i2860><i177><i2860><i177><i2860><i177><i2854><i177><i2860><i177><i2860><i177><i2860><i177><i2854><i177><i2854><i1296><i2534><i1152><i2775><i1380><i2854><i1499><i2802><i1717><i2860><i1881><i2854><i1967><i2854><i2074><i2854><i2333><i2854><i2374><i2854><i2374><i2854><i2572><i2854><i2572><i2860><i2572><i2860><i2709><i2854><i2817><i2854><i2854><i177><i2854><i177><i2860><i177><i2854><i177><i2854><i177><i2854><i177><i2854><i177><i2854><i177><i2854><i177><i2854><i177><i2854><i177><i2854><i177><i2854><i177><i2854><i177><i2854><i177><i2854><i177><i2854><i1296><i2854><i1298><i2854><i1499><i2854><i1499><i2854><i1499><i2854><i1380><i2854><i1499><i2854><i1499><i2854><i1499><i2854><i1499><i2854><i1499><i2854><i1499><i2854><i1499><i2854><i1499><i2854><i1499><i2854><i1499><|traj_future_end|>",
+      "generated_cot": "Keep lane since the lane is clear ahead",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "keep_lane",
+        "confidence": 0.86,
+        "method": "keyword_parser_v2"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep lane since the lane is clear ahead",
+      "target_text": "Go straight and navigate through the construction zone with traffic cones.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true,
+      "traj_source": "aux_lm_blend"
+    },
+    {
+      "sample_id": "400e1e49-bea2-4c37-be90-6da97fc90c98__t0_4397762__evt_00",
+      "split": "train",
+      "elapsed_sec": 57.853,
+      "generated_text": "Stop for the red traffic light ahead<|cot_end|><|traj_future_start|><i177><i2860><i177><i2860><i177><i2860><i177><i2860><i177><i2860><i177><i2854><i177><i2860><i177><i2860><i177><i2854><i177><i2860><i177><i2854><i177><i2860><i177><i2860><i177><i2854><i177><i2854><i177><i2860><i1152><i2854><i1152><i2854><i1296><i2860><i1499><i2775><i1717><i2860><i1717><i2860><i1881><i2854><i1932><i2860><i1967><i2854><i2253><i2860><i2253><i2854><i2253><i2854><i2374><i2854><i2503><i2854><i2503><i2854><i2534><i2854><i2854><i177><i2860><i177><i2854><i177><i2854><i177><i2854><i177><i2854><i177><i2860><i177><i2854><i177><i2854><i177><i2854><i177><i2854><i177><i2860><i177><i2854><i177><i2854><i177><i2854><i177><i2860><i177><i2854><i1370><i2854><i1499><i2854><i1499><i2854><i1499><i2854><i1499><i2854><i1499><i2854><i1499><i2854><i1688><i2854><i1688><i2854><i1499><i2854><i1499><i2854><i1688><i2854><i1499><i2854><i1499><i2854><i1499><i2854><i1499><|traj_future_end|>",
+      "generated_cot": "Stop for the red traffic light ahead",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "stop",
+        "confidence": 0.7,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "stop",
+      "teacher_long_cot": "Stop for the red traffic light ahead",
+      "target_text": "Yield to the pedestrians crossing the road at the crosswalk.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true,
+      "traj_source": "aux_lm_blend"
+    }
+  ]
+}
