@@ -18,11 +18,14 @@ from src.training.losses import (
     feature_alignment_loss,
     masked_token_accuracy,
     teacher_logit_kd_loss,
+    token_hidden_covariance_loss,
     trajectory_aux_regression_loss,
     trajectory_aux_guided_kd_loss,
     trajectory_aux_pseudo_ce_loss,
     token_hidden_alignment_bridge_loss,
     token_hidden_alignment_loss,
+    token_hidden_relation_loss,
+    token_hidden_variance_floor_loss,
     trajectory_control_regression_losses,
     weighted_causal_ce,
 )
@@ -219,6 +222,9 @@ def run_train_step(
     teacher_traj_ce = _zero(device)
     teacher_traj_topk_kd = _zero(device)
     teacher_traj_hidden_align = _zero(device)
+    teacher_traj_hidden_relation = _zero(device)
+    teacher_traj_hidden_variance = _zero(device)
+    teacher_traj_hidden_covariance = _zero(device)
     feat_align = _zero(device)
 
     hard_teacher_pair_weights = None
@@ -290,6 +296,30 @@ def run_train_step(
                 teacher_traj_sample_weights,
                 cosine_weight=float(hidden_bridge_cfg.get("cosine_weight", 0.8)),
                 mse_weight=float(hidden_bridge_cfg.get("mse_weight", 0.2)),
+            )
+            teacher_traj_hidden_relation = token_hidden_relation_loss(
+                bridge_student_hidden,
+                bridge_teacher_hidden,
+                active_traj_token_mask,
+                batch.get("teacher_traj_hidden_mask"),
+                teacher_traj_sample_weights,
+            )
+            teacher_traj_hidden_variance = token_hidden_variance_floor_loss(
+                bridge_student_hidden,
+                active_traj_token_mask,
+                teacher_traj_sample_weights,
+                target_std=float(hidden_bridge_cfg.get("variance_target", 0.5)),
+            )
+            teacher_traj_hidden_covariance = token_hidden_covariance_loss(
+                bridge_student_hidden,
+                active_traj_token_mask,
+                teacher_traj_sample_weights,
+            )
+            teacher_traj_hidden_align = (
+                teacher_traj_hidden_align
+                + float(hidden_bridge_cfg.get("relation_weight", 0.0)) * teacher_traj_hidden_relation
+                + float(hidden_bridge_cfg.get("variance_weight", 0.0)) * teacher_traj_hidden_variance
+                + float(hidden_bridge_cfg.get("covariance_weight", 0.0)) * teacher_traj_hidden_covariance
             )
         else:
             teacher_traj_hidden_align = token_hidden_alignment_loss(
@@ -392,6 +422,9 @@ def run_train_step(
         "teacher_traj_ce": float(teacher_traj_ce.detach().cpu()),
         "teacher_traj_topk_kd": float(teacher_traj_topk_kd.detach().cpu()),
         "teacher_traj_hidden_align": float(teacher_traj_hidden_align.detach().cpu()),
+        "teacher_traj_hidden_relation": float(teacher_traj_hidden_relation.detach().cpu()),
+        "teacher_traj_hidden_variance": float(teacher_traj_hidden_variance.detach().cpu()),
+        "teacher_traj_hidden_covariance": float(teacher_traj_hidden_covariance.detach().cpu()),
         "traj_ce": float(traj_ce.detach().cpu()),
         "format_ce": float(format_ce.detach().cpu()),
         "action_aux": float(action_aux.detach().cpu()),

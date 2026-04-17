@@ -1,0 +1,57 @@
+stage_name: stage_a
+epochs: 1
+batch_size: 1
+learning_rate: 5.0e-6
+bf16: true
+gradient_checkpointing: true
+
+loss_weights:
+  gt_cot_loss: 0.05
+  teacher_cot_loss: 0.0
+  teacher_topk_kd_loss: 0.75
+  traj_loss: 0.0
+  traj_aux_loss: 0.0
+  output_format_loss: 0.25
+  meta_action_loss: 0.0
+  feature_align_loss: 0.0
+  teacher_traj_loss: 0.0
+  teacher_traj_topk_kd_loss: 1.0
+  teacher_traj_hidden_align_loss: 0.15
+  traj_xyz_loss: 0.0
+  traj_delta_loss: 0.0
+  traj_final_loss: 0.0
+  traj_control_loss: 0.0
+  traj_control_delta_loss: 0.0
+  traj_aux_xyz_loss: 0.0
+  traj_aux_final_loss: 0.0
+  traj_aux_guided_kd_loss: 0.0
+  traj_aux_pseudo_ce_loss: 0.0
+
+data_view:
+  prompt_mode: joint
+  target_mode: joint
+  teacher_pair_target: true
+  enable_teacher_view: false
+  enable_action_aux: false
+  teacher_traj_cache_dir: /data/teacher_cache/traj15
+
+traj_hidden_bridge:
+  shared_size: 512
+  cosine_weight: 0.8
+  mse_weight: 0.2
+  relation_weight: 0.5
+  variance_weight: 0.1
+  covariance_weight: 0.02
+  variance_target: 0.5
+
+curriculum:
+  traj_body_prefix_tokens: 16
+
+optimization:
+  freeze_all_parameters: false
+  unfreeze_multimodal_projector: true
+  unfreeze_language_norm: true
+  unfreeze_traj_hidden_bridge: true
+
+decode_eval:
+  enabled: false

@@ -1,0 +1,22 @@
+{
+  "upper2_train": {
+    "avg_unique_traj_ids": 1.0,
+    "avg_max_same_token_run": 128.0,
+    "samples": 4
+  },
+  "upper2_val": {
+    "avg_unique_traj_ids": 1.0,
+    "avg_max_same_token_run": 128.0,
+    "samples": 10
+  },
+  "upper4_train": {
+    "avg_unique_traj_ids": 1.0,
+    "avg_max_same_token_run": 128.0,
+    "samples": 4
+  },
+  "upper4_val": {
+    "avg_unique_traj_ids": 1.0,
+    "avg_max_same_token_run": 128.0,
+    "samples": 10
+  }
+}

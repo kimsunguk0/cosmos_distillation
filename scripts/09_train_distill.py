@@ -253,91 +253,95 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
         "freeze_traj_aux_head": False,
         "freeze_all_parameters": False,
     }
+
+    explicit_layers = cfg.get("unfreeze_language_layers")
+    layer_ids: set[int] = set()
+    if isinstance(explicit_layers, (list, tuple)):
+        layer_ids = {int(value) for value in explicit_layers}
+    layer_from = cfg.get("language_layers_from")
+    layer_from = int(layer_from) if layer_from not in (None, "", False) else None
+
+    def should_unfreeze(name: str) -> bool:
+        layer_match = re.search(r"language_model\.layers\.(\d+)\.", name)
+        if layer_match is not None:
+            layer_index = int(layer_match.group(1))
+            if layer_index in layer_ids:
+                return True
+            if layer_from is not None and layer_index >= layer_from:
+                return True
+        if bool(cfg.get("unfreeze_language_norm", False)) and "language_model.norm" in name:
+            return True
+        if bool(cfg.get("unfreeze_token_embeddings", False)) and "language_model.embed_tokens" in name:
+            return True
+        if bool(cfg.get("unfreeze_lm_head", False)) and "lm_head" in name:
+            return True
+        if bool(cfg.get("unfreeze_multimodal_projector", False)) and (
+            "multi_modal_projector" in name or "visual.merger" in name
+        ):
+            return True
+        return False
+
+    def apply_explicit_unfreeze_rules() -> list[str]:
+        trainable_modules: list[str] = []
+        for name, parameter in model.named_parameters():
+            if should_unfreeze(name):
+                parameter.requires_grad = True
+
+        if bool(cfg.get("unfreeze_traj_aux_head", False)):
+            traj_aux_head = getattr(model, "traj_aux_head", None)
+            if traj_aux_head is None:
+                raise RuntimeError("unfreeze_traj_aux_head requires model.traj_aux_head to exist.")
+            for parameter in traj_aux_head.parameters():
+                parameter.requires_grad = True
+            trainable_modules.append("traj_aux_head")
+        if bool(cfg.get("unfreeze_meta_action_head", False)):
+            meta_action_head = getattr(model, "meta_action_head", None)
+            if meta_action_head is None:
+                raise RuntimeError("unfreeze_meta_action_head requires model.meta_action_head to exist.")
+            for parameter in meta_action_head.parameters():
+                parameter.requires_grad = True
+            trainable_modules.append("meta_action_head")
+        if bool(cfg.get("unfreeze_traj_hidden_projector", False)):
+            traj_hidden_projector = getattr(model, "traj_hidden_projector", None)
+            if traj_hidden_projector is None:
+                raise RuntimeError(
+                    "unfreeze_traj_hidden_projector requires model.traj_hidden_projector to exist."
+                )
+            for parameter in traj_hidden_projector.parameters():
+                parameter.requires_grad = True
+            trainable_modules.append("traj_hidden_projector")
+        if bool(cfg.get("unfreeze_traj_hidden_bridge", False)):
+            traj_hidden_bridge_student = getattr(model, "traj_hidden_bridge_student", None)
+            traj_hidden_bridge_teacher = getattr(model, "traj_hidden_bridge_teacher", None)
+            if traj_hidden_bridge_student is None or traj_hidden_bridge_teacher is None:
+                raise RuntimeError(
+                    "unfreeze_traj_hidden_bridge requires model.traj_hidden_bridge_student/teacher to exist."
+                )
+            for parameter in traj_hidden_bridge_student.parameters():
+                parameter.requires_grad = True
+            for parameter in traj_hidden_bridge_teacher.parameters():
+                parameter.requires_grad = True
+            trainable_modules.append("traj_hidden_bridge")
+
+        for layer_index in sorted(layer_ids):
+            trainable_modules.append(f"language_layers.{layer_index}")
+        if layer_from is not None:
+            trainable_modules.append(f"language_layers_from.{layer_from}")
+        if bool(cfg.get("unfreeze_language_norm", False)):
+            trainable_modules.append("language_norm")
+        if bool(cfg.get("unfreeze_token_embeddings", False)):
+            trainable_modules.append("token_embeddings")
+        if bool(cfg.get("unfreeze_lm_head", False)):
+            trainable_modules.append("lm_head")
+        if bool(cfg.get("unfreeze_multimodal_projector", False)):
+            trainable_modules.append("multimodal_projector")
+        return trainable_modules
+
     if not bool(cfg.get("freeze_all_but_traj_aux_head", False)):
         if bool(cfg.get("freeze_all_parameters", False)):
             for parameter in model.parameters():
                 parameter.requires_grad = False
-
-            trainable_modules: list[str] = []
-            explicit_layers = cfg.get("unfreeze_language_layers")
-            layer_ids: set[int] = set()
-            if isinstance(explicit_layers, (list, tuple)):
-                layer_ids = {int(value) for value in explicit_layers}
-            layer_from = cfg.get("language_layers_from")
-            layer_from = int(layer_from) if layer_from not in (None, "", False) else None
-
-            def should_unfreeze(name: str) -> bool:
-                layer_match = re.search(r"language_model\.layers\.(\d+)\.", name)
-                if layer_match is not None:
-                    layer_index = int(layer_match.group(1))
-                    if layer_index in layer_ids:
-                        return True
-                    if layer_from is not None and layer_index >= layer_from:
-                        return True
-                if bool(cfg.get("unfreeze_language_norm", False)) and "language_model.norm" in name:
-                    return True
-                if bool(cfg.get("unfreeze_token_embeddings", False)) and "language_model.embed_tokens" in name:
-                    return True
-                if bool(cfg.get("unfreeze_lm_head", False)) and "lm_head" in name:
-                    return True
-                if bool(cfg.get("unfreeze_multimodal_projector", False)) and (
-                    "multi_modal_projector" in name or "visual.merger" in name
-                ):
-                    return True
-                return False
-
-            for name, parameter in model.named_parameters():
-                if should_unfreeze(name):
-                    parameter.requires_grad = True
-
-            if bool(cfg.get("unfreeze_traj_aux_head", False)):
-                traj_aux_head = getattr(model, "traj_aux_head", None)
-                if traj_aux_head is None:
-                    raise RuntimeError("unfreeze_traj_aux_head requires model.traj_aux_head to exist.")
-                for parameter in traj_aux_head.parameters():
-                    parameter.requires_grad = True
-                trainable_modules.append("traj_aux_head")
-            if bool(cfg.get("unfreeze_meta_action_head", False)):
-                meta_action_head = getattr(model, "meta_action_head", None)
-                if meta_action_head is None:
-                    raise RuntimeError("unfreeze_meta_action_head requires model.meta_action_head to exist.")
-                for parameter in meta_action_head.parameters():
-                    parameter.requires_grad = True
-                trainable_modules.append("meta_action_head")
-            if bool(cfg.get("unfreeze_traj_hidden_projector", False)):
-                traj_hidden_projector = getattr(model, "traj_hidden_projector", None)
-                if traj_hidden_projector is None:
-                    raise RuntimeError(
-                        "unfreeze_traj_hidden_projector requires model.traj_hidden_projector to exist."
-                    )
-                for parameter in traj_hidden_projector.parameters():
-                    parameter.requires_grad = True
-                trainable_modules.append("traj_hidden_projector")
-            if bool(cfg.get("unfreeze_traj_hidden_bridge", False)):
-                traj_hidden_bridge_student = getattr(model, "traj_hidden_bridge_student", None)
-                traj_hidden_bridge_teacher = getattr(model, "traj_hidden_bridge_teacher", None)
-                if traj_hidden_bridge_student is None or traj_hidden_bridge_teacher is None:
-                    raise RuntimeError(
-                        "unfreeze_traj_hidden_bridge requires model.traj_hidden_bridge_student/teacher to exist."
-                    )
-                for parameter in traj_hidden_bridge_student.parameters():
-                    parameter.requires_grad = True
-                for parameter in traj_hidden_bridge_teacher.parameters():
-                    parameter.requires_grad = True
-                trainable_modules.append("traj_hidden_bridge")
-
-            for layer_index in sorted(layer_ids):
-                trainable_modules.append(f"language_layers.{layer_index}")
-            if layer_from is not None:
-                trainable_modules.append(f"language_layers_from.{layer_from}")
-            if bool(cfg.get("unfreeze_language_norm", False)):
-                trainable_modules.append("language_norm")
-            if bool(cfg.get("unfreeze_token_embeddings", False)):
-                trainable_modules.append("token_embeddings")
-            if bool(cfg.get("unfreeze_lm_head", False)):
-                trainable_modules.append("lm_head")
-            if bool(cfg.get("unfreeze_multimodal_projector", False)):
-                trainable_modules.append("multimodal_projector")
+            trainable_modules = apply_explicit_unfreeze_rules()
 
             return {
                 "freeze_all_but_traj_aux_head": False,
@@ -345,6 +349,7 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
                 "freeze_all_parameters": True,
                 "trainable_modules": trainable_modules,
             }
+        trainable_modules = apply_explicit_unfreeze_rules()
         if bool(cfg.get("freeze_traj_aux_head", False)):
             traj_aux_head = getattr(model, "traj_aux_head", None)
             if traj_aux_head is None:
@@ -352,6 +357,8 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
             for parameter in traj_aux_head.parameters():
                 parameter.requires_grad = False
             summary["freeze_traj_aux_head"] = True
+        if trainable_modules:
+            summary["trainable_modules"] = trainable_modules
         return summary
 
     for parameter in model.parameters():

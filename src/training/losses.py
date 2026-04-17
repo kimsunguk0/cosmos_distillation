@@ -505,6 +505,133 @@ def token_hidden_alignment_bridge_loss(
     return _apply_sample_weights(losses, weights)
 
 
+def token_hidden_relation_loss(
+    student_hidden: torch.Tensor,
+    teacher_hidden: torch.Tensor | None,
+    token_mask: torch.Tensor | None,
+    teacher_token_mask: torch.Tensor | None = None,
+    sample_weights: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Match token-to-token cosine geometry in a shared bridge space."""
+    if teacher_hidden is None or token_mask is None:
+        return _zero(student_hidden.device)
+
+    shift_student = student_hidden[:, :-1, :].contiguous()
+    span_mask = token_mask[:, 1:].to(dtype=torch.bool, device=student_hidden.device)
+    teacher_hidden = teacher_hidden.to(device=student_hidden.device, dtype=shift_student.dtype)
+
+    per_sample_losses = []
+    per_sample_weights = []
+    for sample_index in range(shift_student.shape[0]):
+        student_target_hidden = shift_student[sample_index][span_mask[sample_index]]
+        teacher_target_hidden = teacher_hidden[sample_index]
+        if teacher_token_mask is not None:
+            teacher_target_hidden = teacher_target_hidden[
+                teacher_token_mask[sample_index].to(dtype=torch.bool, device=student_hidden.device)
+            ]
+        aligned_tokens = min(student_target_hidden.shape[0], teacher_target_hidden.shape[0])
+        if aligned_tokens <= 1:
+            continue
+        student_target_hidden = F.normalize(student_target_hidden[:aligned_tokens], dim=-1)
+        teacher_target_hidden = F.normalize(teacher_target_hidden[:aligned_tokens], dim=-1)
+        student_rel = student_target_hidden @ student_target_hidden.transpose(0, 1)
+        teacher_rel = teacher_target_hidden @ teacher_target_hidden.transpose(0, 1)
+        triu = torch.triu_indices(aligned_tokens, aligned_tokens, offset=1, device=student_hidden.device)
+        if triu.shape[1] <= 0:
+            continue
+        per_sample_losses.append(
+            F.mse_loss(
+                student_rel[triu[0], triu[1]],
+                teacher_rel[triu[0], triu[1]],
+                reduction="mean",
+            )
+        )
+        if sample_weights is None:
+            per_sample_weights.append(torch.tensor(1.0, device=student_hidden.device))
+        else:
+            per_sample_weights.append(sample_weights[sample_index].to(student_hidden.device))
+
+    if not per_sample_losses:
+        return _zero(student_hidden.device)
+
+    losses = torch.stack(per_sample_losses)
+    weights = None if sample_weights is None else torch.stack(per_sample_weights)
+    return _apply_sample_weights(losses, weights)
+
+
+def token_hidden_variance_floor_loss(
+    student_hidden: torch.Tensor,
+    token_mask: torch.Tensor | None,
+    sample_weights: torch.Tensor | None = None,
+    *,
+    target_std: float = 0.5,
+    eps: float = 1e-4,
+) -> torch.Tensor:
+    """Discourage token states from collapsing into a tiny subspace."""
+    if token_mask is None:
+        return _zero(student_hidden.device)
+
+    shift_student = student_hidden[:, :-1, :].contiguous()
+    span_mask = token_mask[:, 1:].to(dtype=torch.bool, device=student_hidden.device)
+
+    per_sample_losses = []
+    per_sample_weights = []
+    for sample_index in range(shift_student.shape[0]):
+        student_target_hidden = shift_student[sample_index][span_mask[sample_index]]
+        if student_target_hidden.shape[0] <= 1:
+            continue
+        centered = student_target_hidden - student_target_hidden.mean(dim=0, keepdim=True)
+        std = torch.sqrt(centered.var(dim=0, unbiased=False) + eps)
+        penalty = F.relu(float(target_std) - std).mean()
+        per_sample_losses.append(penalty)
+        if sample_weights is None:
+            per_sample_weights.append(torch.tensor(1.0, device=student_hidden.device))
+        else:
+            per_sample_weights.append(sample_weights[sample_index].to(student_hidden.device))
+
+    if not per_sample_losses:
+        return _zero(student_hidden.device)
+
+    losses = torch.stack(per_sample_losses)
+    weights = None if sample_weights is None else torch.stack(per_sample_weights)
+    return _apply_sample_weights(losses, weights)
+
+
+def token_hidden_covariance_loss(
+    student_hidden: torch.Tensor,
+    token_mask: torch.Tensor | None,
+    sample_weights: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Reduce feature-axis covariance so bridge features do not collapse into one direction."""
+    if token_mask is None:
+        return _zero(student_hidden.device)
+
+    shift_student = student_hidden[:, :-1, :].contiguous()
+    span_mask = token_mask[:, 1:].to(dtype=torch.bool, device=student_hidden.device)
+
+    per_sample_losses = []
+    per_sample_weights = []
+    for sample_index in range(shift_student.shape[0]):
+        student_target_hidden = shift_student[sample_index][span_mask[sample_index]]
+        if student_target_hidden.shape[0] <= 1:
+            continue
+        centered = student_target_hidden - student_target_hidden.mean(dim=0, keepdim=True)
+        cov = centered.transpose(0, 1) @ centered / max(int(centered.shape[0] - 1), 1)
+        off_diag = cov - torch.diag(torch.diagonal(cov))
+        per_sample_losses.append((off_diag**2).mean())
+        if sample_weights is None:
+            per_sample_weights.append(torch.tensor(1.0, device=student_hidden.device))
+        else:
+            per_sample_weights.append(sample_weights[sample_index].to(student_hidden.device))
+
+    if not per_sample_losses:
+        return _zero(student_hidden.device)
+
+    losses = torch.stack(per_sample_losses)
+    weights = None if sample_weights is None else torch.stack(per_sample_weights)
+    return _apply_sample_weights(losses, weights)
+
+
 def _gather_expected_traj_controls(
     logits: torch.Tensor,
     labels: torch.Tensor,
