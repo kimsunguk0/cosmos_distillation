@@ -1,0 +1,22 @@
+{
+  "current_train": {
+    "samples": 4,
+    "avg_unique_traj_ids": 1.0,
+    "avg_max_same_token_run": 128.0
+  },
+  "current_val": {
+    "samples": 10,
+    "avg_unique_traj_ids": 1.0,
+    "avg_max_same_token_run": 128.0
+  },
+  "prev_train": {
+    "samples": 4,
+    "avg_unique_traj_ids": 1.0,
+    "avg_max_same_token_run": 128.0
+  },
+  "prev_val": {
+    "samples": 10,
+    "avg_unique_traj_ids": 1.0,
+    "avg_max_same_token_run": 128.0
+  }
+}

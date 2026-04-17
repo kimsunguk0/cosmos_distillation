@@ -55,3 +55,22 @@ def test_distill_student_model_supports_bucketed_traj_aux_head() -> None:
     )
     assert model.traj_aux_num_buckets == 4
     assert outputs["traj_aux_values"].shape == (1, 3, 8)
+
+
+def test_distill_student_model_supports_shared_traj_hidden_bridge() -> None:
+    model = DistillStudentModel(
+        _DummyBackbone(hidden_size=4),
+        hidden_size=4,
+        num_action_classes=3,
+        traj_teacher_hidden_size=6,
+        traj_hidden_bridge_size=3,
+    )
+    outputs = model(
+        input_ids=torch.tensor([[1, 2, 3]], dtype=torch.long),
+        attention_mask=torch.tensor([[1, 1, 1]], dtype=torch.long),
+    )
+    projected_teacher = model.project_teacher_traj_hidden(torch.randn(1, 2, 6))
+    assert outputs["traj_hidden_bridge_states"] is not None
+    assert outputs["traj_hidden_bridge_states"].shape == (1, 3, 3)
+    assert projected_teacher is not None
+    assert projected_teacher.shape == (1, 2, 3)

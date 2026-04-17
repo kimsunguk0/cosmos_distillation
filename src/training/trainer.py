@@ -21,6 +21,7 @@ from src.training.losses import (
     trajectory_aux_regression_loss,
     trajectory_aux_guided_kd_loss,
     trajectory_aux_pseudo_ce_loss,
+    token_hidden_alignment_bridge_loss,
     token_hidden_alignment_loss,
     trajectory_control_regression_losses,
     weighted_causal_ce,
@@ -112,9 +113,11 @@ def run_train_step(
     traj_decode_config: TrajectoryDecodeConfig | None = None,
     traj_aux_interface_config: TrajectoryAuxInterfaceConfig | None = None,
     traj_body_prefix_tokens: int | None = None,
+    traj_hidden_bridge_config: dict[str, float] | None = None,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Run one train step and return total loss plus scalar logs."""
     device = batch["input_ids"].device
+    unwrapped_model = getattr(model, "module", model)
     active_traj_token_mask = _restrict_traj_token_mask_to_prefix(
         batch["traj_token_mask"],
         traj_body_prefix_tokens,
@@ -273,13 +276,29 @@ def run_train_step(
             teacher_traj_sample_weights,
         )
     if weights.teacher_traj_hidden_align > 0:
-        teacher_traj_hidden_align = token_hidden_alignment_loss(
-            hard_outputs.get("traj_hidden_states", hard_outputs["hidden_states"]),
-            batch.get("teacher_traj_hidden"),
-            active_traj_token_mask,
-            batch.get("teacher_traj_hidden_mask"),
-            teacher_traj_sample_weights,
-        )
+        bridge_student_hidden = hard_outputs.get("traj_hidden_bridge_states")
+        bridge_teacher_hidden = None
+        if bridge_student_hidden is not None and hasattr(unwrapped_model, "project_teacher_traj_hidden"):
+            bridge_teacher_hidden = unwrapped_model.project_teacher_traj_hidden(batch.get("teacher_traj_hidden"))
+        if bridge_student_hidden is not None and bridge_teacher_hidden is not None:
+            hidden_bridge_cfg = dict(traj_hidden_bridge_config or {})
+            teacher_traj_hidden_align = token_hidden_alignment_bridge_loss(
+                bridge_student_hidden,
+                bridge_teacher_hidden,
+                active_traj_token_mask,
+                batch.get("teacher_traj_hidden_mask"),
+                teacher_traj_sample_weights,
+                cosine_weight=float(hidden_bridge_cfg.get("cosine_weight", 0.8)),
+                mse_weight=float(hidden_bridge_cfg.get("mse_weight", 0.2)),
+            )
+        else:
+            teacher_traj_hidden_align = token_hidden_alignment_loss(
+                hard_outputs.get("traj_hidden_states", hard_outputs["hidden_states"]),
+                batch.get("teacher_traj_hidden"),
+                active_traj_token_mask,
+                batch.get("teacher_traj_hidden_mask"),
+                teacher_traj_sample_weights,
+            )
     del hard_outputs
 
     teacher_view = batch.get("teacher_view")

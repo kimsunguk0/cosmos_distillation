@@ -1,0 +1,39 @@
+stage_name: stage_a
+epochs: 1.0
+batch_size: 1
+max_length: 4096
+bf16: true
+learning_rate: 0.000003
+
+data_view:
+  prompt_mode: joint
+  target_mode: joint
+  teacher_pair_target: true
+  enable_teacher_view: false
+  enable_action_aux: false
+  teacher_traj_cache_dir: /data/teacher_cache/traj15
+
+loss_weights:
+  gt_cot_loss: 0.25
+  teacher_cot_loss: 0.0
+  teacher_topk_kd_loss: 0.50
+  traj_loss: 0.35
+  teacher_traj_loss: 0.0
+  teacher_traj_topk_kd_loss: 1.00
+  teacher_traj_hidden_align_loss: 0.0
+  output_format_loss: 0.25
+  meta_action_loss: 0.0
+  traj_aux_loss: 0.0
+  traj_aux_xyz_loss: 0.0
+  traj_aux_final_loss: 0.0
+  traj_xyz_loss: 0.0
+  traj_delta_loss: 0.0
+  traj_final_loss: 0.0
+
+optimization:
+  freeze_all_parameters: true
+  language_layers_from: 26
+  unfreeze_language_norm: true
+
+decode_eval:
+  enabled: false

@@ -455,6 +455,56 @@ def token_hidden_alignment_loss(
     return _apply_sample_weights(losses, weights)
 
 
+def token_hidden_alignment_bridge_loss(
+    student_hidden: torch.Tensor,
+    teacher_hidden: torch.Tensor | None,
+    token_mask: torch.Tensor | None,
+    teacher_token_mask: torch.Tensor | None = None,
+    sample_weights: torch.Tensor | None = None,
+    *,
+    cosine_weight: float = 0.8,
+    mse_weight: float = 0.2,
+) -> torch.Tensor:
+    """Align projected token states in a shared bridge space using cosine-heavy loss."""
+    if teacher_hidden is None or token_mask is None:
+        return _zero(student_hidden.device)
+
+    shift_student = student_hidden[:, :-1, :].contiguous()
+    span_mask = token_mask[:, 1:].to(dtype=torch.bool, device=student_hidden.device)
+    teacher_hidden = teacher_hidden.to(device=student_hidden.device, dtype=shift_student.dtype)
+
+    per_sample_losses = []
+    per_sample_weights = []
+    for sample_index in range(shift_student.shape[0]):
+        student_target_hidden = shift_student[sample_index][span_mask[sample_index]]
+        teacher_target_hidden = teacher_hidden[sample_index]
+        if teacher_token_mask is not None:
+            teacher_target_hidden = teacher_target_hidden[
+                teacher_token_mask[sample_index].to(dtype=torch.bool, device=student_hidden.device)
+            ]
+        aligned_tokens = min(student_target_hidden.shape[0], teacher_target_hidden.shape[0])
+        if aligned_tokens <= 0:
+            continue
+        student_target_hidden = student_target_hidden[:aligned_tokens]
+        teacher_target_hidden = teacher_target_hidden[:aligned_tokens]
+        if student_target_hidden.shape[-1] != teacher_target_hidden.shape[-1]:
+            continue
+        cosine_loss = 1.0 - F.cosine_similarity(student_target_hidden, teacher_target_hidden, dim=-1)
+        mse_loss = F.mse_loss(student_target_hidden, teacher_target_hidden, reduction="none").mean(dim=-1)
+        per_sample_losses.append((cosine_weight * cosine_loss + mse_weight * mse_loss).mean())
+        if sample_weights is None:
+            per_sample_weights.append(torch.tensor(1.0, device=student_hidden.device))
+        else:
+            per_sample_weights.append(sample_weights[sample_index].to(student_hidden.device))
+
+    if not per_sample_losses:
+        return _zero(student_hidden.device)
+
+    losses = torch.stack(per_sample_losses)
+    weights = None if sample_weights is None else torch.stack(per_sample_weights)
+    return _apply_sample_weights(losses, weights)
+
+
 def _gather_expected_traj_controls(
     logits: torch.Tensor,
     labels: torch.Tensor,

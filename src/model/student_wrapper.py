@@ -38,6 +38,7 @@ class StudentWrapperConfig:
     local_files_only: bool = False
     traj_teacher_hidden_size: int | None = None
     traj_aux_num_buckets: int = 1
+    traj_hidden_bridge_size: int | None = None
 
 
 def _effective_local_files_only(config: StudentWrapperConfig) -> bool:
@@ -55,6 +56,7 @@ class DistillStudentModel(nn.Module):
         *,
         traj_teacher_hidden_size: int | None = None,
         traj_aux_num_buckets: int = 1,
+        traj_hidden_bridge_size: int | None = None,
     ) -> None:
         super().__init__()
         self.backbone = backbone
@@ -66,7 +68,18 @@ class DistillStudentModel(nn.Module):
         self.num_action_classes = num_action_classes
         self.traj_teacher_hidden_size: int | None = None
         self.traj_hidden_projector: nn.Linear | None = None
-        self.configure_traj_hidden_projector(traj_teacher_hidden_size)
+        self.traj_hidden_bridge_size: int | None = None
+        self.traj_hidden_bridge_student: nn.Module | None = None
+        self.traj_hidden_bridge_teacher: nn.Module | None = None
+        self.configure_traj_hidden_bridge(
+            teacher_hidden_size=traj_teacher_hidden_size,
+            bridge_size=traj_hidden_bridge_size,
+        )
+        self.configure_traj_hidden_projector(
+            None if traj_hidden_bridge_size not in (None, 0) else traj_teacher_hidden_size
+        )
+        if traj_teacher_hidden_size not in (None, 0):
+            self.traj_teacher_hidden_size = int(traj_teacher_hidden_size)
 
     def configure_traj_aux_head(self, num_buckets: int | None) -> None:
         """Attach or resize the training-time trajectory auxiliary head."""
@@ -102,6 +115,60 @@ class DistillStudentModel(nn.Module):
             return
         self.traj_hidden_projector = nn.Linear(self.hidden_size, output_dim, bias=False)
 
+    def configure_traj_hidden_bridge(
+        self,
+        *,
+        teacher_hidden_size: int | None,
+        bridge_size: int | None,
+    ) -> None:
+        """Attach or remove a shared bottleneck used for normalized traj hidden distillation."""
+        if teacher_hidden_size in (None, 0) or bridge_size in (None, 0):
+            self.traj_hidden_bridge_size = None
+            self.traj_hidden_bridge_student = None
+            self.traj_hidden_bridge_teacher = None
+            return
+
+        teacher_hidden_size = int(teacher_hidden_size)
+        bridge_size = int(bridge_size)
+        self.traj_teacher_hidden_size = teacher_hidden_size
+        self.traj_hidden_bridge_size = bridge_size
+
+        student_bridge = self.traj_hidden_bridge_student
+        if not (
+            isinstance(student_bridge, nn.Sequential)
+            and isinstance(student_bridge[0], nn.Linear)
+            and isinstance(student_bridge[1], nn.LayerNorm)
+            and student_bridge[0].in_features == self.hidden_size
+            and student_bridge[0].out_features == bridge_size
+            and student_bridge[1].normalized_shape == (bridge_size,)
+        ):
+            self.traj_hidden_bridge_student = nn.Sequential(
+                nn.Linear(self.hidden_size, bridge_size, bias=False),
+                nn.LayerNorm(bridge_size),
+            )
+
+        teacher_bridge = self.traj_hidden_bridge_teacher
+        if not (
+            isinstance(teacher_bridge, nn.Sequential)
+            and isinstance(teacher_bridge[0], nn.Linear)
+            and isinstance(teacher_bridge[1], nn.LayerNorm)
+            and teacher_bridge[0].in_features == teacher_hidden_size
+            and teacher_bridge[0].out_features == bridge_size
+            and teacher_bridge[1].normalized_shape == (bridge_size,)
+        ):
+            self.traj_hidden_bridge_teacher = nn.Sequential(
+                nn.Linear(teacher_hidden_size, bridge_size, bias=False),
+                nn.LayerNorm(bridge_size),
+            )
+
+    def project_teacher_traj_hidden(self, teacher_hidden: torch.Tensor | None) -> torch.Tensor | None:
+        """Project cached teacher traj hidden states into the shared bridge space."""
+        if teacher_hidden is None:
+            return None
+        if self.traj_hidden_bridge_teacher is None:
+            return teacher_hidden
+        return self.traj_hidden_bridge_teacher(teacher_hidden)
+
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -133,6 +200,11 @@ class DistillStudentModel(nn.Module):
             denom = mask.sum(dim=1).clamp(min=1.0)
             pooled = (hidden * mask).sum(dim=1) / denom
         traj_hidden = self.traj_hidden_projector(hidden) if self.traj_hidden_projector is not None else hidden
+        traj_hidden_bridge = (
+            self.traj_hidden_bridge_student(hidden)
+            if self.traj_hidden_bridge_student is not None
+            else None
+        )
         meta_action_logits = self.meta_action_head(pooled)
         if self.traj_aux_head is None:
             raise ValueError("Trajectory auxiliary head is not configured.")
@@ -142,6 +214,7 @@ class DistillStudentModel(nn.Module):
             "logits": logits,
             "hidden_states": hidden,
             "traj_hidden_states": traj_hidden,
+            "traj_hidden_bridge_states": traj_hidden_bridge,
             "pooled_hidden": pooled,
             "meta_action_logits": meta_action_logits,
             "traj_aux_values": traj_aux_values,
@@ -221,4 +294,5 @@ def build_student_model(config: StudentWrapperConfig, tokenizer) -> DistillStude
         num_action_classes=len(ACTION_CLASSES),
         traj_teacher_hidden_size=config.traj_teacher_hidden_size,
         traj_aux_num_buckets=config.traj_aux_num_buckets,
+        traj_hidden_bridge_size=config.traj_hidden_bridge_size,
     )

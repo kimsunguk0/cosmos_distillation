@@ -142,8 +142,10 @@ def extract_generated_spans(generated_text: str, *, target_mode: str) -> tuple[s
 
 def load_model_and_processors(checkpoint_dir: Path, device: str):
     train_config = json.loads((checkpoint_dir / "train_config.json").read_text(encoding="utf-8"))
+    checkpoint_manifest = json.loads((checkpoint_dir / "checkpoint_manifest.json").read_text(encoding="utf-8"))
     base_model = str(train_config["args"]["student_model"])
     use_lora = not bool(train_config["args"].get("disable_lora", False))
+    data_view = train_config.get("data_view") or {}
 
     tokenizer = AutoTokenizer.from_pretrained(checkpoint_dir / "tokenizer", local_files_only=True)
     processor = AutoProcessor.from_pretrained(checkpoint_dir / "processor", local_files_only=True)
@@ -158,6 +160,16 @@ def load_model_and_processors(checkpoint_dir: Path, device: str):
             else None
         ),
         local_files_only=Path(base_model).expanduser().exists(),
+        traj_teacher_hidden_size=(
+            int(data_view.get("teacher_traj_hidden_size"))
+            if data_view.get("teacher_traj_hidden_size") not in (None, "", 0)
+            else None
+        ),
+        traj_hidden_bridge_size=(
+            int(checkpoint_manifest.get("traj_hidden_bridge_size"))
+            if checkpoint_manifest.get("traj_hidden_bridge_size") not in (None, "", 0)
+            else None
+        ),
     )
     print(json.dumps({"event": "load_base_model_start", "base_model": base_model}), flush=True)
     started_at = time.time()
@@ -187,7 +199,6 @@ def load_model_and_processors(checkpoint_dir: Path, device: str):
     )
     model = model.to(device).eval()
     print(json.dumps({"event": "model_to_device_done", "device": device}), flush=True)
-    data_view = train_config.get("data_view") or {}
     return model, tokenizer, processor, {
         **load_info,
         "use_lora": use_lora,

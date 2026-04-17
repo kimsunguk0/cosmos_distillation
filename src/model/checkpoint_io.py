@@ -47,6 +47,14 @@ def _traj_hidden_projector_path(checkpoint_dir: Path) -> Path:
     return checkpoint_dir / "traj_hidden_projector.pt"
 
 
+def _traj_hidden_bridge_student_path(checkpoint_dir: Path) -> Path:
+    return checkpoint_dir / "traj_hidden_bridge_student.pt"
+
+
+def _traj_hidden_bridge_teacher_path(checkpoint_dir: Path) -> Path:
+    return checkpoint_dir / "traj_hidden_bridge_teacher.pt"
+
+
 def _legacy_state_path(checkpoint_dir: Path) -> Path:
     return checkpoint_dir / "student_state.pt"
 
@@ -98,6 +106,13 @@ def save_student_checkpoint(
             torch.save(_cpu_state_dict(model.traj_hidden_projector), _traj_hidden_projector_path(checkpoint_dir))
             payload["traj_hidden_projector"] = _traj_hidden_projector_path(checkpoint_dir).name
             payload["traj_teacher_hidden_size"] = int(getattr(model, "traj_teacher_hidden_size", 0) or 0)
+        if getattr(model, "traj_hidden_bridge_student", None) is not None:
+            torch.save(_cpu_state_dict(model.traj_hidden_bridge_student), _traj_hidden_bridge_student_path(checkpoint_dir))
+            torch.save(_cpu_state_dict(model.traj_hidden_bridge_teacher), _traj_hidden_bridge_teacher_path(checkpoint_dir))
+            payload["traj_hidden_bridge_student"] = _traj_hidden_bridge_student_path(checkpoint_dir).name
+            payload["traj_hidden_bridge_teacher"] = _traj_hidden_bridge_teacher_path(checkpoint_dir).name
+            payload["traj_hidden_bridge_size"] = int(getattr(model, "traj_hidden_bridge_size", 0) or 0)
+            payload["traj_teacher_hidden_size"] = int(getattr(model, "traj_teacher_hidden_size", 0) or 0)
     else:
         state_dict = _cast_float_state_dict(model.state_dict(), float_dtype=full_state_dtype)
         torch.save(state_dict, _legacy_state_path(checkpoint_dir))
@@ -108,6 +123,9 @@ def save_student_checkpoint(
             "traj_aux_num_buckets": int(getattr(model, "traj_aux_num_buckets", 1) or 1),
         }
         if getattr(model, "traj_hidden_projector", None) is not None:
+            payload["traj_teacher_hidden_size"] = int(getattr(model, "traj_teacher_hidden_size", 0) or 0)
+        if getattr(model, "traj_hidden_bridge_student", None) is not None:
+            payload["traj_hidden_bridge_size"] = int(getattr(model, "traj_hidden_bridge_size", 0) or 0)
             payload["traj_teacher_hidden_size"] = int(getattr(model, "traj_teacher_hidden_size", 0) or 0)
 
     _manifest_path(checkpoint_dir).write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -133,6 +151,17 @@ def load_student_checkpoint(
         traj_teacher_hidden_size = manifest.get("traj_teacher_hidden_size")
         if traj_teacher_hidden_size not in (None, 0):
             model.configure_traj_hidden_projector(int(traj_teacher_hidden_size))
+        traj_hidden_bridge_size = manifest.get("traj_hidden_bridge_size")
+        if traj_hidden_bridge_size not in (None, 0):
+            bridge_teacher_hidden_size = int(
+                traj_teacher_hidden_size
+                or getattr(model, "traj_teacher_hidden_size", 0)
+                or 0
+            )
+            model.configure_traj_hidden_bridge(
+                teacher_hidden_size=bridge_teacher_hidden_size,
+                bridge_size=int(traj_hidden_bridge_size),
+            )
 
         model.backbone = PeftModel.from_pretrained(
             model.backbone,
@@ -170,6 +199,29 @@ def load_student_checkpoint(
             if getattr(model, "traj_hidden_projector", None) is None:
                 raise ValueError("Checkpoint contains traj_hidden_projector but the model is not configured for it.")
             model.traj_hidden_projector.load_state_dict(projector_state, strict=True)
+        traj_hidden_bridge_student_path = _traj_hidden_bridge_student_path(checkpoint_dir)
+        traj_hidden_bridge_teacher_path = _traj_hidden_bridge_teacher_path(checkpoint_dir)
+        if traj_hidden_bridge_student_path.exists() and traj_hidden_bridge_teacher_path.exists():
+            try:
+                student_bridge_state = torch.load(
+                    traj_hidden_bridge_student_path,
+                    map_location="cpu",
+                    weights_only=True,
+                )
+            except TypeError:
+                student_bridge_state = torch.load(traj_hidden_bridge_student_path, map_location="cpu")
+            try:
+                teacher_bridge_state = torch.load(
+                    traj_hidden_bridge_teacher_path,
+                    map_location="cpu",
+                    weights_only=True,
+                )
+            except TypeError:
+                teacher_bridge_state = torch.load(traj_hidden_bridge_teacher_path, map_location="cpu")
+            if getattr(model, "traj_hidden_bridge_student", None) is None or getattr(model, "traj_hidden_bridge_teacher", None) is None:
+                raise ValueError("Checkpoint contains traj_hidden_bridge modules but the model is not configured for them.")
+            model.traj_hidden_bridge_student.load_state_dict(student_bridge_state, strict=True)
+            model.traj_hidden_bridge_teacher.load_state_dict(teacher_bridge_state, strict=True)
         return {
             "format": checkpoint_format,
             "missing": [],
@@ -184,6 +236,17 @@ def load_student_checkpoint(
         traj_teacher_hidden_size = manifest.get("traj_teacher_hidden_size")
         if traj_teacher_hidden_size not in (None, 0):
             model.configure_traj_hidden_projector(int(traj_teacher_hidden_size))
+        traj_hidden_bridge_size = manifest.get("traj_hidden_bridge_size")
+        if traj_hidden_bridge_size not in (None, 0):
+            bridge_teacher_hidden_size = int(
+                traj_teacher_hidden_size
+                or getattr(model, "traj_teacher_hidden_size", 0)
+                or 0
+            )
+            model.configure_traj_hidden_bridge(
+                teacher_hidden_size=bridge_teacher_hidden_size,
+                bridge_size=int(traj_hidden_bridge_size),
+            )
         state_path = _legacy_state_path(checkpoint_dir)
         load_kwargs = {"map_location": "cpu", "weights_only": True}
         try:

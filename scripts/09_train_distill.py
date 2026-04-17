@@ -7,6 +7,7 @@ import argparse
 import json
 import math
 import os
+import re
 import socket
 import sys
 import time
@@ -231,6 +232,7 @@ def stage_weights_from_yaml(path: Path) -> tuple[TrainerConfig, DistillationLoss
         "decode_eval": dict(config.get("decode_eval") or {}),
         "traj_decode_reg": dict(config.get("traj_decode_reg") or {}),
         "traj_aux_interface": dict(config.get("traj_aux_interface") or {}),
+        "traj_hidden_bridge": dict(config.get("traj_hidden_bridge") or {}),
         "optimization": dict(config.get("optimization") or {}),
         "curriculum": dict(config.get("curriculum") or {}),
         "interface_loss_weights": dict(config.get("interface_loss_weights") or {}),
@@ -246,8 +248,103 @@ def unwrap_model(model):
 def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None) -> dict[str, object]:
     """Apply stage-specific trainability rules and return a small summary."""
     cfg = dict(optimization_cfg or {})
-    summary = {"freeze_all_but_traj_aux_head": False, "freeze_traj_aux_head": False}
+    summary = {
+        "freeze_all_but_traj_aux_head": False,
+        "freeze_traj_aux_head": False,
+        "freeze_all_parameters": False,
+    }
     if not bool(cfg.get("freeze_all_but_traj_aux_head", False)):
+        if bool(cfg.get("freeze_all_parameters", False)):
+            for parameter in model.parameters():
+                parameter.requires_grad = False
+
+            trainable_modules: list[str] = []
+            explicit_layers = cfg.get("unfreeze_language_layers")
+            layer_ids: set[int] = set()
+            if isinstance(explicit_layers, (list, tuple)):
+                layer_ids = {int(value) for value in explicit_layers}
+            layer_from = cfg.get("language_layers_from")
+            layer_from = int(layer_from) if layer_from not in (None, "", False) else None
+
+            def should_unfreeze(name: str) -> bool:
+                layer_match = re.search(r"language_model\.layers\.(\d+)\.", name)
+                if layer_match is not None:
+                    layer_index = int(layer_match.group(1))
+                    if layer_index in layer_ids:
+                        return True
+                    if layer_from is not None and layer_index >= layer_from:
+                        return True
+                if bool(cfg.get("unfreeze_language_norm", False)) and "language_model.norm" in name:
+                    return True
+                if bool(cfg.get("unfreeze_token_embeddings", False)) and "language_model.embed_tokens" in name:
+                    return True
+                if bool(cfg.get("unfreeze_lm_head", False)) and "lm_head" in name:
+                    return True
+                if bool(cfg.get("unfreeze_multimodal_projector", False)) and (
+                    "multi_modal_projector" in name or "visual.merger" in name
+                ):
+                    return True
+                return False
+
+            for name, parameter in model.named_parameters():
+                if should_unfreeze(name):
+                    parameter.requires_grad = True
+
+            if bool(cfg.get("unfreeze_traj_aux_head", False)):
+                traj_aux_head = getattr(model, "traj_aux_head", None)
+                if traj_aux_head is None:
+                    raise RuntimeError("unfreeze_traj_aux_head requires model.traj_aux_head to exist.")
+                for parameter in traj_aux_head.parameters():
+                    parameter.requires_grad = True
+                trainable_modules.append("traj_aux_head")
+            if bool(cfg.get("unfreeze_meta_action_head", False)):
+                meta_action_head = getattr(model, "meta_action_head", None)
+                if meta_action_head is None:
+                    raise RuntimeError("unfreeze_meta_action_head requires model.meta_action_head to exist.")
+                for parameter in meta_action_head.parameters():
+                    parameter.requires_grad = True
+                trainable_modules.append("meta_action_head")
+            if bool(cfg.get("unfreeze_traj_hidden_projector", False)):
+                traj_hidden_projector = getattr(model, "traj_hidden_projector", None)
+                if traj_hidden_projector is None:
+                    raise RuntimeError(
+                        "unfreeze_traj_hidden_projector requires model.traj_hidden_projector to exist."
+                    )
+                for parameter in traj_hidden_projector.parameters():
+                    parameter.requires_grad = True
+                trainable_modules.append("traj_hidden_projector")
+            if bool(cfg.get("unfreeze_traj_hidden_bridge", False)):
+                traj_hidden_bridge_student = getattr(model, "traj_hidden_bridge_student", None)
+                traj_hidden_bridge_teacher = getattr(model, "traj_hidden_bridge_teacher", None)
+                if traj_hidden_bridge_student is None or traj_hidden_bridge_teacher is None:
+                    raise RuntimeError(
+                        "unfreeze_traj_hidden_bridge requires model.traj_hidden_bridge_student/teacher to exist."
+                    )
+                for parameter in traj_hidden_bridge_student.parameters():
+                    parameter.requires_grad = True
+                for parameter in traj_hidden_bridge_teacher.parameters():
+                    parameter.requires_grad = True
+                trainable_modules.append("traj_hidden_bridge")
+
+            for layer_index in sorted(layer_ids):
+                trainable_modules.append(f"language_layers.{layer_index}")
+            if layer_from is not None:
+                trainable_modules.append(f"language_layers_from.{layer_from}")
+            if bool(cfg.get("unfreeze_language_norm", False)):
+                trainable_modules.append("language_norm")
+            if bool(cfg.get("unfreeze_token_embeddings", False)):
+                trainable_modules.append("token_embeddings")
+            if bool(cfg.get("unfreeze_lm_head", False)):
+                trainable_modules.append("lm_head")
+            if bool(cfg.get("unfreeze_multimodal_projector", False)):
+                trainable_modules.append("multimodal_projector")
+
+            return {
+                "freeze_all_but_traj_aux_head": False,
+                "freeze_traj_aux_head": False,
+                "freeze_all_parameters": True,
+                "trainable_modules": trainable_modules,
+            }
         if bool(cfg.get("freeze_traj_aux_head", False)):
             traj_aux_head = getattr(model, "traj_aux_head", None)
             if traj_aux_head is None:
@@ -611,6 +708,7 @@ def evaluate_model(
     traj_decode_config: TrajectoryDecodeConfig | None,
     traj_aux_interface_config: TrajectoryAuxInterfaceConfig | None,
     traj_body_prefix_tokens: int | None = None,
+    traj_hidden_bridge_config: dict[str, float] | None = None,
 ) -> dict[str, float]:
     """Run a validation pass and return mean scalar metrics."""
     metric_sums: dict[str, float] = {}
@@ -631,6 +729,7 @@ def evaluate_model(
                 traj_decode_config=traj_decode_config,
                 traj_aux_interface_config=traj_aux_interface_config,
                 traj_body_prefix_tokens=traj_body_prefix_tokens,
+                traj_hidden_bridge_config=traj_hidden_bridge_config,
             )
         local_batches += 1
         for key, value in logs.items():
@@ -733,7 +832,13 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                 "teacher_traj_hidden_align is enabled but no teacher trajectory hidden cache dimension could be inferred."
             )
     traj_aux_interface_cfg = dict(stage_options.get("traj_aux_interface") or {})
+    traj_hidden_bridge_cfg = dict(stage_options.get("traj_hidden_bridge") or {})
     traj_aux_num_buckets = max(int(traj_aux_interface_cfg.get("num_buckets", 1) or 1), 1)
+    traj_hidden_bridge_size = (
+        int(traj_hidden_bridge_cfg.get("shared_size"))
+        if traj_hidden_bridge_cfg.get("shared_size") not in (None, "", 0)
+        else None
+    )
     optimization_cfg = dict(stage_options.get("optimization") or {})
     curriculum_cfg = dict(stage_options.get("curriculum") or {})
     traj_body_prefix_tokens = (
@@ -749,6 +854,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         local_files_only=Path(student_model).expanduser().exists(),
         traj_teacher_hidden_size=teacher_traj_hidden_size,
         traj_aux_num_buckets=traj_aux_num_buckets,
+        traj_hidden_bridge_size=traj_hidden_bridge_size,
     )
     tokenizer = load_student_tokenizer(wrapper_cfg)
     processor = load_student_processor(wrapper_cfg, tokenizer=tokenizer)
@@ -938,8 +1044,10 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "enable_action_aux": enable_action_aux,
             "teacher_traj_cache_dir": str(teacher_traj_cache_dir) if teacher_traj_cache_dir is not None else None,
             "teacher_traj_hidden_size": teacher_traj_hidden_size,
+            "traj_hidden_bridge_size": traj_hidden_bridge_size,
             "traj_aux_num_buckets": traj_aux_num_buckets,
             "traj_aux_interface": traj_aux_interface_summary,
+            "traj_hidden_bridge": traj_hidden_bridge_cfg,
             "optimization": optimization_cfg,
             "curriculum": curriculum_cfg,
             "traj_body_prefix_tokens": traj_body_prefix_tokens,
@@ -1160,6 +1268,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                         traj_decode_config=traj_decode_config,
                         traj_aux_interface_config=traj_aux_interface_runtime_config,
                         traj_body_prefix_tokens=traj_body_prefix_tokens,
+                        traj_hidden_bridge_config=traj_hidden_bridge_cfg,
                     )
                 loss.backward()
                 grad_norm = torch.nn.utils.clip_grad_norm_(trainable_params, args.grad_clip_norm)
@@ -1226,6 +1335,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                             traj_decode_config=traj_decode_config,
                             traj_aux_interface_config=traj_aux_interface_runtime_config,
                             traj_body_prefix_tokens=traj_body_prefix_tokens,
+                            traj_hidden_bridge_config=traj_hidden_bridge_cfg,
                         )
                     val_total_loss = float(val_logs.get("total_loss", float("inf")))
                     if best_val_total_loss is None or val_total_loss <= best_val_total_loss:
