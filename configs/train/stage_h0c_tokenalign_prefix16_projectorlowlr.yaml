@@ -1,0 +1,68 @@
+stage_name: stage_a
+epochs: 1.0
+batch_size: 1
+max_length: 4096
+bf16: true
+learning_rate: 0.000005
+
+data_view:
+  prompt_mode: joint
+  target_mode: joint
+  teacher_pair_target: true
+  enable_teacher_view: false
+  enable_action_aux: false
+  teacher_traj_cache_dir: /data/teacher_cache/traj15
+  teacher_traj_hidden_source: latent
+  teacher_traj_latent_suffix: lat32
+
+loss_weights:
+  gt_cot_loss: 0.0
+  teacher_cot_loss: 0.0
+  teacher_topk_kd_loss: 0.0
+  traj_loss: 0.0
+  teacher_traj_loss: 0.0
+  teacher_traj_topk_kd_loss: 0.0
+  teacher_traj_hidden_align_loss: 1.0
+  output_format_loss: 0.10
+  meta_action_loss: 0.0
+  feature_align_loss: 0.0
+  traj_aux_loss: 0.0
+  traj_aux_xyz_loss: 0.0
+  traj_aux_final_loss: 0.0
+  traj_xyz_loss: 0.0
+  traj_delta_loss: 0.0
+  traj_final_loss: 0.0
+  traj_control_loss: 0.0
+  traj_control_delta_loss: 0.0
+  traj_aux_guided_kd_loss: 0.0
+  traj_aux_pseudo_ce_loss: 0.0
+
+traj_hidden_bridge:
+  cosine_weight: 1.25
+  mse_weight: 0.0
+  contrastive_weight: 0.50
+  contrastive_temperature: 0.07
+  relation_weight: 0.50
+  variance_weight: 0.05
+  covariance_weight: 0.05
+  variance_target: 0.5
+  raw_relation_weight: 0.25
+  raw_centered_relation_weight: 0.50
+  raw_spectrum_weight: 0.30
+  latent_spectrum_weight: 0.15
+  temporal_weight: 0.20
+  temporal_second_weight: 1.0
+
+optimization:
+  freeze_all_parameters: false
+  freeze_traj_aux_head: true
+  freeze_traj_hidden_projector: false
+  traj_hidden_projector_lr_scale: 0.05
+  unfreeze_multimodal_projector: true
+  unfreeze_language_norm: true
+
+curriculum:
+  traj_body_prefix_tokens: 16
+
+decode_eval:
+  enabled: false

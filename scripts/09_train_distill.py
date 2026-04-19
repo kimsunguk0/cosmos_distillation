@@ -251,6 +251,7 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
     summary = {
         "freeze_all_but_traj_aux_head": False,
         "freeze_traj_aux_head": False,
+        "freeze_traj_hidden_projector": False,
         "freeze_all_parameters": False,
     }
 
@@ -357,6 +358,13 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
             for parameter in traj_aux_head.parameters():
                 parameter.requires_grad = False
             summary["freeze_traj_aux_head"] = True
+        if bool(cfg.get("freeze_traj_hidden_projector", False)):
+            traj_hidden_projector = getattr(model, "traj_hidden_projector", None)
+            if traj_hidden_projector is None:
+                raise RuntimeError("freeze_traj_hidden_projector requires model.traj_hidden_projector to exist.")
+            for parameter in traj_hidden_projector.parameters():
+                parameter.requires_grad = False
+            summary["freeze_traj_hidden_projector"] = True
         if trainable_modules:
             summary["trainable_modules"] = trainable_modules
         return summary
@@ -371,8 +379,41 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
     return {
         "freeze_all_but_traj_aux_head": True,
         "freeze_traj_aux_head": False,
+        "freeze_traj_hidden_projector": False,
         "trainable_modules": ["traj_aux_head"],
     }
+
+
+def build_optimizer_param_groups(model, base_learning_rate: float, optimization_cfg: dict[str, object] | None):
+    """Build simple per-module LR groups when a stage requests them."""
+    cfg = dict(optimization_cfg or {})
+    projector_scale = float(cfg.get("traj_hidden_projector_lr_scale", 1.0) or 1.0)
+    named_trainable = [(name, param) for name, param in model.named_parameters() if param.requires_grad]
+    if not named_trainable:
+        return [], {}
+    if abs(projector_scale - 1.0) < 1e-8:
+        return (
+            [{"params": [param for _, param in named_trainable], "lr": float(base_learning_rate)}],
+            {"default": len(named_trainable)},
+        )
+
+    default_params = []
+    projector_params = []
+    for name, param in named_trainable:
+        if "traj_hidden_projector" in name:
+            projector_params.append(param)
+        else:
+            default_params.append(param)
+
+    param_groups = []
+    summary: dict[str, int] = {}
+    if default_params:
+        param_groups.append({"params": default_params, "lr": float(base_learning_rate)})
+        summary["default"] = len(default_params)
+    if projector_params:
+        param_groups.append({"params": projector_params, "lr": float(base_learning_rate) * projector_scale})
+        summary["traj_hidden_projector"] = len(projector_params)
+    return param_groups, summary
 
 
 def resolve_parallelism(multi_gpu: str) -> tuple[str, list[int]]:
@@ -1168,10 +1209,15 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     model = model.to(device)
     if world_size > 1:
         model = DDP(model, device_ids=[rank], output_device=rank, static_graph=True)
+    optimizer_param_groups, optimizer_group_summary = build_optimizer_param_groups(
+        model,
+        trainer_cfg.learning_rate,
+        optimization_cfg,
+    )
     trainable_params = [param for param in model.parameters() if param.requires_grad]
     if not trainable_params:
         raise RuntimeError("No trainable parameters remain after applying the optimization policy.")
-    optimizer = torch.optim.AdamW(trainable_params, lr=trainer_cfg.learning_rate)
+    optimizer = torch.optim.AdamW(optimizer_param_groups, lr=trainer_cfg.learning_rate)
     if is_rank_zero:
         print(
             (
@@ -1187,7 +1233,8 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                 f"teacher_traj_hidden_size={teacher_traj_hidden_size} "
                 f"traj_aux_num_buckets={traj_aux_num_buckets} "
                 f"freeze_aux_only={bool(optimization_cfg.get('freeze_all_but_traj_aux_head', False))} "
-                f"interface_every_n={curriculum_cfg.get('interface_every_n_steps')}"
+                f"interface_every_n={curriculum_cfg.get('interface_every_n_steps')} "
+                f"optimizer_groups={optimizer_group_summary}"
             ),
             flush=True,
         )
@@ -1232,6 +1279,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "device_count": max(world_size, torch.cuda.device_count() if torch.cuda.is_available() else 0),
             "device_ids": device_ids,
         },
+        "optimizer_groups": optimizer_group_summary,
         "loss_weights": export_loss_weights(loss_weights),
         "data_view": {
             "prompt_mode": prompt_mode,

@@ -24,7 +24,12 @@ from src.training.losses import (
     trajectory_aux_pseudo_ce_loss,
     token_hidden_alignment_bridge_loss,
     token_hidden_alignment_loss,
+    token_hidden_contrastive_loss,
+    token_hidden_residual_diagonal_alignment_loss,
     token_hidden_relation_loss,
+    token_hidden_soft_relation_kl_loss,
+    token_hidden_spectrum_loss,
+    token_hidden_temporal_delta_loss,
     token_hidden_variance_floor_loss,
     trajectory_control_regression_losses,
     weighted_causal_ce,
@@ -225,6 +230,14 @@ def run_train_step(
     teacher_traj_hidden_relation = _zero(device)
     teacher_traj_hidden_variance = _zero(device)
     teacher_traj_hidden_covariance = _zero(device)
+    teacher_traj_hidden_raw_relation = _zero(device)
+    teacher_traj_hidden_raw_relation_centered = _zero(device)
+    teacher_traj_hidden_raw_spectrum = _zero(device)
+    teacher_traj_hidden_latent_spectrum = _zero(device)
+    teacher_traj_hidden_temporal = _zero(device)
+    teacher_traj_hidden_contrastive = _zero(device)
+    teacher_traj_hidden_soft_relation = _zero(device)
+    teacher_traj_hidden_residual_diag = _zero(device)
     feat_align = _zero(device)
 
     hard_teacher_pair_weights = None
@@ -332,11 +345,87 @@ def run_train_step(
                 active_traj_token_mask,
                 teacher_traj_sample_weights,
             )
+            teacher_traj_hidden_latent_spectrum = token_hidden_spectrum_loss(
+                student_hidden_for_distill,
+                teacher_hidden_for_distill,
+                active_traj_token_mask,
+                batch.get("teacher_traj_hidden_mask"),
+                teacher_traj_sample_weights,
+            )
+            teacher_traj_hidden_temporal = token_hidden_temporal_delta_loss(
+                student_hidden_for_distill,
+                teacher_hidden_for_distill,
+                active_traj_token_mask,
+                batch.get("teacher_traj_hidden_mask"),
+                teacher_traj_sample_weights,
+                second_order_weight=float(hidden_bridge_cfg.get("temporal_second_weight", 1.0)),
+            )
+            teacher_traj_hidden_contrastive = token_hidden_contrastive_loss(
+                student_hidden_for_distill,
+                teacher_hidden_for_distill,
+                active_traj_token_mask,
+                batch.get("teacher_traj_hidden_mask"),
+                teacher_traj_sample_weights,
+                temperature=float(hidden_bridge_cfg.get("contrastive_temperature", 0.07)),
+            )
+            teacher_traj_hidden_soft_relation = token_hidden_soft_relation_kl_loss(
+                student_hidden_for_distill,
+                teacher_hidden_for_distill,
+                active_traj_token_mask,
+                batch.get("teacher_traj_hidden_mask"),
+                teacher_traj_sample_weights,
+                student_temperature=float(hidden_bridge_cfg.get("soft_relation_student_temperature", 0.10)),
+                teacher_temperature=float(hidden_bridge_cfg.get("soft_relation_teacher_temperature", 0.10)),
+                diagonal_alpha=float(hidden_bridge_cfg.get("soft_relation_diagonal_alpha", 0.0)),
+            )
+            teacher_traj_hidden_residual_diag = token_hidden_residual_diagonal_alignment_loss(
+                student_hidden_for_distill,
+                teacher_hidden_for_distill,
+                active_traj_token_mask,
+                batch.get("teacher_traj_hidden_mask"),
+                teacher_traj_sample_weights,
+            )
+            raw_teacher_hidden = batch.get("teacher_traj_hidden_raw")
+            raw_teacher_hidden_mask = batch.get("teacher_traj_hidden_raw_mask")
+            if raw_teacher_hidden is not None:
+                raw_student_hidden = hard_outputs["hidden_states"]
+                teacher_traj_hidden_raw_relation = token_hidden_relation_loss(
+                    raw_student_hidden,
+                    raw_teacher_hidden,
+                    active_traj_token_mask,
+                    raw_teacher_hidden_mask,
+                    teacher_traj_sample_weights,
+                    center=False,
+                )
+                teacher_traj_hidden_raw_relation_centered = token_hidden_relation_loss(
+                    raw_student_hidden,
+                    raw_teacher_hidden,
+                    active_traj_token_mask,
+                    raw_teacher_hidden_mask,
+                    teacher_traj_sample_weights,
+                    center=True,
+                )
+                teacher_traj_hidden_raw_spectrum = token_hidden_spectrum_loss(
+                    raw_student_hidden,
+                    raw_teacher_hidden,
+                    active_traj_token_mask,
+                    raw_teacher_hidden_mask,
+                    teacher_traj_sample_weights,
+                )
             teacher_traj_hidden_align = (
                 teacher_traj_hidden_align
                 + float(hidden_bridge_cfg.get("relation_weight", 0.0)) * teacher_traj_hidden_relation
                 + float(hidden_bridge_cfg.get("variance_weight", 0.0)) * teacher_traj_hidden_variance
                 + float(hidden_bridge_cfg.get("covariance_weight", 0.0)) * teacher_traj_hidden_covariance
+                + float(hidden_bridge_cfg.get("latent_spectrum_weight", 0.0)) * teacher_traj_hidden_latent_spectrum
+                + float(hidden_bridge_cfg.get("temporal_weight", 0.0)) * teacher_traj_hidden_temporal
+                + float(hidden_bridge_cfg.get("soft_relation_weight", 0.0)) * teacher_traj_hidden_soft_relation
+                + float(hidden_bridge_cfg.get("residual_diag_weight", 0.0)) * teacher_traj_hidden_residual_diag
+                + float(hidden_bridge_cfg.get("contrastive_weight", 0.0)) * teacher_traj_hidden_contrastive
+                + float(hidden_bridge_cfg.get("raw_relation_weight", 0.0)) * teacher_traj_hidden_raw_relation
+                + float(hidden_bridge_cfg.get("raw_centered_relation_weight", 0.0))
+                * teacher_traj_hidden_raw_relation_centered
+                + float(hidden_bridge_cfg.get("raw_spectrum_weight", 0.0)) * teacher_traj_hidden_raw_spectrum
             )
         elif batch.get("teacher_traj_hidden") is not None:
             teacher_traj_hidden_align = token_hidden_alignment_loss(
@@ -442,6 +531,14 @@ def run_train_step(
         "teacher_traj_hidden_relation": float(teacher_traj_hidden_relation.detach().cpu()),
         "teacher_traj_hidden_variance": float(teacher_traj_hidden_variance.detach().cpu()),
         "teacher_traj_hidden_covariance": float(teacher_traj_hidden_covariance.detach().cpu()),
+        "teacher_traj_hidden_raw_relation": float(teacher_traj_hidden_raw_relation.detach().cpu()),
+        "teacher_traj_hidden_raw_relation_centered": float(teacher_traj_hidden_raw_relation_centered.detach().cpu()),
+        "teacher_traj_hidden_raw_spectrum": float(teacher_traj_hidden_raw_spectrum.detach().cpu()),
+        "teacher_traj_hidden_latent_spectrum": float(teacher_traj_hidden_latent_spectrum.detach().cpu()),
+        "teacher_traj_hidden_temporal": float(teacher_traj_hidden_temporal.detach().cpu()),
+        "teacher_traj_hidden_contrastive": float(teacher_traj_hidden_contrastive.detach().cpu()),
+        "teacher_traj_hidden_soft_relation": float(teacher_traj_hidden_soft_relation.detach().cpu()),
+        "teacher_traj_hidden_residual_diag": float(teacher_traj_hidden_residual_diag.detach().cpu()),
         "traj_ce": float(traj_ce.detach().cpu()),
         "format_ce": float(format_ce.detach().cpu()),
         "action_aux": float(action_aux.detach().cpu()),

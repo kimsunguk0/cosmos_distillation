@@ -1,0 +1,41 @@
+{
+  "baseline": {
+    "raw_student_effective_rank_mean": 2.1986940026283266,
+    "raw_teacher_effective_rank_mean": 6.215501344203949,
+    "raw_student_offdiag_cosine_mean": 0.9846442341804504,
+    "raw_teacher_offdiag_cosine_mean": 0.536717626452446,
+    "raw_gram_corr_mean": 0.11505380019079894,
+    "projected_student_effective_rank_mean": 2.0100450664758682,
+    "projected_teacher_effective_rank_mean": 4.541377562284469,
+    "projected_student_offdiag_cosine_mean": 0.9859891176223755,
+    "projected_teacher_offdiag_cosine_mean": 0.27211244963109493,
+    "projected_token_cosine_mean": -0.0009045982384122908,
+    "projected_gram_corr_mean": 0.12058149743825197
+  },
+  "h0a_train64_step64": {
+    "raw_student_effective_rank_mean": 3.206824594736099,
+    "raw_teacher_effective_rank_mean": 6.215501344203949,
+    "raw_student_offdiag_cosine_mean": 0.9826695561408997,
+    "raw_teacher_offdiag_cosine_mean": 0.536717626452446,
+    "raw_gram_corr_mean": 0.13384422386297956,
+    "projected_student_effective_rank_mean": 5.190894961357117,
+    "projected_teacher_effective_rank_mean": 4.541377562284469,
+    "projected_student_offdiag_cosine_mean": 0.793419498205185,
+    "projected_teacher_offdiag_cosine_mean": 0.27211244963109493,
+    "projected_token_cosine_mean": 0.08185655171982945,
+    "projected_gram_corr_mean": 0.2892891181632876
+  },
+  "h0a_full754_step128": {
+    "raw_student_effective_rank_mean": 3.2107227563858034,
+    "raw_teacher_effective_rank_mean": 6.215501344203949,
+    "raw_student_offdiag_cosine_mean": 0.9831291705369949,
+    "raw_teacher_offdiag_cosine_mean": 0.536717626452446,
+    "raw_gram_corr_mean": 0.13322181700496002,
+    "projected_student_effective_rank_mean": 4.628377336263656,
+    "projected_teacher_effective_rank_mean": 4.541377562284469,
+    "projected_student_offdiag_cosine_mean": 0.7297612205147743,
+    "projected_teacher_offdiag_cosine_mean": 0.27211244963109493,
+    "projected_token_cosine_mean": 0.13741891272366047,
+    "projected_gram_corr_mean": 0.33203407693654297
+  }
+}

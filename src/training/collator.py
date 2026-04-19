@@ -425,6 +425,8 @@ def _teacher_traj15_signal_from_sample(
     if selected_hidden_path.exists():
         signal["hidden"] = np.load(selected_hidden_path).astype(np.float32)
         signal["hidden_source"] = str(teacher_traj_hidden_source).strip().lower()
+    if hidden_path.exists():
+        signal["hidden_raw"] = np.load(hidden_path).astype(np.float32)
     if topk_path.exists():
         topk_npz = np.load(topk_path)
         signal["topk_indices"] = topk_npz["topk_indices"].astype(np.int32)
@@ -849,6 +851,34 @@ class DistillationCollator:
                 teacher_traj_hidden_mask[row_index, :token_count] = True
             batch["teacher_traj_hidden"] = teacher_traj_hidden
             batch["teacher_traj_hidden_mask"] = teacher_traj_hidden_mask
+        raw_hidden_ready = [item for item in teacher_traj_signal_items if item is not None and "hidden_raw" in item]
+        if raw_hidden_ready:
+            raw_hidden_dim = int(np.asarray(raw_hidden_ready[0]["hidden_raw"]).shape[-1])
+            max_tokens = max(
+                min(
+                    int(np.asarray(item["hidden_raw"]).shape[0]),
+                    int(torch.count_nonzero(hard_masks["traj_token_mask"][row_index]).item()),
+                )
+                for row_index, item in enumerate(teacher_traj_signal_items)
+                if item is not None and "hidden_raw" in item
+            )
+            teacher_traj_hidden_raw = torch.zeros((len(features), max_tokens, raw_hidden_dim), dtype=torch.float32)
+            teacher_traj_hidden_raw_mask = torch.zeros((len(features), max_tokens), dtype=torch.bool)
+            for row_index, item in enumerate(teacher_traj_signal_items):
+                if item is None or "hidden_raw" not in item:
+                    continue
+                hidden = np.asarray(item["hidden_raw"], dtype=np.float32)
+                token_count = min(
+                    int(hidden.shape[0]),
+                    int(torch.count_nonzero(hard_masks["traj_token_mask"][row_index]).item()),
+                    max_tokens,
+                )
+                if token_count <= 0:
+                    continue
+                teacher_traj_hidden_raw[row_index, :token_count] = torch.from_numpy(hidden[:token_count]).float()
+                teacher_traj_hidden_raw_mask[row_index, :token_count] = True
+            batch["teacher_traj_hidden_raw"] = teacher_traj_hidden_raw
+            batch["teacher_traj_hidden_raw_mask"] = teacher_traj_hidden_raw_mask
         traj_token_label_weights = _build_label_token_weights(
             labels,
             hard_masks["traj_token_mask"],

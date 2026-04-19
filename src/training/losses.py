@@ -511,6 +511,8 @@ def token_hidden_relation_loss(
     token_mask: torch.Tensor | None,
     teacher_token_mask: torch.Tensor | None = None,
     sample_weights: torch.Tensor | None = None,
+    *,
+    center: bool = False,
 ) -> torch.Tensor:
     """Match token-to-token cosine geometry in a shared bridge space."""
     if teacher_hidden is None or token_mask is None:
@@ -532,8 +534,13 @@ def token_hidden_relation_loss(
         aligned_tokens = min(student_target_hidden.shape[0], teacher_target_hidden.shape[0])
         if aligned_tokens <= 1:
             continue
-        student_target_hidden = F.normalize(student_target_hidden[:aligned_tokens], dim=-1)
-        teacher_target_hidden = F.normalize(teacher_target_hidden[:aligned_tokens], dim=-1)
+        student_target_hidden = student_target_hidden[:aligned_tokens]
+        teacher_target_hidden = teacher_target_hidden[:aligned_tokens]
+        if center:
+            student_target_hidden = student_target_hidden - student_target_hidden.mean(dim=0, keepdim=True)
+            teacher_target_hidden = teacher_target_hidden - teacher_target_hidden.mean(dim=0, keepdim=True)
+        student_target_hidden = F.normalize(student_target_hidden, dim=-1)
+        teacher_target_hidden = F.normalize(teacher_target_hidden, dim=-1)
         student_rel = student_target_hidden @ student_target_hidden.transpose(0, 1)
         teacher_rel = teacher_target_hidden @ teacher_target_hidden.transpose(0, 1)
         triu = torch.triu_indices(aligned_tokens, aligned_tokens, offset=1, device=student_hidden.device)
@@ -546,6 +553,292 @@ def token_hidden_relation_loss(
                 reduction="mean",
             )
         )
+        if sample_weights is None:
+            per_sample_weights.append(torch.tensor(1.0, device=student_hidden.device))
+        else:
+            per_sample_weights.append(sample_weights[sample_index].to(student_hidden.device))
+
+    if not per_sample_losses:
+        return _zero(student_hidden.device)
+
+    losses = torch.stack(per_sample_losses)
+    weights = None if sample_weights is None else torch.stack(per_sample_weights)
+    return _apply_sample_weights(losses, weights)
+
+
+def token_hidden_spectrum_loss(
+    student_hidden: torch.Tensor,
+    teacher_hidden: torch.Tensor | None,
+    token_mask: torch.Tensor | None,
+    teacher_token_mask: torch.Tensor | None = None,
+    sample_weights: torch.Tensor | None = None,
+    *,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """Match the centered token-wise singular-value spectrum between student and teacher."""
+    if teacher_hidden is None or token_mask is None:
+        return _zero(student_hidden.device)
+
+    shift_student = student_hidden[:, :-1, :].contiguous()
+    span_mask = token_mask[:, 1:].to(dtype=torch.bool, device=student_hidden.device)
+    teacher_hidden = teacher_hidden.to(device=student_hidden.device, dtype=shift_student.dtype)
+
+    per_sample_losses = []
+    per_sample_weights = []
+    for sample_index in range(shift_student.shape[0]):
+        student_target_hidden = shift_student[sample_index][span_mask[sample_index]]
+        teacher_target_hidden = teacher_hidden[sample_index]
+        if teacher_token_mask is not None:
+            teacher_target_hidden = teacher_target_hidden[
+                teacher_token_mask[sample_index].to(dtype=torch.bool, device=student_hidden.device)
+            ]
+        aligned_tokens = min(student_target_hidden.shape[0], teacher_target_hidden.shape[0])
+        if aligned_tokens <= 1:
+            continue
+        student_target_hidden = student_target_hidden[:aligned_tokens] - student_target_hidden[:aligned_tokens].mean(
+            dim=0,
+            keepdim=True,
+        )
+        teacher_target_hidden = teacher_target_hidden[:aligned_tokens] - teacher_target_hidden[:aligned_tokens].mean(
+            dim=0,
+            keepdim=True,
+        )
+        student_sv = torch.linalg.svdvals(student_target_hidden.float())
+        teacher_sv = torch.linalg.svdvals(teacher_target_hidden.float())
+        common = min(int(student_sv.shape[0]), int(teacher_sv.shape[0]))
+        if common <= 0:
+            continue
+        student_spec = student_sv[:common] / student_sv[:common].sum().clamp(min=eps)
+        teacher_spec = teacher_sv[:common] / teacher_sv[:common].sum().clamp(min=eps)
+        per_sample_losses.append(
+            F.mse_loss(
+                torch.log(student_spec + eps),
+                torch.log(teacher_spec + eps),
+                reduction="mean",
+            )
+        )
+        if sample_weights is None:
+            per_sample_weights.append(torch.tensor(1.0, device=student_hidden.device))
+        else:
+            per_sample_weights.append(sample_weights[sample_index].to(student_hidden.device))
+
+    if not per_sample_losses:
+        return _zero(student_hidden.device)
+
+    losses = torch.stack(per_sample_losses)
+    weights = None if sample_weights is None else torch.stack(per_sample_weights)
+    return _apply_sample_weights(losses, weights)
+
+
+def token_hidden_temporal_delta_loss(
+    student_hidden: torch.Tensor,
+    teacher_hidden: torch.Tensor | None,
+    token_mask: torch.Tensor | None,
+    teacher_token_mask: torch.Tensor | None = None,
+    sample_weights: torch.Tensor | None = None,
+    *,
+    second_order_weight: float = 1.0,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """Match first- and second-order temporal deltas in hidden space."""
+    if teacher_hidden is None or token_mask is None:
+        return _zero(student_hidden.device)
+
+    shift_student = student_hidden[:, :-1, :].contiguous()
+    span_mask = token_mask[:, 1:].to(dtype=torch.bool, device=student_hidden.device)
+    teacher_hidden = teacher_hidden.to(device=student_hidden.device, dtype=shift_student.dtype)
+
+    per_sample_losses = []
+    per_sample_weights = []
+    for sample_index in range(shift_student.shape[0]):
+        student_target_hidden = shift_student[sample_index][span_mask[sample_index]]
+        teacher_target_hidden = teacher_hidden[sample_index]
+        if teacher_token_mask is not None:
+            teacher_target_hidden = teacher_target_hidden[
+                teacher_token_mask[sample_index].to(dtype=torch.bool, device=student_hidden.device)
+            ]
+        aligned_tokens = min(student_target_hidden.shape[0], teacher_target_hidden.shape[0])
+        if aligned_tokens <= 2:
+            continue
+        student_target_hidden = student_target_hidden[:aligned_tokens]
+        teacher_target_hidden = teacher_target_hidden[:aligned_tokens]
+
+        student_delta = F.normalize(student_target_hidden[1:] - student_target_hidden[:-1], dim=-1, eps=eps)
+        teacher_delta = F.normalize(teacher_target_hidden[1:] - teacher_target_hidden[:-1], dim=-1, eps=eps)
+        delta_loss = F.mse_loss(student_delta, teacher_delta, reduction="mean")
+
+        student_delta2 = F.normalize(
+            student_target_hidden[2:] - 2 * student_target_hidden[1:-1] + student_target_hidden[:-2],
+            dim=-1,
+            eps=eps,
+        )
+        teacher_delta2 = F.normalize(
+            teacher_target_hidden[2:] - 2 * teacher_target_hidden[1:-1] + teacher_target_hidden[:-2],
+            dim=-1,
+            eps=eps,
+        )
+        delta2_loss = F.mse_loss(student_delta2, teacher_delta2, reduction="mean")
+        per_sample_losses.append(delta_loss + float(second_order_weight) * delta2_loss)
+        if sample_weights is None:
+            per_sample_weights.append(torch.tensor(1.0, device=student_hidden.device))
+        else:
+            per_sample_weights.append(sample_weights[sample_index].to(student_hidden.device))
+
+    if not per_sample_losses:
+        return _zero(student_hidden.device)
+
+    losses = torch.stack(per_sample_losses)
+    weights = None if sample_weights is None else torch.stack(per_sample_weights)
+    return _apply_sample_weights(losses, weights)
+
+
+def token_hidden_contrastive_loss(
+    student_hidden: torch.Tensor,
+    teacher_hidden: torch.Tensor | None,
+    token_mask: torch.Tensor | None,
+    teacher_token_mask: torch.Tensor | None = None,
+    sample_weights: torch.Tensor | None = None,
+    *,
+    temperature: float = 0.07,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """Match token identity with an InfoNCE-style contrastive objective."""
+    if teacher_hidden is None or token_mask is None:
+        return _zero(student_hidden.device)
+
+    shift_student = student_hidden[:, :-1, :].contiguous()
+    span_mask = token_mask[:, 1:].to(dtype=torch.bool, device=student_hidden.device)
+    teacher_hidden = teacher_hidden.to(device=student_hidden.device, dtype=shift_student.dtype)
+
+    student_rows = []
+    teacher_rows = []
+    for sample_index in range(shift_student.shape[0]):
+        student_target_hidden = shift_student[sample_index][span_mask[sample_index]]
+        teacher_target_hidden = teacher_hidden[sample_index]
+        if teacher_token_mask is not None:
+            teacher_target_hidden = teacher_target_hidden[
+                teacher_token_mask[sample_index].to(dtype=torch.bool, device=student_hidden.device)
+            ]
+        aligned_tokens = min(student_target_hidden.shape[0], teacher_target_hidden.shape[0])
+        if aligned_tokens <= 1:
+            continue
+        student_target_hidden = F.normalize(student_target_hidden[:aligned_tokens].float(), dim=-1, eps=eps)
+        teacher_target_hidden = F.normalize(teacher_target_hidden[:aligned_tokens].float(), dim=-1, eps=eps)
+        student_rows.append(student_target_hidden)
+        teacher_rows.append(teacher_target_hidden)
+
+    if not student_rows:
+        return _zero(student_hidden.device)
+
+    queries = torch.cat(student_rows, dim=0)
+    keys = torch.cat(teacher_rows, dim=0)
+    logits = queries @ keys.transpose(0, 1)
+    logits = logits / max(float(temperature), eps)
+    targets = torch.arange(logits.shape[0], device=student_hidden.device, dtype=torch.long)
+    per_row = F.cross_entropy(logits, targets, reduction="none")
+    return per_row.mean()
+
+
+def token_hidden_soft_relation_kl_loss(
+    student_hidden: torch.Tensor,
+    teacher_hidden: torch.Tensor | None,
+    token_mask: torch.Tensor | None,
+    teacher_token_mask: torch.Tensor | None = None,
+    sample_weights: torch.Tensor | None = None,
+    *,
+    student_temperature: float = 0.10,
+    teacher_temperature: float = 0.10,
+    diagonal_alpha: float = 0.0,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """Match teacher token-similarity distributions with a soft relational KL."""
+    if teacher_hidden is None or token_mask is None:
+        return _zero(student_hidden.device)
+
+    shift_student = student_hidden[:, :-1, :].contiguous()
+    span_mask = token_mask[:, 1:].to(dtype=torch.bool, device=student_hidden.device)
+    teacher_hidden = teacher_hidden.to(device=student_hidden.device, dtype=shift_student.dtype)
+
+    per_sample_losses = []
+    per_sample_weights = []
+    for sample_index in range(shift_student.shape[0]):
+        student_target_hidden = shift_student[sample_index][span_mask[sample_index]]
+        teacher_target_hidden = teacher_hidden[sample_index]
+        if teacher_token_mask is not None:
+            teacher_target_hidden = teacher_target_hidden[
+                teacher_token_mask[sample_index].to(dtype=torch.bool, device=student_hidden.device)
+            ]
+        aligned_tokens = min(student_target_hidden.shape[0], teacher_target_hidden.shape[0])
+        if aligned_tokens <= 1:
+            continue
+
+        student_target_hidden = F.normalize(student_target_hidden[:aligned_tokens].float(), dim=-1, eps=eps)
+        teacher_target_hidden = F.normalize(teacher_target_hidden[:aligned_tokens].float(), dim=-1, eps=eps)
+
+        student_sim = student_target_hidden @ student_target_hidden.transpose(0, 1)
+        teacher_sim = teacher_target_hidden @ teacher_target_hidden.transpose(0, 1)
+
+        student_log_probs = F.log_softmax(student_sim / max(float(student_temperature), eps), dim=-1)
+        teacher_probs = F.softmax(teacher_sim / max(float(teacher_temperature), eps), dim=-1)
+
+        alpha = float(diagonal_alpha)
+        if alpha > 0:
+            eye = torch.eye(aligned_tokens, device=student_hidden.device, dtype=teacher_probs.dtype)
+            teacher_probs = (1.0 - alpha) * teacher_probs + alpha * eye
+            teacher_probs = teacher_probs / teacher_probs.sum(dim=-1, keepdim=True).clamp(min=eps)
+
+        per_sample_losses.append(F.kl_div(student_log_probs, teacher_probs, reduction="batchmean"))
+        if sample_weights is None:
+            per_sample_weights.append(torch.tensor(1.0, device=student_hidden.device))
+        else:
+            per_sample_weights.append(sample_weights[sample_index].to(student_hidden.device))
+
+    if not per_sample_losses:
+        return _zero(student_hidden.device)
+
+    losses = torch.stack(per_sample_losses)
+    weights = None if sample_weights is None else torch.stack(per_sample_weights)
+    return _apply_sample_weights(losses, weights)
+
+
+def token_hidden_residual_diagonal_alignment_loss(
+    student_hidden: torch.Tensor,
+    teacher_hidden: torch.Tensor | None,
+    token_mask: torch.Tensor | None,
+    teacher_token_mask: torch.Tensor | None = None,
+    sample_weights: torch.Tensor | None = None,
+    *,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """Softly align same-position residual directions after removing sample mean."""
+    if teacher_hidden is None or token_mask is None:
+        return _zero(student_hidden.device)
+
+    shift_student = student_hidden[:, :-1, :].contiguous()
+    span_mask = token_mask[:, 1:].to(dtype=torch.bool, device=student_hidden.device)
+    teacher_hidden = teacher_hidden.to(device=student_hidden.device, dtype=shift_student.dtype)
+
+    per_sample_losses = []
+    per_sample_weights = []
+    for sample_index in range(shift_student.shape[0]):
+        student_target_hidden = shift_student[sample_index][span_mask[sample_index]]
+        teacher_target_hidden = teacher_hidden[sample_index]
+        if teacher_token_mask is not None:
+            teacher_target_hidden = teacher_target_hidden[
+                teacher_token_mask[sample_index].to(dtype=torch.bool, device=student_hidden.device)
+            ]
+        aligned_tokens = min(student_target_hidden.shape[0], teacher_target_hidden.shape[0])
+        if aligned_tokens <= 1:
+            continue
+
+        student_target_hidden = student_target_hidden[:aligned_tokens].float()
+        teacher_target_hidden = teacher_target_hidden[:aligned_tokens].float()
+        student_resid = student_target_hidden - student_target_hidden.mean(dim=0, keepdim=True)
+        teacher_resid = teacher_target_hidden - teacher_target_hidden.mean(dim=0, keepdim=True)
+        student_resid = F.normalize(student_resid, dim=-1, eps=eps)
+        teacher_resid = F.normalize(teacher_resid, dim=-1, eps=eps)
+        loss = 1.0 - F.cosine_similarity(student_resid, teacher_resid, dim=-1)
+        per_sample_losses.append(loss.mean())
         if sample_weights is None:
             per_sample_weights.append(torch.tensor(1.0, device=student_hidden.device))
         else:

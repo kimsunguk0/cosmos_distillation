@@ -1,0 +1,72 @@
+{
+  "baseline": {
+    "raw_student_effective_rank_mean": 2.1986940026283266,
+    "raw_student_offdiag_cosine_mean": 0.9846442341804504,
+    "raw_centered_gram_corr_mean": null,
+    "raw_common_ratio_mean": null,
+    "raw_spectral_entropy_mean": null,
+    "projected_student_effective_rank_mean": 2.0100450664758682,
+    "projected_student_offdiag_cosine_mean": 0.9859891176223755,
+    "projected_token_cosine_mean": -0.0009045982384122908,
+    "projected_gram_corr_mean": 0.12058149743825197,
+    "target_vs_1499_margin_mean": null,
+    "target_rank_mean": null
+  },
+  "h0a_full": {
+    "raw_student_effective_rank_mean": 3.2107227563858034,
+    "raw_student_offdiag_cosine_mean": 0.9831291705369949,
+    "raw_centered_gram_corr_mean": null,
+    "raw_common_ratio_mean": null,
+    "raw_spectral_entropy_mean": null,
+    "projected_student_effective_rank_mean": 4.628377336263656,
+    "projected_student_offdiag_cosine_mean": 0.7297612205147743,
+    "projected_token_cosine_mean": 0.13741891272366047,
+    "projected_gram_corr_mean": 0.33203407693654297,
+    "target_vs_1499_margin_mean": null,
+    "target_rank_mean": null
+  },
+  "h0b_a": {
+    "raw_student_effective_rank_mean": 3.8578524947166444,
+    "raw_student_offdiag_cosine_mean": 0.9813636526465416,
+    "raw_centered_gram_corr_mean": 0.42002038955688475,
+    "raw_common_ratio_mean": 0.981432064767749,
+    "raw_spectral_entropy_mean": 1.3456523567438126,
+    "projected_student_effective_rank_mean": 5.475699329376221,
+    "projected_student_offdiag_cosine_mean": 0.5210399530827999,
+    "projected_token_cosine_mean": 0.04237894914112985,
+    "projected_gram_corr_mean": 0.36294325310736897,
+    "target_vs_1499_margin_mean": -30.041210103034974,
+    "target_rank_mean": 5647.821875
+  },
+  "h0d_a_smoke": {
+    "raw_student_effective_rank_mean": 4.334942799806595,
+    "raw_student_offdiag_cosine_mean": 0.98023162484169,
+    "raw_centered_gram_corr_mean": 0.4523969329893589,
+    "raw_common_ratio_mean": 0.9803900598120929,
+    "raw_spectral_entropy_mean": 1.4618770271539687,
+    "projected_student_effective_rank_mean": 5.701419579982757,
+    "projected_student_offdiag_cosine_mean": 0.5644579075276852,
+    "projected_token_cosine_mean": 0.07278427234850823,
+    "projected_gram_corr_mean": 0.4712305121123791,
+    "target_vs_1499_margin_mean": -29.584917521476747,
+    "target_rank_mean": 5811.9484375
+  },
+  "h0d_a_full": {
+    "raw_student_effective_rank_mean": 5.337566220760346,
+    "raw_student_offdiag_cosine_mean": 0.981498445570469,
+    "raw_centered_gram_corr_mean": 0.6486423343420029,
+    "raw_common_ratio_mean": 0.9813729347447524,
+    "raw_spectral_entropy_mean": 1.6720783025026322,
+    "projected_student_effective_rank_mean": 5.26861007809639,
+    "projected_student_offdiag_cosine_mean": 0.4832101855427027,
+    "projected_token_cosine_mean": 0.05782292201183736,
+    "projected_gram_corr_mean": 0.611879450455308,
+    "target_vs_1499_margin_mean": -27.80172996520996,
+    "target_rank_mean": 5940.9734375
+  },
+  "h0d_a_full_lm_decode": {
+    "avg_unique_traj_ids": 1.0,
+    "avg_max_same_token_run": 128.0,
+    "avg_generated_traj_token_count": 128.0
+  }
+}
