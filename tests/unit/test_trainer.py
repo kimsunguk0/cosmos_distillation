@@ -219,6 +219,79 @@ def test_run_train_step_uses_body_only_mask_for_traj_ce() -> None:
     assert abs(float(logs["traj_loss"])) < 1e-4
 
 
+def test_run_train_step_hidden_distill_works_without_teacher_bridge() -> None:
+    logits = torch.zeros((1, 4, 8), dtype=torch.float32)
+    traj_hidden_states = torch.tensor(
+        [
+            [
+                [0.0, 0.0, 0.0, 0.0],
+                [0.1, 0.2, 0.3, 0.4],
+                [0.5, 0.6, 0.7, 0.8],
+                [0.9, 1.0, 1.1, 1.2],
+            ]
+        ],
+        dtype=torch.float32,
+    )
+    batch = {
+        "input_ids": torch.tensor([[10, 11, 12, 13]], dtype=torch.long),
+        "attention_mask": torch.tensor([[1, 1, 1, 1]], dtype=torch.long),
+        "labels": torch.tensor([[-100, 0, 0, 0]], dtype=torch.long),
+        "cot_span_mask": torch.zeros((1, 4), dtype=torch.bool),
+        "traj_span_mask": torch.tensor([[False, True, True, True]], dtype=torch.bool),
+        "traj_token_mask": torch.tensor([[False, True, True, True]], dtype=torch.bool),
+        "format_token_mask": torch.zeros((1, 4), dtype=torch.bool),
+        "hard_cot_weights": torch.ones((1,), dtype=torch.float32),
+        "traj_weights": torch.zeros((1,), dtype=torch.float32),
+        "action_class_labels": torch.tensor([0], dtype=torch.long),
+        "action_aux_weight": torch.zeros((1,), dtype=torch.float32),
+        "teacher_view": None,
+        "teacher_traj_hidden": torch.tensor(
+            [[[0.0, 0.0, 0.0, 0.0], [0.2, 0.1, 0.4, 0.3], [0.8, 0.7, 0.6, 0.5]]],
+            dtype=torch.float32,
+        ),
+        "teacher_traj_hidden_mask": torch.tensor([[True, True, True]], dtype=torch.bool),
+        "teacher_traj_available": torch.ones((1,), dtype=torch.bool),
+        "teacher_traj_quality_multiplier": torch.ones((1,), dtype=torch.float32),
+    }
+    weights = DistillationLossWeights(
+        hard_cot_ce=0.0,
+        teacher_seq_ce=0.0,
+        teacher_logit_kd=0.0,
+        traj_ce=0.0,
+        format_ce=0.0,
+        action_aux=0.0,
+        feat_align=0.0,
+        teacher_traj_hidden_align=1.0,
+    )
+    loss, logs = run_train_step(
+        _FakeModel(
+            [
+                {
+                    "logits": logits,
+                    "meta_action_logits": torch.zeros((1, 2), dtype=torch.float32),
+                    "hidden_states": traj_hidden_states,
+                    "traj_hidden_states": traj_hidden_states,
+                    "traj_aux_values": torch.zeros((1, 4, 2), dtype=torch.float32),
+                }
+            ]
+        ),
+        batch,
+        weights,
+        traj_hidden_bridge_config={
+            "cosine_weight": 0.8,
+            "mse_weight": 0.2,
+            "relation_weight": 0.5,
+            "variance_weight": 0.1,
+            "covariance_weight": 0.02,
+            "variance_target": 0.5,
+        },
+    )
+
+    assert float(loss) > 0.0
+    assert float(logs["teacher_traj_hidden_align_loss"]) > 0.0
+    assert float(logs["teacher_traj_hidden_relation"]) >= 0.0
+
+
 def test_run_train_step_can_limit_traj_supervision_to_prefix() -> None:
     logits = torch.tensor(
         [[[0.0, 0.0], [5.0, 0.0], [0.0, 5.0], [0.0, 5.0]]],

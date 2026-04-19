@@ -399,6 +399,8 @@ def _teacher_traj15_signal_from_sample(
     sample: dict[str, Any],
     *,
     teacher_traj_cache_dir: Path | None,
+    teacher_traj_hidden_source: str = "hidden",
+    teacher_traj_latent_suffix: str = "lat32",
 ) -> dict[str, np.ndarray | float] | None:
     if teacher_traj_cache_dir is None:
         return None
@@ -407,17 +409,22 @@ def _teacher_traj15_signal_from_sample(
         return None
 
     hidden_path = teacher_traj_cache_dir / "hidden" / f"{sample_id}.teacher_traj15.hidden.npy"
+    latent_path = (
+        teacher_traj_cache_dir / "latent" / f"{sample_id}.teacher_traj15.{teacher_traj_latent_suffix}.npy"
+    )
     tokens_path = teacher_traj_cache_dir / "tokens" / f"{sample_id}.teacher_traj15.tokens.npy"
     topk_path = teacher_traj_cache_dir / "topk" / f"{sample_id}.teacher_traj15.topk_logits.npz"
     output_path = teacher_traj_cache_dir / "outputs" / f"{sample_id}.teacher_traj15.json"
-    if not hidden_path.exists() and not tokens_path.exists() and not topk_path.exists():
+    selected_hidden_path = latent_path if str(teacher_traj_hidden_source).strip().lower() == "latent" else hidden_path
+    if not selected_hidden_path.exists() and not tokens_path.exists() and not topk_path.exists():
         return None
 
     signal: dict[str, np.ndarray | float] = {}
     if tokens_path.exists():
         signal["token_ids"] = np.load(tokens_path).astype(np.int32)
-    if hidden_path.exists():
-        signal["hidden"] = np.load(hidden_path).astype(np.float32)
+    if selected_hidden_path.exists():
+        signal["hidden"] = np.load(selected_hidden_path).astype(np.float32)
+        signal["hidden_source"] = str(teacher_traj_hidden_source).strip().lower()
     if topk_path.exists():
         topk_npz = np.load(topk_path)
         signal["topk_indices"] = topk_npz["topk_indices"].astype(np.int32)
@@ -521,6 +528,8 @@ class DistillationCollator:
     enable_action_aux: bool = True
     traj_token_weight_map: Mapping[int, float] | None = None
     teacher_traj_cache_dir: Path | None = None
+    teacher_traj_hidden_source: str = "hidden"
+    teacher_traj_latent_suffix: str = "lat32"
 
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, Any]:
         prompt_messages: list[list[dict[str, Any]]] = []
@@ -565,7 +574,12 @@ class DistillationCollator:
             gate = sample.get("gate") or {}
             teacher_target = sample.get("teacher_target") or {}
             teacher_signal = _teacher_signal_from_sample(sample, self.project_root)
-            teacher_traj_signal = _teacher_traj15_signal_from_sample(sample, teacher_traj_cache_dir=self.teacher_traj_cache_dir)
+            teacher_traj_signal = _teacher_traj15_signal_from_sample(
+                sample,
+                teacher_traj_cache_dir=self.teacher_traj_cache_dir,
+                teacher_traj_hidden_source=self.teacher_traj_hidden_source,
+                teacher_traj_latent_suffix=self.teacher_traj_latent_suffix,
+            )
             explicit_teacher_traj_weight = resolve_optional_loss_weight_value(weights, "teacher_traj_ce")
 
             traj_token_ids = [int(token_id) for token_id in hard_target.get("traj_future_token_ids") or []]

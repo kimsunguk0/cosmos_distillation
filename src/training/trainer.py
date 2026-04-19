@@ -282,15 +282,32 @@ def run_train_step(
             teacher_traj_sample_weights,
         )
     if weights.teacher_traj_hidden_align > 0:
+        hidden_bridge_cfg = dict(traj_hidden_bridge_config or {})
+        student_hidden_for_distill = None
+        teacher_hidden_for_distill = None
+
         bridge_student_hidden = hard_outputs.get("traj_hidden_bridge_states")
-        bridge_teacher_hidden = None
         if bridge_student_hidden is not None and hasattr(unwrapped_model, "project_teacher_traj_hidden"):
             bridge_teacher_hidden = unwrapped_model.project_teacher_traj_hidden(batch.get("teacher_traj_hidden"))
-        if bridge_student_hidden is not None and bridge_teacher_hidden is not None:
-            hidden_bridge_cfg = dict(traj_hidden_bridge_config or {})
+            if bridge_teacher_hidden is not None:
+                student_hidden_for_distill = bridge_student_hidden
+                teacher_hidden_for_distill = bridge_teacher_hidden
+
+        if student_hidden_for_distill is None and batch.get("teacher_traj_hidden") is not None:
+            direct_student_hidden = hard_outputs.get("traj_hidden_states", hard_outputs["hidden_states"])
+            direct_teacher_hidden = batch.get("teacher_traj_hidden")
+            if (
+                direct_student_hidden is not None
+                and direct_teacher_hidden is not None
+                and int(direct_student_hidden.shape[-1]) == int(direct_teacher_hidden.shape[-1])
+            ):
+                student_hidden_for_distill = direct_student_hidden
+                teacher_hidden_for_distill = direct_teacher_hidden
+
+        if student_hidden_for_distill is not None and teacher_hidden_for_distill is not None:
             teacher_traj_hidden_align = token_hidden_alignment_bridge_loss(
-                bridge_student_hidden,
-                bridge_teacher_hidden,
+                student_hidden_for_distill,
+                teacher_hidden_for_distill,
                 active_traj_token_mask,
                 batch.get("teacher_traj_hidden_mask"),
                 teacher_traj_sample_weights,
@@ -298,20 +315,20 @@ def run_train_step(
                 mse_weight=float(hidden_bridge_cfg.get("mse_weight", 0.2)),
             )
             teacher_traj_hidden_relation = token_hidden_relation_loss(
-                bridge_student_hidden,
-                bridge_teacher_hidden,
+                student_hidden_for_distill,
+                teacher_hidden_for_distill,
                 active_traj_token_mask,
                 batch.get("teacher_traj_hidden_mask"),
                 teacher_traj_sample_weights,
             )
             teacher_traj_hidden_variance = token_hidden_variance_floor_loss(
-                bridge_student_hidden,
+                student_hidden_for_distill,
                 active_traj_token_mask,
                 teacher_traj_sample_weights,
                 target_std=float(hidden_bridge_cfg.get("variance_target", 0.5)),
             )
             teacher_traj_hidden_covariance = token_hidden_covariance_loss(
-                bridge_student_hidden,
+                student_hidden_for_distill,
                 active_traj_token_mask,
                 teacher_traj_sample_weights,
             )
@@ -321,7 +338,7 @@ def run_train_step(
                 + float(hidden_bridge_cfg.get("variance_weight", 0.0)) * teacher_traj_hidden_variance
                 + float(hidden_bridge_cfg.get("covariance_weight", 0.0)) * teacher_traj_hidden_covariance
             )
-        else:
+        elif batch.get("teacher_traj_hidden") is not None:
             teacher_traj_hidden_align = token_hidden_alignment_loss(
                 hard_outputs.get("traj_hidden_states", hard_outputs["hidden_states"]),
                 batch.get("teacher_traj_hidden"),

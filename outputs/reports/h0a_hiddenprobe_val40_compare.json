@@ -1,0 +1,24 @@
+{
+  "teacher_effective_rank_mean": 4.541377562284469,
+  "teacher_offdiag_cosine_mean": 0.27211244963109493,
+  "runs": {
+    "baseline": {
+      "checkpoint": "outputs/checkpoints/stage_a_v3_2_format_lr/final",
+      "student_effective_rank_mean": 2.1756263613700866,
+      "student_offdiag_cosine_mean": 0.9841987520456315,
+      "token_cosine_mean": 0.02415560781955719
+    },
+    "h0a_train64_step64": {
+      "checkpoint": "outputs/checkpoints/subset_h0a_frozenlatent_prefix16_train64_step64/final",
+      "student_effective_rank_mean": 5.190894961357117,
+      "student_offdiag_cosine_mean": 0.793419498205185,
+      "token_cosine_mean": 0.08185655171982945
+    },
+    "h0a_full_step128": {
+      "checkpoint": "outputs/checkpoints/full_h0a_frozenlatent_prefix16_step128/final",
+      "student_effective_rank_mean": 4.628377336263656,
+      "student_offdiag_cosine_mean": 0.7297612205147743,
+      "token_cosine_mean": 0.13741891272366047
+    }
+  }
+}

@@ -1,0 +1,279 @@
+{
+  "checkpoint_dir": "outputs/checkpoints/subset_h0a_frozenlatent_prefix16_train64_step64/final",
+  "corpus_jsonl": "data/corpus/distill_v3_2_959.jsonl",
+  "split": "val",
+  "num_samples": 10,
+  "max_new_tokens": 160,
+  "constrain_traj_decoding": true,
+  "forced_traj_token_count": null,
+  "traj_source": "lm",
+  "aux_blend_sigma": 96.0,
+  "aux_blend_weight": 4.0,
+  "aux_bound_scale": 1.0,
+  "aux_edge_margin": 0,
+  "avg_latency_sec": 4.794,
+  "load_info": {
+    "format": "lora_adapter",
+    "missing": [],
+    "unexpected": [],
+    "use_lora": true,
+    "data_view": {
+      "prompt_mode": "joint",
+      "target_mode": "joint",
+      "teacher_pair_target": true,
+      "enable_teacher_view": false,
+      "enable_action_aux": false,
+      "teacher_traj_cache_dir": "/data/teacher_cache/traj15",
+      "teacher_traj_hidden_size": 32,
+      "traj_aux_num_buckets": 1,
+      "traj_aux_interface": {},
+      "traj_aux_interface_runtime": {
+        "enabled": true,
+        "num_buckets": 1,
+        "normalize_targets": false,
+        "tanh_bound": 3.0,
+        "huber_delta": 1.0,
+        "decode_tanh_scale": 1.0,
+        "decode_edge_margin": 0,
+        "decode_prior_sigma": 96.0
+      },
+      "optimization": {
+        "freeze_all_parameters": false,
+        "freeze_traj_aux_head": true,
+        "unfreeze_multimodal_projector": true,
+        "unfreeze_language_norm": true,
+        "unfreeze_traj_hidden_projector": true,
+        "freeze_all_but_traj_aux_head": false,
+        "trainable_modules": [
+          "traj_hidden_projector",
+          "language_norm",
+          "multimodal_projector"
+        ]
+      },
+      "curriculum": {
+        "traj_body_prefix_tokens": 16
+      },
+      "interface_loss_weights": null
+    },
+    "traj_decode": {
+      "enabled": true,
+      "config_path": "/workspace/base_models_weights/Alpamayo-1.5-10B/config.json",
+      "num_bins": 3000,
+      "n_waypoints": 64,
+      "short_horizon_steps": 24,
+      "short_horizon_weight": 1.0
+    }
+  },
+  "results": [
+    {
+      "sample_id": "a34a1627-7209-43ec-b88f-2758ecf80e18__t0_2885053__evt_00",
+      "split": "val",
+      "elapsed_sec": 4.869,
+      "generated_text": "Go straight following temporary lane markings.<|cot_end|><|traj_future_start|><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><|traj_future_end|>",
+      "generated_cot": "Go straight following temporary lane markings.",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "nudge_left",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge to the left to clear the stopped food truck blocking the right side of our lane",
+      "target_text": "Pass/Overtake the parked truck occupying part of the lane.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true,
+      "traj_source": "lm"
+    },
+    {
+      "sample_id": "158ba388-bb5a-4a65-9e83-8494c20d4b52__t0_3270513__evt_00",
+      "split": "val",
+      "elapsed_sec": 4.815,
+      "generated_text": "Yield to the pedestrian crossing the road.<|cot_end|><|traj_future_start|><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><|traj_future_end|>",
+      "generated_cot": "Yield to the pedestrian crossing the road.",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "yield",
+        "confidence": 0.7,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "slow_down",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge left due to the roadside structure encroaching from the right",
+      "target_text": "Stop for the red traffic light while yielding to the pedestrians crossing the street.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true,
+      "traj_source": "lm"
+    },
+    {
+      "sample_id": "52b4287f-1c10-4de9-91f0-13047ec412c2__t0_6586745__evt_00",
+      "split": "val",
+      "elapsed_sec": 4.716,
+      "generated_text": "Go straight following temporary lane markings.<|cot_end|><|traj_future_start|><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><|traj_future_end|>",
+      "generated_cot": "Go straight following temporary lane markings.",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "nudge_left",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep distance to the lead vehicle since it is directly ahead in our lane",
+      "target_text": "Decelerate when approaching the construction zone with orange traffic delineators.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true,
+      "traj_source": "lm"
+    },
+    {
+      "sample_id": "52b4287f-1c10-4de9-91f0-13047ec412c2__t0_9686745__evt_01",
+      "split": "val",
+      "elapsed_sec": 4.75,
+      "generated_text": "Go straight following temporary lane markings.<|cot_end|><|traj_future_start|><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><|traj_future_end|>",
+      "generated_cot": "Go straight following temporary lane markings.",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "nudge_right",
+      "teacher_action": "unknown",
+      "teacher_long_cot": "Lane change to the left due to construction cones blocking and narrowing our current lane ahead, then match speed with lead traffic after merging.",
+      "target_text": "Go straight following temporary traffic delineators.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true,
+      "traj_source": "lm"
+    },
+    {
+      "sample_id": "796cef90-ae7d-4d82-a562-930a9aa7a896__t0_14812049__evt_00",
+      "split": "val",
+      "elapsed_sec": 4.954,
+      "generated_text": "Yield to the cyclist since they are occupying the same lane.<|cot_end|><|traj_future_start|><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><|traj_future_end|>",
+      "generated_cot": "Yield to the cyclist since they are occupying the same lane.",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "yield",
+        "confidence": 0.7,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "nudge_right",
+      "teacher_action": "nudge_left",
+      "teacher_long_cot": "Nudge to the left to increase clearance from the cyclist ahead in our lane",
+      "target_text": "Steer left to maintain a safe distance from the cyclist ahead.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true,
+      "traj_source": "lm"
+    },
+    {
+      "sample_id": "934935f8-c135-4638-b92c-50f59e74a5d4__t0_5476955__evt_00",
+      "split": "val",
+      "elapsed_sec": 4.72,
+      "generated_text": "Go straight following temporary lane markings.<|cot_end|><|traj_future_start|><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><|traj_future_end|>",
+      "generated_cot": "Go straight following temporary lane markings.",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "change_lane_right",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep distance to the lead vehicle since it is directly ahead in our lane",
+      "target_text": "Steer right to maintain a safe distance from the construction workers and traffic cones ahead.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true,
+      "traj_source": "lm"
+    },
+    {
+      "sample_id": "934935f8-c135-4638-b92c-50f59e74a5d4__t0_8876955__evt_01",
+      "split": "val",
+      "elapsed_sec": 4.735,
+      "generated_text": "Go straight following temporary lane markings.<|cot_end|><|traj_future_start|><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><|traj_future_end|>",
+      "generated_cot": "Go straight following temporary lane markings.",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "nudge_right",
+      "teacher_long_cot": "Nudge to the right to clear the construction truck blocking the lane",
+      "target_text": "Decelerate when merging to the right lane due to the construction zone marked by cones and workers on the left.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true,
+      "traj_source": "lm"
+    },
+    {
+      "sample_id": "7da13b81-28c8-426f-b150-c29b32f6ae40__t0_11950732__evt_00",
+      "split": "val",
+      "elapsed_sec": 4.914,
+      "generated_text": "Yield to the pedestrian crossing the road at the crosswalk.<|cot_end|><|traj_future_start|><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><|traj_future_end|>",
+      "generated_cot": "Yield to the pedestrian crossing the road at the crosswalk.",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "yield",
+        "confidence": 0.7,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep distance to the lead vehicle since it is directly ahead in our lane",
+      "target_text": "Go straight following temporary traffic barrels.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true,
+      "traj_source": "lm"
+    },
+    {
+      "sample_id": "6956aea5-d892-4881-85be-7df2843367a1__t0_8699994__evt_00",
+      "split": "val",
+      "elapsed_sec": 4.717,
+      "generated_text": "Go straight following temporary lane markings.<|cot_end|><|traj_future_start|><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><|traj_future_end|>",
+      "generated_cot": "Go straight following temporary lane markings.",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "lane_keep",
+      "teacher_action": "lane_keep",
+      "teacher_long_cot": "Keep distance to the lead vehicle since it is directly ahead in our lane",
+      "target_text": "Strong deceleration to maintain a safe distance from the lead truck ahead when merging into the right lane.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true,
+      "traj_source": "lm"
+    },
+    {
+      "sample_id": "6956aea5-d892-4881-85be-7df2843367a1__t0_12099994__evt_01",
+      "split": "val",
+      "elapsed_sec": 4.753,
+      "generated_text": "Go straight following temporary lane markings.<|cot_end|><|traj_future_start|><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><i1499><|traj_future_end|>",
+      "generated_cot": "Go straight following temporary lane markings.",
+      "generated_traj_token_count": 128,
+      "generated_action": {
+        "value": "unknown",
+        "confidence": 0.0,
+        "method": "keyword_parser_v1"
+      },
+      "gt_action": "nudge_right",
+      "teacher_action": "unknown",
+      "teacher_long_cot": "Lane change to the right due to construction cones blocking the current lane ahead",
+      "target_text": "Steer right following temporary traffic barrels and the sign while navigating through the construction zone.",
+      "target_traj_token_count": 128,
+      "forced_traj_token_count": 128,
+      "constrain_traj_decoding": true,
+      "traj_source": "lm"
+    }
+  ]
+}

@@ -514,14 +514,25 @@ def build_traj_token_weight_map(
     return weight_map, summary
 
 
-def infer_teacher_traj_hidden_size(cache_dir: Path | None) -> int | None:
+def infer_teacher_traj_hidden_size(
+    cache_dir: Path | None,
+    *,
+    source: str = "hidden",
+    latent_suffix: str = "lat32",
+) -> int | None:
     """Infer the teacher trajectory hidden width from the imported cache."""
     if cache_dir is None:
         return None
-    hidden_dir = cache_dir / "hidden"
+    resolved_source = str(source).strip().lower()
+    if resolved_source == "latent":
+        hidden_dir = cache_dir / "latent"
+        pattern = f"*.teacher_traj15.{latent_suffix}.npy"
+    else:
+        hidden_dir = cache_dir / "hidden"
+        pattern = "*.npy"
     if not hidden_dir.exists():
         return None
-    for path in sorted(hidden_dir.glob("*.npy")):
+    for path in sorted(hidden_dir.glob(pattern)):
         try:
             hidden = np.load(path, mmap_mode="r")
         except Exception:  # noqa: BLE001
@@ -831,9 +842,15 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         if teacher_traj_cache_dir_raw not in (None, "")
         else None
     )
+    teacher_traj_hidden_source = str(data_view_cfg.get("teacher_traj_hidden_source", "hidden")).strip().lower()
+    teacher_traj_latent_suffix = str(data_view_cfg.get("teacher_traj_latent_suffix", "lat32")).strip()
     teacher_traj_hidden_size = None
     if loss_weights.teacher_traj_hidden_align > 0:
-        teacher_traj_hidden_size = infer_teacher_traj_hidden_size(teacher_traj_cache_dir)
+        teacher_traj_hidden_size = infer_teacher_traj_hidden_size(
+            teacher_traj_cache_dir,
+            source=teacher_traj_hidden_source,
+            latent_suffix=teacher_traj_latent_suffix,
+        )
         if teacher_traj_hidden_size is None:
             raise RuntimeError(
                 "teacher_traj_hidden_align is enabled but no teacher trajectory hidden cache dimension could be inferred."
@@ -973,6 +990,8 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         enable_action_aux=enable_action_aux,
         traj_token_weight_map=traj_token_weight_map,
         teacher_traj_cache_dir=teacher_traj_cache_dir,
+        teacher_traj_hidden_source=teacher_traj_hidden_source,
+        teacher_traj_latent_suffix=teacher_traj_latent_suffix,
     )
     train_dataloader, train_sampler = build_dataloader(
         train_records,

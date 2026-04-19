@@ -1,0 +1,25 @@
+{
+  "event_manifest": "/data/state/event_manifest.parquet",
+  "semantic_gate_parquet": "/data/state/split_semantic_gate.parquet",
+  "teacher_index_jsonl": "/data/teacher_cache/text/index.jsonl",
+  "materialized_root": "/data/materialized",
+  "output_jsonl": "data/corpus/distill_v3_2_959.jsonl",
+  "records_written": 958,
+  "counts_by_split": {
+    "train": 754,
+    "val": 204
+  },
+  "teacher_view_allowed_count": 907,
+  "teacher_topk_ready_count": 907,
+  "action_aux_allowed_count": 839,
+  "teacher_vs_gt_motion_counts": {
+    "pass": 266,
+    "soft_fail": 522,
+    "unknown": 52,
+    "hard_fail": 51,
+    "soft_pass": 67
+  },
+  "skipped_missing_materialized": 6,
+  "skipped_missing_teacher": 0,
+  "skipped_missing_traj": 0
+}

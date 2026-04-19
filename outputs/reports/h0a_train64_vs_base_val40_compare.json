@@ -1,0 +1,21 @@
+{
+  "baseline_checkpoint": "outputs/checkpoints/stage_a_v3_2_format_lr/final",
+  "h0a_checkpoint": "outputs/checkpoints/subset_h0a_frozenlatent_prefix16_train64_step64/final",
+  "student_effective_rank_mean": {
+    "baseline": 2.1756263613700866,
+    "h0a": 5.190894961357117,
+    "delta": 3.01526859998703
+  },
+  "student_offdiag_cosine_mean": {
+    "baseline": 0.9841987520456315,
+    "h0a": 0.793419498205185,
+    "delta": -0.19077925384044647
+  },
+  "token_cosine_mean": {
+    "baseline": 0.02415560781955719,
+    "h0a": 0.08185655171982945,
+    "delta": 0.05770094390027226
+  },
+  "teacher_effective_rank_mean": 4.541377562284469,
+  "teacher_offdiag_cosine_mean": 0.27211244963109493
+}

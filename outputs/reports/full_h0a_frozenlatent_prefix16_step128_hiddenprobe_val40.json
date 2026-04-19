@@ -1,0 +1,336 @@
+{
+  "checkpoint_dir": "outputs/checkpoints/full_h0a_frozenlatent_prefix16_step128/final",
+  "corpus_jsonl": "data/corpus/distill_v3_2_959.jsonl",
+  "split": "val",
+  "records": 40,
+  "prefix_tokens": 16,
+  "teacher_traj_hidden_source": "latent",
+  "teacher_traj_latent_suffix": "lat32",
+  "student_effective_rank_mean": 4.628377336263656,
+  "teacher_effective_rank_mean": 4.541377562284469,
+  "student_offdiag_cosine_mean": 0.7297612205147743,
+  "teacher_offdiag_cosine_mean": 0.27211244963109493,
+  "token_cosine_mean": 0.13741891272366047,
+  "samples": [
+    {
+      "sample_id": "a34a1627-7209-43ec-b88f-2758ecf80e18__t0_2885053__evt_00",
+      "student_effective_rank": 4.143839359283447,
+      "teacher_effective_rank": 4.512191295623779,
+      "student_offdiag_cosine_mean": 0.6744744777679443,
+      "teacher_offdiag_cosine_mean": 0.1509581208229065,
+      "token_cosine_mean": 0.013545770198106766
+    },
+    {
+      "sample_id": "158ba388-bb5a-4a65-9e83-8494c20d4b52__t0_3270513__evt_00",
+      "student_effective_rank": 4.126957893371582,
+      "teacher_effective_rank": 4.3149027824401855,
+      "student_offdiag_cosine_mean": 0.7878325581550598,
+      "teacher_offdiag_cosine_mean": 0.20305722951889038,
+      "token_cosine_mean": 0.21856334805488586
+    },
+    {
+      "sample_id": "52b4287f-1c10-4de9-91f0-13047ec412c2__t0_6586745__evt_00",
+      "student_effective_rank": 4.787587642669678,
+      "teacher_effective_rank": 4.819267272949219,
+      "student_offdiag_cosine_mean": 0.732442319393158,
+      "teacher_offdiag_cosine_mean": 0.4561045467853546,
+      "token_cosine_mean": 0.32335156202316284
+    },
+    {
+      "sample_id": "52b4287f-1c10-4de9-91f0-13047ec412c2__t0_9686745__evt_01",
+      "student_effective_rank": 5.1595048904418945,
+      "teacher_effective_rank": 3.4651336669921875,
+      "student_offdiag_cosine_mean": 0.6603114008903503,
+      "teacher_offdiag_cosine_mean": 0.17545203864574432,
+      "token_cosine_mean": 0.055219583213329315
+    },
+    {
+      "sample_id": "796cef90-ae7d-4d82-a562-930a9aa7a896__t0_14812049__evt_00",
+      "student_effective_rank": 5.167301177978516,
+      "teacher_effective_rank": 3.627302885055542,
+      "student_offdiag_cosine_mean": 0.7404224276542664,
+      "teacher_offdiag_cosine_mean": 0.2945934236049652,
+      "token_cosine_mean": 0.08009247481822968
+    },
+    {
+      "sample_id": "934935f8-c135-4638-b92c-50f59e74a5d4__t0_5476955__evt_00",
+      "student_effective_rank": 5.129004955291748,
+      "teacher_effective_rank": 6.755031585693359,
+      "student_offdiag_cosine_mean": 0.7780297994613647,
+      "teacher_offdiag_cosine_mean": 0.20676180720329285,
+      "token_cosine_mean": 0.2209548056125641
+    },
+    {
+      "sample_id": "934935f8-c135-4638-b92c-50f59e74a5d4__t0_8876955__evt_01",
+      "student_effective_rank": 3.8356451988220215,
+      "teacher_effective_rank": 7.525596618652344,
+      "student_offdiag_cosine_mean": 0.7025029063224792,
+      "teacher_offdiag_cosine_mean": 0.3092547655105591,
+      "token_cosine_mean": 0.035257257521152496
+    },
+    {
+      "sample_id": "7da13b81-28c8-426f-b150-c29b32f6ae40__t0_11950732__evt_00",
+      "student_effective_rank": 5.00430965423584,
+      "teacher_effective_rank": 4.070895671844482,
+      "student_offdiag_cosine_mean": 0.7162685394287109,
+      "teacher_offdiag_cosine_mean": 0.3950198292732239,
+      "token_cosine_mean": 0.22853410243988037
+    },
+    {
+      "sample_id": "6956aea5-d892-4881-85be-7df2843367a1__t0_8699994__evt_00",
+      "student_effective_rank": 5.870059967041016,
+      "teacher_effective_rank": 2.7273714542388916,
+      "student_offdiag_cosine_mean": 0.708754301071167,
+      "teacher_offdiag_cosine_mean": 0.17023175954818726,
+      "token_cosine_mean": 0.058019060641527176
+    },
+    {
+      "sample_id": "6956aea5-d892-4881-85be-7df2843367a1__t0_12099994__evt_01",
+      "student_effective_rank": 4.266012191772461,
+      "teacher_effective_rank": 4.4233551025390625,
+      "student_offdiag_cosine_mean": 0.8010499477386475,
+      "teacher_offdiag_cosine_mean": 0.38512566685676575,
+      "token_cosine_mean": 0.2755974531173706
+    },
+    {
+      "sample_id": "caf6ea10-fc2b-47d1-814c-67c73b6cea9f__t0_7958186__evt_00",
+      "student_effective_rank": 3.703197956085205,
+      "teacher_effective_rank": 7.070162296295166,
+      "student_offdiag_cosine_mean": 0.7337501049041748,
+      "teacher_offdiag_cosine_mean": 0.3055688440799713,
+      "token_cosine_mean": -0.032573726028203964
+    },
+    {
+      "sample_id": "caf6ea10-fc2b-47d1-814c-67c73b6cea9f__t0_10158186__evt_01",
+      "student_effective_rank": 5.177403926849365,
+      "teacher_effective_rank": 4.882278919219971,
+      "student_offdiag_cosine_mean": 0.675393283367157,
+      "teacher_offdiag_cosine_mean": 0.4675922989845276,
+      "token_cosine_mean": 0.14414867758750916
+    },
+    {
+      "sample_id": "caf6ea10-fc2b-47d1-814c-67c73b6cea9f__t0_10958186__evt_02",
+      "student_effective_rank": 4.351521015167236,
+      "teacher_effective_rank": 4.980750560760498,
+      "student_offdiag_cosine_mean": 0.6987999677658081,
+      "teacher_offdiag_cosine_mean": 0.2107345014810562,
+      "token_cosine_mean": 0.13731825351715088
+    },
+    {
+      "sample_id": "0e72c091-b4ab-4f12-aa81-7ca32cab0b71__t0_9719092__evt_00",
+      "student_effective_rank": 4.063958644866943,
+      "teacher_effective_rank": 4.8755645751953125,
+      "student_offdiag_cosine_mean": 0.7603214383125305,
+      "teacher_offdiag_cosine_mean": 0.186394602060318,
+      "token_cosine_mean": 0.12642645835876465
+    },
+    {
+      "sample_id": "638df4eb-c622-4d73-b432-893f02773c82__t0_10296453__evt_00",
+      "student_effective_rank": 4.0477294921875,
+      "teacher_effective_rank": 5.412230968475342,
+      "student_offdiag_cosine_mean": 0.7534468173980713,
+      "teacher_offdiag_cosine_mean": 0.35376378893852234,
+      "token_cosine_mean": 0.07759083062410355
+    },
+    {
+      "sample_id": "428709c9-4a9c-4e90-bdbd-e56d430bd195__t0_14100000__evt_00",
+      "student_effective_rank": 5.2234039306640625,
+      "teacher_effective_rank": 3.7192368507385254,
+      "student_offdiag_cosine_mean": 0.82752525806427,
+      "teacher_offdiag_cosine_mean": 0.515638530254364,
+      "token_cosine_mean": 0.153958261013031
+    },
+    {
+      "sample_id": "476fed83-ed85-4b2c-b6c3-cf780a2d0123__t0_16992755__evt_00",
+      "student_effective_rank": 3.7962539196014404,
+      "teacher_effective_rank": 4.47361421585083,
+      "student_offdiag_cosine_mean": 0.7543021440505981,
+      "teacher_offdiag_cosine_mean": 0.44140204787254333,
+      "token_cosine_mean": 0.0702032595872879
+    },
+    {
+      "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_4833965__evt_00",
+      "student_effective_rank": 4.600584983825684,
+      "teacher_effective_rank": 3.9686622619628906,
+      "student_offdiag_cosine_mean": 0.7498499155044556,
+      "teacher_offdiag_cosine_mean": 0.2966254651546478,
+      "token_cosine_mean": 0.331586629152298
+    },
+    {
+      "sample_id": "f4922e47-6671-4bcc-a038-9c15ed234f5e__t0_13533965__evt_01",
+      "student_effective_rank": 4.689161777496338,
+      "teacher_effective_rank": 4.6026740074157715,
+      "student_offdiag_cosine_mean": 0.8071956038475037,
+      "teacher_offdiag_cosine_mean": 0.46121495962142944,
+      "token_cosine_mean": 0.33902686834335327
+    },
+    {
+      "sample_id": "9925a1f7-9085-4caf-8e0a-9515c26fc4ef__t0_9107465__evt_00",
+      "student_effective_rank": 4.897390842437744,
+      "teacher_effective_rank": 4.624362468719482,
+      "student_offdiag_cosine_mean": 0.7471434473991394,
+      "teacher_offdiag_cosine_mean": 0.224760502576828,
+      "token_cosine_mean": 0.20700767636299133
+    },
+    {
+      "sample_id": "9925a1f7-9085-4caf-8e0a-9515c26fc4ef__t0_12007465__evt_01",
+      "student_effective_rank": 4.641757488250732,
+      "teacher_effective_rank": 3.171931743621826,
+      "student_offdiag_cosine_mean": 0.7271214127540588,
+      "teacher_offdiag_cosine_mean": 0.19777873158454895,
+      "token_cosine_mean": 0.17214012145996094
+    },
+    {
+      "sample_id": "d5a12810-7ed5-47ad-8533-8e3ae796e713__t0_10836278__evt_00",
+      "student_effective_rank": 4.733617305755615,
+      "teacher_effective_rank": 6.370324611663818,
+      "student_offdiag_cosine_mean": 0.8134737014770508,
+      "teacher_offdiag_cosine_mean": 0.1616872251033783,
+      "token_cosine_mean": 0.13476373255252838
+    },
+    {
+      "sample_id": "3c803ef9-c916-4846-a97c-e1ec61cf28fb__t0_7670788__evt_00",
+      "student_effective_rank": 4.8900628089904785,
+      "teacher_effective_rank": 5.474625110626221,
+      "student_offdiag_cosine_mean": 0.782330334186554,
+      "teacher_offdiag_cosine_mean": 0.2203277200460434,
+      "token_cosine_mean": 0.2042083889245987
+    },
+    {
+      "sample_id": "594d2c54-ca9a-4bda-be8e-532b2fc359fb__t0_6659114__evt_00",
+      "student_effective_rank": 5.354856967926025,
+      "teacher_effective_rank": 2.9346957206726074,
+      "student_offdiag_cosine_mean": 0.5190187096595764,
+      "teacher_offdiag_cosine_mean": 0.20794343948364258,
+      "token_cosine_mean": 0.08698541671037674
+    },
+    {
+      "sample_id": "5fa56c61-e8ed-4c0b-95dd-3e15c40d9f78__t0_4493173__evt_00",
+      "student_effective_rank": 4.276815414428711,
+      "teacher_effective_rank": 5.548255920410156,
+      "student_offdiag_cosine_mean": 0.7950860261917114,
+      "teacher_offdiag_cosine_mean": 0.13759680092334747,
+      "token_cosine_mean": 0.11149510741233826
+    },
+    {
+      "sample_id": "e0772c6e-1524-494f-b16f-84ca1a700a7b__t0_8590176__evt_00",
+      "student_effective_rank": 4.059431076049805,
+      "teacher_effective_rank": 4.716902256011963,
+      "student_offdiag_cosine_mean": 0.7578357458114624,
+      "teacher_offdiag_cosine_mean": 0.22192376852035522,
+      "token_cosine_mean": 0.2001168578863144
+    },
+    {
+      "sample_id": "05094239-98e9-420e-af18-17238de9a090__t0_10600010__evt_00",
+      "student_effective_rank": 3.953373432159424,
+      "teacher_effective_rank": 6.222525119781494,
+      "student_offdiag_cosine_mean": 0.6859790682792664,
+      "teacher_offdiag_cosine_mean": 0.36544638872146606,
+      "token_cosine_mean": -0.07970856875181198
+    },
+    {
+      "sample_id": "2d979299-98b5-443a-b236-5ccd3b19fce3__t0_4437988__evt_00",
+      "student_effective_rank": 4.672403812408447,
+      "teacher_effective_rank": 4.973076820373535,
+      "student_offdiag_cosine_mean": 0.6926466822624207,
+      "teacher_offdiag_cosine_mean": 0.26692530512809753,
+      "token_cosine_mean": 0.058215491473674774
+    },
+    {
+      "sample_id": "6c96345e-07e1-47c7-868f-c7fb35d2998a__t0_15933466__evt_00",
+      "student_effective_rank": 4.700198650360107,
+      "teacher_effective_rank": 6.41170072555542,
+      "student_offdiag_cosine_mean": 0.7875007390975952,
+      "teacher_offdiag_cosine_mean": 0.3312605619430542,
+      "token_cosine_mean": 0.3480837941169739
+    },
+    {
+      "sample_id": "6fb0ec61-90f9-4424-8b9c-66fba2cfd86d__t0_14780381__evt_00",
+      "student_effective_rank": 4.610442161560059,
+      "teacher_effective_rank": 4.787463188171387,
+      "student_offdiag_cosine_mean": 0.7932331562042236,
+      "teacher_offdiag_cosine_mean": 0.2755882143974304,
+      "token_cosine_mean": 0.27500414848327637
+    },
+    {
+      "sample_id": "22cf0712-7ef2-4b8d-9f62-d94c8d8ae795__t0_16978807__evt_00",
+      "student_effective_rank": 4.613712787628174,
+      "teacher_effective_rank": 4.3820319175720215,
+      "student_offdiag_cosine_mean": 0.7547992467880249,
+      "teacher_offdiag_cosine_mean": 0.20137634873390198,
+      "token_cosine_mean": 0.25404006242752075
+    },
+    {
+      "sample_id": "13f0af4c-2565-4a4d-b765-7f397f1d1684__t0_5148839__evt_00",
+      "student_effective_rank": 3.61680006980896,
+      "teacher_effective_rank": 4.490327835083008,
+      "student_offdiag_cosine_mean": 0.7662212252616882,
+      "teacher_offdiag_cosine_mean": 0.4545256197452545,
+      "token_cosine_mean": 0.35496896505355835
+    },
+    {
+      "sample_id": "13f0af4c-2565-4a4d-b765-7f397f1d1684__t0_11048839__evt_01",
+      "student_effective_rank": 3.997769594192505,
+      "teacher_effective_rank": 3.090670585632324,
+      "student_offdiag_cosine_mean": 0.7485763430595398,
+      "teacher_offdiag_cosine_mean": 0.1948121041059494,
+      "token_cosine_mean": 0.04268808662891388
+    },
+    {
+      "sample_id": "13f0af4c-2565-4a4d-b765-7f397f1d1684__t0_14648839__evt_02",
+      "student_effective_rank": 4.664045810699463,
+      "teacher_effective_rank": 3.674849510192871,
+      "student_offdiag_cosine_mean": 0.709267795085907,
+      "teacher_offdiag_cosine_mean": 0.14600202441215515,
+      "token_cosine_mean": 0.06012076511979103
+    },
+    {
+      "sample_id": "1de484ec-e29f-41ca-b4e8-4c91e0a1d66c__t0_6324984__evt_00",
+      "student_effective_rank": 4.982602119445801,
+      "teacher_effective_rank": 3.0866618156433105,
+      "student_offdiag_cosine_mean": 0.6992293000221252,
+      "teacher_offdiag_cosine_mean": 0.21244817972183228,
+      "token_cosine_mean": 0.024934004992246628
+    },
+    {
+      "sample_id": "682fed39-be2a-4949-8d04-21529678ffca__t0_6247611__evt_00",
+      "student_effective_rank": 4.37955904006958,
+      "teacher_effective_rank": 3.218259334564209,
+      "student_offdiag_cosine_mean": 0.6588968634605408,
+      "teacher_offdiag_cosine_mean": 0.18096031248569489,
+      "token_cosine_mean": 0.037154894322156906
+    },
+    {
+      "sample_id": "79937d25-63d0-4e38-9848-c714dcab0328__t0_6778032__evt_00",
+      "student_effective_rank": 6.054293155670166,
+      "teacher_effective_rank": 4.572739601135254,
+      "student_offdiag_cosine_mean": 0.6280859112739563,
+      "teacher_offdiag_cosine_mean": 0.32155102491378784,
+      "token_cosine_mean": 0.11310147494077682
+    },
+    {
+      "sample_id": "08b46544-0282-4270-b08d-60df01996a52__t0_6511074__evt_00",
+      "student_effective_rank": 5.047933101654053,
+      "teacher_effective_rank": 3.536227226257324,
+      "student_offdiag_cosine_mean": 0.7652356624603271,
+      "teacher_offdiag_cosine_mean": 0.1455346941947937,
+      "token_cosine_mean": 0.13187822699546814
+    },
+    {
+      "sample_id": "60b58cb0-472e-457c-8f19-a12062ade074__t0_5636911__evt_00",
+      "student_effective_rank": 4.565037727355957,
+      "teacher_effective_rank": 3.286405086517334,
+      "student_offdiag_cosine_mean": 0.7139144539833069,
+      "teacher_offdiag_cosine_mean": 0.16969875991344452,
+      "token_cosine_mean": 0.07451221346855164
+    },
+    {
+      "sample_id": "2c50e6de-6231-41c2-b3bf-44c3e2cfc626__t0_12782489__evt_00",
+      "student_effective_rank": 5.2795515060424805,
+      "teacher_effective_rank": 2.8548429012298584,
+      "student_offdiag_cosine_mean": 0.5821797847747803,
+      "teacher_offdiag_cosine_mean": 0.260856032371521,
+      "token_cosine_mean": -0.17177528142929077
+    }
+  ]
+}
