@@ -1,100 +1,176 @@
-# Cosmos Distillation Issue Log
+# Cosmos Distillation Status Report
 
-This folder tracks implementation issues, root causes, fixes, and follow-up work.
+This README is the current high-level report for the trajectory-token collapse work.
+Older issue reports have been moved to [closed_issues](./closed_issues/).
 
-Current convention:
+Current open issue:
 
-- One Markdown file per issue.
-- File names stay stable and sortable.
-- Each file records:
-  - status
-  - symptom
-  - root cause
-  - resolution
-  - key files or artifacts
-  - follow-up
+- [058-current-open-trajectory-quality-after-collapse-fix.md](./058-current-open-trajectory-quality-after-collapse-fix.md)
 
-Current issue list:
+## Current Verdict
 
-- [001-strict-human-coc-split-gap.md](./001-strict-human-coc-split-gap.md)
-- [002-download-scope-and-priority-strategy.md](./002-download-scope-and-priority-strategy.md)
-- [003-priority-download-redundant-pattern-bug.md](./003-priority-download-redundant-pattern-bug.md)
-- [004-hf-xet-and-resume-failures.md](./004-hf-xet-and-resume-failures.md)
-- [005-missing-front-wide-chunk-1086.md](./005-missing-front-wide-chunk-1086.md)
-- [006-pyav-vendor-path-for-materialization.md](./006-pyav-vendor-path-for-materialization.md)
-- [007-alpamayo-vlm-only-loading-for-text-generation.md](./007-alpamayo-vlm-only-loading-for-text-generation.md)
-- [008-teacher-cache-refresh-overwrite.md](./008-teacher-cache-refresh-overwrite.md)
-- [009-qwen3vl-student-wrapper-compat.md](./009-qwen3vl-student-wrapper-compat.md)
-- [010-detached-train-launch-instability.md](./010-detached-train-launch-instability.md)
-- [011-teacher-text-fields-mostly-cot-only.md](./011-teacher-text-fields-mostly-cot-only.md)
-- [012-spec-compliance-core-refactor.md](./012-spec-compliance-core-refactor.md)
-- [013-stage-b-retune-after-consistency-refresh.md](./013-stage-b-retune-after-consistency-refresh.md)
-- [014-teacher-slot-prompt-recovery.md](./014-teacher-slot-prompt-recovery.md)
-- [015-teacher-cache-provenance-and-quality-weighting.md](./015-teacher-cache-provenance-and-quality-weighting.md)
-- [016-priority-next-40-progress-reporting-gap.md](./016-priority-next-40-progress-reporting-gap.md)
-- [017-t0-anchor-localization-bug.md](./017-t0-anchor-localization-bug.md)
-- [018-runtime-bundle-and-grounded-selection-v2.md](./018-runtime-bundle-and-grounded-selection-v2.md)
-- [019-true-kd-smoke-and-shared-vocab-guard.md](./019-true-kd-smoke-and-shared-vocab-guard.md)
-- [020-spec-design-issues-so-far.md](./020-spec-design-issues-so-far.md)
-- [021-alpamayo-base-vs-1p5-teacher-contract.md](./021-alpamayo-base-vs-1p5-teacher-contract.md)
-- [022-v3-2-stage-a-contract-recovery-issues.md](./022-v3-2-stage-a-contract-recovery-issues.md)
-- [023-stage-a3-traj-audit-and-continuation.md](./023-stage-a3-traj-audit-and-continuation.md)
-- [024-hard-only-traj-continuation-result.md](./024-hard-only-traj-continuation-result.md)
-- [025-subset-collapse-threshold-1-4-16.md](./025-subset-collapse-threshold-1-4-16.md)
-- [026-a0-geometry-subset-threshold-1-4-16.md](./026-a0-geometry-subset-threshold-1-4-16.md)
-- [027-current-traj-collapse-status-and-next-actions.md](./027-current-traj-collapse-status-and-next-actions.md)
-- [028-short-horizon-geometry-regression.md](./028-short-horizon-geometry-regression.md)
-- [029-teacher-traj-cache-design.md](./029-teacher-traj-cache-design.md)
-- [030-trainer-traj-bug-fix-and-a0-rerun.md](./030-trainer-traj-bug-fix-and-a0-rerun.md)
-- [031-teacher-traj-token-topk-subset-probe.md](./031-teacher-traj-token-topk-subset-probe.md)
-- [032-teacher-traj-hidden-projector-subset-probe.md](./032-teacher-traj-hidden-projector-subset-probe.md)
-- [033-traj-aux-head-subset-probe.md](./033-traj-aux-head-subset-probe.md)
-- [034-teacher-pair-t1-bootstrap.md](./034-teacher-pair-t1-bootstrap.md)
-- [035-p0-manifest-and-p2-paired-interface-v2.md](./035-p0-manifest-and-p2-paired-interface-v2.md)
+The original pure-LM trajectory body collapse is no longer the main blocker.
 
-Latest known high-level state:
+With the Claude-derived recipe:
 
-- Teacher v2 pipeline now targets the `262` usable canonical samples.
-- Runtime bundle split, explicit `t0` anchoring, weak GT semantics wiring, and grounded teacher selection are implemented.
-- Smoke validation has confirmed:
-  - `t0` anchor gate pass
-  - runtime bundle forbidden-key gate pass
-  - nonzero `logit_kd`
-  - nonzero `self_cons`
-  - checkpoint saving
-- Full `teacher262` background pipeline is currently running from `teacher overwrite -> signal cache -> consistency -> corpus -> train -> eval`.
-- Consolidated design/spec issue summary:
-  - [020-spec-design-issues-so-far.md](./020-spec-design-issues-so-far.md)
-- Current distillation status:
-  - `Stage B` remains paused
-  - `Stage A` is being rebuilt around `traj-only` warmup and decoded-geometry GT trajectory loss
-  - latest trajectory-collapse summary:
-    - [027-current-traj-collapse-status-and-next-actions.md](./027-current-traj-collapse-status-and-next-actions.md)
-  - latest teacher trajectory extraction design:
-    - [029-teacher-traj-cache-design.md](./029-teacher-traj-cache-design.md)
-  - latest post-bugfix A0 rerun:
-    - [030-trainer-traj-bug-fix-and-a0-rerun.md](./030-trainer-traj-bug-fix-and-a0-rerun.md)
-  - latest teacher trajectory token/top-k subset probe:
-    - [031-teacher-traj-token-topk-subset-probe.md](./031-teacher-traj-token-topk-subset-probe.md)
-  - latest teacher trajectory hidden-projector subset probe:
-    - [032-teacher-traj-hidden-projector-subset-probe.md](./032-teacher-traj-hidden-projector-subset-probe.md)
-  - latest training-only trajectory auxiliary-head subset probe:
-    - [033-traj-aux-head-subset-probe.md](./033-traj-aux-head-subset-probe.md)
-  - latest honest teacher-pair T1 bootstrap:
-    - [034-teacher-pair-t1-bootstrap.md](./034-teacher-pair-t1-bootstrap.md)
-  - latest P0 manifest + paired-interface-v2 status:
-    - [035-p0-manifest-and-p2-paired-interface-v2.md](./035-p0-manifest-and-p2-paired-interface-v2.md)
-  - latest frozen paired-interface fit:
-    - [036-p2a-frozen-interface-fit.md](./036-p2a-frozen-interface-fit.md)
-  - latest prefix-8 anchored frozen paired-interface fit:
-    - [037-p2b-prefix8-anchor.md](./037-p2b-prefix8-anchor.md)
-  - latest mixed pair-LM + interface curriculum:
-    - [038-p2c-mixed-curriculum.md](./038-p2c-mixed-curriculum.md)
-  - latest mixed run showing restored trajectory emission:
-    - [039-mixed-from-format-restores-traj-emission.md](./039-mixed-from-format-restores-traj-emission.md)
-  - latest hybrid decode run showing non-collapsed trajectory body emission:
-    - [040-hybrid-traj-decode-breaks-body-collapse.md](./040-hybrid-traj-decode-breaks-body-collapse.md)
-  - latest prefix-only pseudo-CE run partially absorbing hybrid body into LM decode:
-    - [041-prefix16-pseudoce-partially-absorbs-hybrid-body.md](./041-prefix16-pseudoce-partially-absorbs-hybrid-body.md)
-  - latest follow-up absorption tests showing regression back to plateau:
-    - [042-followup-absorption-tests-regressed-to-plateau.md](./042-followup-absorption-tests-regressed-to-plateau.md)
+- all-layer LoRA enabled
+- 4016 custom token rows trainable through PEFT `trainable_token_indices`
+- GT trajectory token CE as the main objective
+- weak GT CoT loss
+- output-format loss kept small
+- teacher KD, teacher hidden distill, aux heads, and hybrid policy losses off
+- full 959-sample corpus and enough steps
+
+the student emits full 128-token trajectory bodies on validation instead of collapsing to a single repeated token.
+
+The remaining problem is trajectory quality, not trajectory emission.
+
+## Latest Confirmed Result
+
+Full-corpus Phase 1 SFT was run for both reweighted and non-reweighted trajectory CE.
+
+| Run | Val Samples | ADE | FDE | Avg Unique Traj IDs | Avg Max Same-Token Run | Token Match |
+|---|---:|---:|---:|---:|---:|---:|
+| `reweight on` | 204 | 5.11 m | 14.47 m | 17.03 | 2.88 | 1.68% |
+| `reweight off` | 204 | 4.72 m | 13.76 m | 21.25 | 3.36 | 1.98% |
+
+Both runs generated 128/128 trajectory body tokens on all 204 validation samples.
+Neither run reproduced the old `<i1499>` single-token plateau.
+
+The important correction is that reweighting is not required for non-collapse under the full recipe. It may still be a useful training-shaping knob, but the `reweight off` ablation was actually better on ADE/FDE in this run.
+
+## What We Were Trying To Solve
+
+The target was to distill Alpamayo-style VLM trajectory generation into a Cosmos-Reason2-2B student.
+
+The desired output contract is:
+
+```text
+<|cot_start|> ... <|cot_end|><|traj_future_start|><i...> x128 <|traj_future_end|>
+```
+
+Early training could learn some text and formatting, but trajectory body generation collapsed into repeated central-band tokens such as `<i1499>`.
+This happened even when GT trajectory token supervision was present.
+
+## What We Tried
+
+### Stage A Contract Repair
+
+We first found real mechanical issues:
+
+- prompt/full label masking was misaligned
+- newly added special/traj token rows were frozen under LoRA
+- boundary/format tokens were under-weighted
+
+Those were fixed in the Stage A contract work. The important file-level fix was adding `distill_trainable_token_ids()` and passing those ids into PEFT `trainable_token_indices`, so the custom trajectory/control token rows could move during LoRA training.
+
+### GT Trajectory CE And Geometry Regularization
+
+After the mechanical fixes, GT trajectory CE still collapsed in small multi-sample probes.
+
+Observed pattern:
+
+- 1 sample could be memorized
+- 4 samples already showed collapse
+- 16 samples collapsed almost completely
+
+We interpreted this as a central-band token prior problem. Geometry losses helped somewhat, but did not solve the collapse at train16/full scale.
+
+### Teacher Top-k, Hidden, Aux, And Hybrid Experiments
+
+We then tried several heavier approaches:
+
+- teacher trajectory top-k KD
+- teacher trajectory hidden projection
+- trajectory auxiliary heads
+- paired-interface and hybrid decode
+- prefix pseudo-CE absorption
+- hidden manifold recovery with frozen teacher latent targets
+- H1 readout row probes and listwise losses
+
+These experiments taught useful things:
+
+- hybrid decode can avoid single-token body collapse
+- student hidden has some weak trajectory signal
+- hidden geometry can be improved with frozen latent targets
+- row-space/readout can be moved diagnostically
+
+But they did not produce a clean pure-LM body solution before the Claude recipe was checked properly.
+
+## What We Missed
+
+The main mistake was not that hidden manifold mismatch was imaginary.
+It was that we escalated to hidden/readout complexity before locking down the simplest viable GT SFT baseline.
+
+In particular:
+
+- We had already identified trainable custom token rows in report 022, but later probes often reintroduced `freeze_all_parameters`, short runs, low LR, prefix-only objectives, teacher-pair targets, or aux/hybrid losses.
+- We over-interpreted `train4` runs with 8-20 steps as evidence that LM-only trajectory generation was fundamentally broken.
+- We treated "lm_head/embed opened but still plateau" as stronger evidence than it deserved, because those runs were short, mixed-objective, and not the clean full-data GT SFT recipe.
+- We spent too long trying to repair hidden manifolds before asking whether the token-row adapter path plus all-layer LoRA could simply learn the GT trajectory body with enough data and steps.
+- We treated trajectory token reweighting as probably essential, but the full `reweight off` ablation showed that enough clean SFT can break collapse without it.
+
+The corrected diagnosis is:
+
+```text
+The first-order collapse was mostly a recipe/training-path issue:
+custom token rows + all-layer LoRA + clean GT SFT + enough steps/data.
+
+Hidden/KD methods may still matter later for quality,
+but they were not the first bottleneck to solve.
+```
+
+## Claude-Derived Resolution
+
+The useful Claude-side insight was to simplify the recipe instead of adding more machinery:
+
+- remove `optimization.freeze_all_parameters`
+- allow default LoRA to apply across the language stack
+- pass the 4016 custom token ids to PEFT `trainable_token_indices`
+- train with GT trajectory CE as the main loss
+- keep GT CoT weak
+- keep teacher KD and hidden distill off
+- use enough samples and enough steps
+
+This moved the project from:
+
+```text
+"Why does the model only emit one repeated trajectory token?"
+```
+
+to:
+
+```text
+"How do we make the emitted 128-token trajectory geometrically better?"
+```
+
+That is real progress.
+
+## Current Best Interpretation
+
+The student can now learn the pure-LM trajectory body contract.
+
+However, the generated trajectories are still far from teacher/GT quality:
+
+- ADE is around 4.7-5.1 m
+- FDE is around 13.8-14.5 m
+- exact token match is still around 2%
+
+So the next phase should focus on improving trajectory geometry and teacher alignment, not on collapse debugging.
+
+## Recommended Next Steps
+
+1. Treat `reweight off` as the current main SFT candidate unless broader eval overturns it.
+2. Continue the clean GT SFT run longer, selecting by validation ADE/FDE rather than only final step.
+3. Reintroduce teacher trajectory top-k KD only after the SFT baseline is fixed.
+4. Keep GT trajectory CE active when adding KD, so teacher signals refine rather than replace the recovered LM contract.
+5. Add geometry regularization as a controlled ablation, not as the primary collapse fix.
+6. Defer hidden/KV manifold distillation until SFT + teacher top-k KD stops improving geometry.
+
+## Archive
+
+The old numbered issue reports are archived under:
+
+- [closed_issues](./closed_issues/)
+
+These reports are not deleted. They are closed as historical debugging context.
