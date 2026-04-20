@@ -1,0 +1,50 @@
+{
+  "h0d_baseline_traj_rank": 174.8484375,
+  "h0d_baseline_margin_1499": -3.4971514999866486,
+  "single_batch_overfit": {
+    "path": "/workspace/cosmos_distillation/outputs/reports/sanity_h1c_singlebatch_overfit.json",
+    "baseline_traj_rank": 432.0,
+    "baseline_margin_1499": -4.944643974304199,
+    "final_traj_rank": 1.0,
+    "final_margin_1499": 20.1091365814209,
+    "best_val_traj_rank": null,
+    "best_val_step": null,
+    "final_traj_top1_histogram_top20": {
+      "1501": 7,
+      "1109": 1,
+      "1104": 1,
+      "1106": 1,
+      "1114": 1,
+      "1120": 1,
+      "1117": 1,
+      "1107": 1,
+      "1093": 1,
+      "1502": 1
+    }
+  },
+  "h1d_listwise": {
+    "path": "/workspace/cosmos_distillation/outputs/reports/smoke_h1d_listwise_from_h0d_train128_step32_fixkl.json",
+    "baseline_traj_rank": 174.8484375,
+    "baseline_margin_1499": -3.4971514999866486,
+    "final_traj_rank": 255.934375,
+    "final_margin_1499": -1.3954617332667112,
+    "best_val_traj_rank": 177.540625,
+    "best_val_step": 1,
+    "final_traj_top1_histogram_top20": {
+      "1500": 600,
+      "1482": 40
+    }
+  },
+  "h1e_listwise_rows_frozen": {
+    "path": "/workspace/cosmos_distillation/outputs/reports/smoke_h1e_listwise_from_h0d_train128_step32.json",
+    "baseline_traj_rank": 174.8484375,
+    "baseline_margin_1499": -3.4971514999866486,
+    "final_traj_rank": 174.85,
+    "final_margin_1499": -3.497046583890915,
+    "best_val_traj_rank": 174.8484375,
+    "best_val_step": 1,
+    "final_traj_top1_histogram_top20": {
+      "1499": 640
+    }
+  }
+}

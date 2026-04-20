@@ -1,0 +1,75 @@
+{
+  "h0d_base": {
+    "source": "full_h0d_softrel_prefix16_from_h0b_step128.json",
+    "target_vs_1499_margin_mean": null,
+    "traj_vocab_target_rank_mean": null,
+    "target_rank_mean": null,
+    "traj_top1_1499_ratio": null,
+    "target_vs_top1_margin_mean": null,
+    "hardneg_margin_mean": null,
+    "traj_top1_histogram_top20": null
+  },
+  "h1_rows_margin": {
+    "source": "smoke_h1_readout_from_h0d.json",
+    "target_vs_1499_margin_mean": 0.39459052924066784,
+    "traj_vocab_target_rank_mean": 391.99375,
+    "target_rank_mean": 147078.253125,
+    "traj_top1_1499_ratio": 0.0,
+    "target_vs_top1_margin_mean": -14.616834926605225,
+    "hardneg_margin_mean": -2.5350209683179856,
+    "traj_top1_histogram_top20": {
+      "1165": 602,
+      "1862": 36,
+      "1533": 2
+    },
+    "baseline": {
+      "target_vs_1499_margin_mean": -3.4972843796014788,
+      "traj_vocab_target_rank_mean": 174.85,
+      "target_rank_mean": 100076.78125,
+      "traj_top1_1499_ratio": 1.0
+    }
+  },
+  "h1b_dense_rows": {
+    "source": "smoke_h1b_dense_rows_from_h0d.json",
+    "target_vs_1499_margin_mean": -4.003767505288124,
+    "traj_vocab_target_rank_mean": 241.55,
+    "target_rank_mean": 151621.775,
+    "traj_top1_1499_ratio": 0.0,
+    "target_vs_top1_margin_mean": -20.577637052536012,
+    "hardneg_margin_mean": -2.835222791880369,
+    "traj_top1_histogram_top20": {
+      "1486": 556,
+      "1484": 66,
+      "1498": 18
+    },
+    "baseline": {
+      "target_vs_1499_margin_mean": -3.4972843796014788,
+      "traj_vocab_target_rank_mean": 174.85,
+      "target_rank_mean": 100076.78125,
+      "traj_top1_1499_ratio": 1.0
+    }
+  },
+  "h1c_dense_rows_norm_last1": {
+    "source": "smoke_h1c_dense_rows_norm_last1_from_h0d.json",
+    "target_vs_1499_margin_mean": -2.9957970559597014,
+    "traj_vocab_target_rank_mean": 213.625,
+    "target_rank_mean": 116716.4734375,
+    "traj_top1_1499_ratio": 0.0890625,
+    "target_vs_top1_margin_mean": -13.08800654411316,
+    "hardneg_margin_mean": -1.5128924004733562,
+    "traj_top1_histogram_top20": {
+      "1484": 189,
+      "1478": 174,
+      "1486": 90,
+      "1479": 90,
+      "1499": 57,
+      "1433": 40
+    },
+    "baseline": {
+      "target_vs_1499_margin_mean": -3.4972843796014788,
+      "traj_vocab_target_rank_mean": 174.85,
+      "target_rank_mean": 100076.78125,
+      "traj_top1_1499_ratio": 1.0
+    }
+  }
+}

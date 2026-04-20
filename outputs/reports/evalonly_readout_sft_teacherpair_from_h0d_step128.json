@@ -1,0 +1,77 @@
+{
+  "checkpoint_dir": "outputs/checkpoints/smoke_sft_teacherpair_upperbound_from_h0d_step128/final",
+  "output_checkpoint_dir": "outputs/checkpoints/evalonly_readout_sft_teacherpair_from_h0d_step128",
+  "train_records": 1,
+  "val_records": 40,
+  "prefix_tokens": 16,
+  "max_steps": 0,
+  "batch_size": 1,
+  "row_learning_rate": 0.0003,
+  "norm_learning_rate": 3e-06,
+  "lora_learning_rate": 1e-06,
+  "margin_floor_1499": -25.0,
+  "margin_floor_hardneg": 0.0,
+  "hardneg_k": 128,
+  "loss_weight_1499": 0.03,
+  "loss_weight_hardneg": 0.2,
+  "traj_vocab_ce_weight": 0.2,
+  "row_delta_l2_weight": 0.0001,
+  "train_final_norm": false,
+  "train_last_lora_layers": 0,
+  "traj_vocab_start_id": 151669,
+  "traj_vocab_size": 4000,
+  "traj_token_1499_id": 153168,
+  "trainable_counts": {
+    "traj_token_rows": 8224768
+  },
+  "optimizer_counts": {
+    "traj_token_rows": 8224768
+  },
+  "baseline_metrics": {
+    "loss_margin_1499": 1.169349177647383e-07,
+    "loss_hardneg": 1.8171572424471378,
+    "loss_traj_vocab_ce": 6.405649662017822,
+    "target_vs_1499_margin_mean": -2.9740944415330888,
+    "target_vs_top1_margin_mean": -10.633091473579407,
+    "hardneg_margin_mean": -0.9664139673113823,
+    "target_rank_mean": 121747.0125,
+    "traj_vocab_target_rank_mean": 172.3921875,
+    "target_logit_mean": -12.929466795921325,
+    "token1499_logit_mean": -9.985912752151489,
+    "top1_1499_ratio": 0.0,
+    "traj_top1_1499_ratio": 0.0,
+    "num_batches": 40.0,
+    "top1_histogram_top20": {
+      "151646": 637,
+      "15": 3
+    },
+    "traj_top1_histogram_top20": {
+      "1501": 328,
+      "1498": 312
+    }
+  },
+  "final_metrics": {
+    "loss_margin_1499": 1.169349177647383e-07,
+    "loss_hardneg": 1.8171572424471378,
+    "loss_traj_vocab_ce": 6.405649662017822,
+    "target_vs_1499_margin_mean": -2.9740944415330888,
+    "target_vs_top1_margin_mean": -10.633091473579407,
+    "hardneg_margin_mean": -0.9664139673113823,
+    "target_rank_mean": 121747.0125,
+    "traj_vocab_target_rank_mean": 172.3921875,
+    "target_logit_mean": -12.929466795921325,
+    "token1499_logit_mean": -9.985912752151489,
+    "top1_1499_ratio": 0.0,
+    "traj_top1_1499_ratio": 0.0,
+    "num_batches": 40.0,
+    "top1_histogram_top20": {
+      "151646": 637,
+      "15": 3
+    },
+    "traj_top1_histogram_top20": {
+      "1501": 328,
+      "1498": 312
+    }
+  },
+  "history": []
+}

@@ -1,0 +1,74 @@
+{
+  "h0d_readout_baseline": {
+    "loss_margin_1499": 2.1945327010435e-07,
+    "loss_hardneg": 0.0021100383980382277,
+    "loss_traj_vocab_ce": 0.0,
+    "target_vs_1499_margin_mean": -3.4972843796014788,
+    "target_vs_top1_margin_mean": -11.108205437660217,
+    "hardneg_margin_mean": -2.6435858994722365,
+    "target_rank_mean": 100076.78125,
+    "traj_vocab_target_rank_mean": 174.85,
+    "target_logit_mean": -10.056083810329437,
+    "token1499_logit_mean": -6.591090762615204,
+    "top1_1499_ratio": 0.0,
+    "traj_top1_1499_ratio": 1.0,
+    "num_batches": 40.0,
+    "top1_histogram_top20": {
+      "100655": 139,
+      "72043": 84,
+      "29409": 70,
+      "114164": 65,
+      "112422": 51,
+      "98943": 36,
+      "100445": 32,
+      "133121": 22,
+      "54683": 19,
+      "78581": 17,
+      "82525": 15,
+      "115554": 12,
+      "72548": 11,
+      "103313": 11,
+      "88531": 10,
+      "126266": 10,
+      "115935": 10,
+      "73936": 8,
+      "145972": 5,
+      "42133": 4
+    },
+    "traj_top1_histogram_top20": {
+      "1499": 640
+    }
+  },
+  "sft_readout": {
+    "loss_margin_1499": 1.169349177647383e-07,
+    "loss_hardneg": 1.8171572424471378,
+    "loss_traj_vocab_ce": 6.405649662017822,
+    "target_vs_1499_margin_mean": -2.9740944415330888,
+    "target_vs_top1_margin_mean": -10.633091473579407,
+    "hardneg_margin_mean": -0.9664139673113823,
+    "target_rank_mean": 121747.0125,
+    "traj_vocab_target_rank_mean": 172.3921875,
+    "target_logit_mean": -12.929466795921325,
+    "token1499_logit_mean": -9.985912752151489,
+    "top1_1499_ratio": 0.0,
+    "traj_top1_1499_ratio": 0.0,
+    "num_batches": 40.0,
+    "top1_histogram_top20": {
+      "151646": 637,
+      "15": 3
+    },
+    "traj_top1_histogram_top20": {
+      "1501": 328,
+      "1498": 312
+    }
+  },
+  "sft_train_summary": {
+    "best_val_total_loss": 7.514236749387255,
+    "global_steps": 128,
+    "completed_epochs": 0.16976127320954906
+  },
+  "sft_infer_summary": {
+    "avg_latency_sec": 4.998,
+    "num_samples": 10
+  }
+}
