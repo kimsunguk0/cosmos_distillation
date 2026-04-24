@@ -323,6 +323,7 @@ def teacher_logit_kd_loss(
     teacher_topk_mask: torch.Tensor | None,
     sample_weights: torch.Tensor | None = None,
     temperature: float = 1.0,
+    token_weights: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """KL distillation over sparse teacher top-k distributions on CoT token positions."""
     if (
@@ -338,6 +339,7 @@ def teacher_logit_kd_loss(
     gather_indices = teacher_topk_indices.to(student_logits.device)
     gather_values = teacher_topk_logprobs.to(student_logits.device)
     sparse_mask = teacher_topk_mask.to(student_logits.device)
+    token_weight_values = token_weights.to(student_logits.device) if token_weights is not None else None
     vocab_size = shift_student.shape[-1]
 
     per_sample_losses = []
@@ -346,13 +348,21 @@ def teacher_logit_kd_loss(
         student_target_logits = shift_student[sample_index][span_mask[sample_index]]
         teacher_target_indices = gather_indices[sample_index][sparse_mask[sample_index]]
         teacher_target_values = gather_values[sample_index][sparse_mask[sample_index]]
+        sample_token_weights = (
+            token_weight_values[sample_index][sparse_mask[sample_index]]
+            if token_weight_values is not None
+            else None
+        )
         aligned_tokens = min(student_target_logits.shape[0], teacher_target_indices.shape[0])
         if aligned_tokens <= 0:
             continue
         student_target_logits = student_target_logits[:aligned_tokens]
         teacher_target_indices = teacher_target_indices[:aligned_tokens]
         teacher_target_values = teacher_target_values[:aligned_tokens]
+        if sample_token_weights is not None:
+            sample_token_weights = sample_token_weights[:aligned_tokens].to(dtype=student_logits.dtype)
         token_losses = []
+        valid_token_weights = []
         for token_index in range(aligned_tokens):
             token_teacher_indices = teacher_target_indices[token_index]
             token_teacher_values = teacher_target_values[token_index]
@@ -369,9 +379,16 @@ def teacher_logit_kd_loss(
             student_log_probs = F.log_softmax(gathered_student / temperature, dim=-1)
             teacher_probs = F.softmax(token_teacher_values / temperature, dim=-1)
             token_losses.append(F.kl_div(student_log_probs, teacher_probs, reduction="sum") * (temperature**2))
+            if sample_token_weights is not None:
+                valid_token_weights.append(sample_token_weights[token_index])
         if not token_losses:
             continue
-        per_sample_losses.append(torch.stack(token_losses).mean())
+        stacked_losses = torch.stack(token_losses)
+        if valid_token_weights:
+            stacked_weights = torch.stack(valid_token_weights).to(dtype=stacked_losses.dtype, device=stacked_losses.device)
+            per_sample_losses.append((stacked_losses * stacked_weights).sum() / stacked_weights.sum().clamp(min=1e-6))
+        else:
+            per_sample_losses.append(stacked_losses.mean())
         if sample_weights is None:
             per_sample_weights.append(torch.tensor(1.0, device=student_logits.device))
         else:

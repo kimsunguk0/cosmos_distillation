@@ -1,0 +1,32 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 118/204 b868def5-dbe3-433b ADE=4.62 FDE=8.52</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='65.2,534.6 72.6,534.6 79.9,534.6 87.1,534.6 94.2,534.6 101.3,534.6 108.4,534.6 115.4,534.6 122.4,534.7 129.2,534.7 136.1,534.7 142.9,534.7 149.6,534.7 156.3,534.7 162.8,534.7 169.4,534.8'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='175.8,534.8 182.1,534.8 188.4,534.7 194.5,534.7 200.5,534.7 206.4,534.7 212.1,534.6 217.8,534.6 223.3,534.5 228.7,534.5 234.0,534.4 239.2,534.4 244.3,534.3 249.3,534.2 254.2,534.1 258.9,534.0 263.6,533.9 268.2,533.7 272.6,533.6 277.0,533.4 281.3,533.2 285.7,532.9 289.9,532.7 294.2,532.4 298.4,532.0 302.7,531.6 306.9,531.2 311.1,530.7 315.2,530.2 319.4,529.6 323.5,529.0 327.7,528.4 331.8,527.8 335.9,527.1 340.0,526.5 344.1,525.9 348.3,525.2 352.4,524.6 356.7,524.0 361.0,523.4 365.3,522.8 369.7,522.3 374.1,521.7 378.6,521.3 383.2,520.8 387.8,520.3 392.5,519.8 397.2,519.3 402.0,518.9 406.8,518.5 411.7,518.1 416.7,517.8 421.7,517.5 426.7,517.3 431.8,517.1 437.0,516.9 442.2,516.8 447.4,516.8 452.7,516.8 458.1,516.9 463.5,517.1 468.9,517.4 474.4,517.7 479.9,518.2'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='175.9,534.8 182.3,534.7 188.7,534.7 195.1,534.7 201.4,534.6 207.7,534.5 214.0,534.4 220.3,534.3 226.5,534.2 232.7,534.1 238.9,533.9 245.0,533.7 251.1,533.5 257.2,533.2 263.2,532.9 269.3,532.6 275.2,532.2 281.2,531.8 287.2,531.4 293.1,531.0 299.0,530.5 304.9,530.0 310.7,529.5 316.5,529.0 322.3,528.4 328.1,527.9 333.8,527.2 339.5,526.6 345.2,526.0 350.9,525.3 356.6,524.6 362.2,523.8 367.9,523.0 373.5,522.3 379.1,521.4 384.6,520.6 390.1,519.7 395.6,518.9 401.1,518.0 406.5,517.0 411.9,516.1 417.3,515.2 422.7,514.2 428.0,513.2 433.4,512.2 438.7,511.3 444.1,510.3 449.4,509.3 454.8,508.3 460.1,507.3 465.4,506.3 470.7,505.3 476.1,504.3 481.4,503.4 486.7,502.4 492.1,501.4 497.4,500.5 502.7,499.5 508.1,498.5 513.4,497.6 518.8,496.6 524.1,495.7 529.4,494.7 534.8,493.7'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>G_teacher_also_far_from_gt,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>B_curvature_or_lateral_failure,</text>
+<text x='610' y='90' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='115' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>Steer left to keep a safe distance from the</text>
+<text x='610' y='148' font-size='11' font-family='monospace' fill='#333'>work vehicle and workers ahead.</text>
+<text x='610' y='173' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>Steer left to pass the garbage truck parking</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>on the same lane.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Change to the left lane due to a stopped</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>garbage truck blocking the right lane, then</text>
+<text x='610' y='279' font-size='11' font-family='monospace' fill='#333'>merge back right after clearing it, because</text>
+<text x='610' y='294' font-size='11' font-family='monospace' fill='#333'>this provides a safe path past the obstruction</text>
+<text x='610' y='309' font-size='11' font-family='monospace' fill='#333'>and workers while maintaining traffic flow</text>
+<text x='610' y='324' font-size='11' font-family='monospace' fill='#333'>under a green signal and checking for gaps in</text>
+<text x='610' y='339' font-size='11' font-family='monospace' fill='#333'>opposing traffic; after clearing, return to</text>
+<text x='610' y='354' font-size='11' font-family='monospace' fill='#333'>the right lane for normal travel.</text>
+</svg>

@@ -1,0 +1,64 @@
+{
+  "policy": "b1d_horizon",
+  "input_records": 958,
+  "output_corpus": "/workspace/cosmos_distillation/data/corpus/distill_v3_2_959_b1d_horizon.jsonl",
+  "teacher_abs_bin_counts": {
+    "A_good": 707,
+    "C_bad": 71,
+    "B_ok": 127,
+    "D_middle": 53
+  },
+  "prefix_teacher_good_counts": {
+    "A_good": 706,
+    "C_bad": 62,
+    "B_ok": 125,
+    "D_middle": 52
+  },
+  "mean_horizon_weights_by_bin": {
+    "A_good": {
+      "early": 1.0,
+      "mid": 1.0,
+      "late": 1.0
+    },
+    "C_bad": {
+      "early": 0.262,
+      "mid": 0.05,
+      "late": 0.0
+    },
+    "B_ok": {
+      "early": 0.9,
+      "mid": 0.7,
+      "late": 0.5
+    },
+    "D_middle": {
+      "early": 0.4943,
+      "mid": 0.2,
+      "late": 0.05
+    }
+  },
+  "teacher_failure_tag_counts": {
+    "ok_or_low_error": 656,
+    "E_long_horizon_divergence": 265,
+    "C_speed_scale_failure": 111,
+    "B_curvature_or_lateral_failure": 50,
+    "A_stop_or_decel_failure": 26,
+    "B_curvature_or_turn_direction_failure": 8,
+    "F_repetition_or_local_band_oscillation": 6,
+    "D_initial_prefix_failure": 5
+  },
+  "horizon_buckets": {
+    "early_tokens": [
+      0,
+      39
+    ],
+    "mid_tokens": [
+      40,
+      79
+    ],
+    "late_tokens": [
+      80,
+      127
+    ],
+    "note": "128 trajectory body tokens = 64 waypoints x 2 tokens; early covers first 2.0s."
+  }
+}

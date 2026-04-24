@@ -6,6 +6,7 @@ Older issue reports have been moved to [closed_issues](./closed_issues/).
 Current open issue:
 
 - [058-current-open-trajectory-quality-after-collapse-fix.md](./058-current-open-trajectory-quality-after-collapse-fix.md)
+- [059-claude-findings-and-h200-transition.md](./059-claude-findings-and-h200-transition.md)
 
 ## Current Verdict
 
@@ -24,6 +25,12 @@ With the Claude-derived recipe:
 the student emits full 128-token trajectory bodies on validation instead of collapsing to a single repeated token.
 
 The remaining problem is trajectory quality, not trajectory emission.
+
+There is also a second correction now:
+
+- Claude's real success path was token-path SFT/KD/SS, not hidden-first or FM-first
+- Claude's FM / consistency-distillation branch was much worse than the token path
+- H200 compute should first be spent on reproducing and scaling the token recipe
 
 ## Latest Confirmed Result
 
@@ -160,12 +167,13 @@ So the next phase should focus on improving trajectory geometry and teacher alig
 
 ## Recommended Next Steps
 
-1. Treat `reweight off` as the current main SFT candidate unless broader eval overturns it.
-2. Continue the clean GT SFT run longer, selecting by validation ADE/FDE rather than only final step.
-3. Reintroduce teacher trajectory top-k KD only after the SFT baseline is fixed.
-4. Keep GT trajectory CE active when adding KD, so teacher signals refine rather than replace the recovered LM contract.
-5. Add geometry regularization as a controlled ablation, not as the primary collapse fix.
-6. Defer hidden/KV manifold distillation until SFT + teacher top-k KD stops improving geometry.
+1. On H200, compare the two new Claude-port configs first:
+   `configs/train/stage_h200_claude_phase10_faithful.yaml`
+   and `configs/train/stage_h200_claude_phase10_gt_anchor.yaml`.
+2. Select checkpoints by val decode ADE/FDE, invalid rate, repetition, and token histogram concentration, not by loss alone.
+3. Treat reranking as a second-stage improvement only after the base token checkpoint is fixed.
+4. Continue clean GT-SFT lines only as a comparison baseline, not as the only mainline.
+5. Defer hidden/KV manifold distillation and FM revival until the token-path H200 comparison stops improving.
 
 ## Archive
 

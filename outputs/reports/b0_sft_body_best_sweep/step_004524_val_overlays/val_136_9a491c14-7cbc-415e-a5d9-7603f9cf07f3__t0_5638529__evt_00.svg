@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 136/204 9a491c14-7cbc-415e ADE=4.03 FDE=9.98</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='62.5,486.3 68.7,486.3 74.8,486.3 81.0,486.3 87.1,486.3 93.2,486.3 99.3,486.3 105.4,486.4 111.5,486.4 117.6,486.4 123.7,486.4 129.8,486.5 135.9,486.5 142.0,486.5 148.1,486.6 154.2,486.6'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='160.3,486.6 166.3,486.6 172.4,486.6 178.4,486.5 184.4,486.5 190.3,486.4 196.2,486.4 202.1,486.3 208.0,486.2 213.7,486.0 219.4,485.9 225.1,485.8 230.7,485.6 236.2,485.5 241.6,485.3 246.9,485.1 252.2,485.0 257.5,484.8 262.7,484.6 267.9,484.4 273.1,484.2 278.3,483.9 283.4,483.7 288.5,483.5 293.5,483.3 298.6,483.1 303.6,482.9 308.6,482.7 313.5,482.4 318.5,482.2 323.4,482.0 328.4,481.8 333.4,481.6 338.5,481.3 343.6,481.1 348.9,480.9 354.2,480.6 359.6,480.4 365.1,480.2 370.7,479.9 376.3,479.7 382.1,479.5 388.0,479.2 394.0,479.0 400.1,478.8 406.3,478.6 412.6,478.4 419.1,478.2 425.6,478.1 432.3,477.9 439.1,477.8 446.1,477.8 453.1,477.7 460.2,477.7 467.5,477.6 474.8,477.6 482.3,477.6 489.8,477.6 497.5,477.6 505.3,477.6 513.2,477.6 521.2,477.6 529.3,477.6 537.5,477.5'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='160.3,486.6 166.4,486.6 172.5,486.7 178.6,486.8 184.6,486.9 190.7,487.0 196.8,487.2 202.9,487.4 209.0,487.7 215.0,488.0 221.0,488.3 227.0,488.7 233.0,489.1 239.0,489.5 244.9,490.0 250.9,490.5 256.8,491.0 262.7,491.6 268.6,492.2 274.5,492.8 280.3,493.5 286.2,494.2 292.0,494.9 297.7,495.6 303.4,496.4 309.1,497.2 314.8,498.1 320.4,498.9 326.0,499.8 331.5,500.7 337.1,501.7 342.6,502.6 348.1,503.5 353.5,504.5 359.0,505.5 364.4,506.4 369.8,507.4 375.2,508.4 380.6,509.4 386.0,510.4 391.4,511.5 396.8,512.5 402.2,513.5 407.5,514.6 412.9,515.6 418.2,516.7 423.6,517.8 428.9,518.9 434.2,520.0 439.5,521.1 444.8,522.2 450.1,523.3 455.4,524.5 460.7,525.6 465.9,526.7 471.2,527.9 476.4,529.1 481.7,530.3 486.9,531.4 492.1,532.6 497.3,533.8 502.5,535.1 507.6,536.3 512.8,537.5'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>B_curvature_or_turn_direction_failure,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='100' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='118' font-size='11' font-family='monospace' fill='#333'>Steer right to return to the driving lane</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>after passing the construction zone.</text>
+<text x='610' y='158' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='176' font-size='11' font-family='monospace' fill='#333'>Gentle deceleration to maintain a safe</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>distance from the construction zone with</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>traffic cones.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Nudge right due to construction barrels</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>blocking the left side of our lane</text>
+</svg>

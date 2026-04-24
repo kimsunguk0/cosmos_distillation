@@ -1,0 +1,44 @@
+stage_name: stage_a
+epochs: 1.0
+batch_size: 1
+max_length: 4096
+bf16: true
+gradient_checkpointing: true
+learning_rate: 5.0e-5
+
+# B1d: horizon-aware teacher trajectory KD.
+# A/B teachers can supervise the full body; C/D teachers keep weak early signal
+# while mid/late teacher KD is downweighted to avoid long-horizon policy drift.
+# Use with data/corpus/distill_v3_2_959_b1d_horizon.jsonl and initialize from
+# outputs/checkpoints/B0_GT_SFT_BODY_BEST.
+
+data_view:
+  prompt_mode: joint
+  target_mode: joint
+  teacher_pair_target: false
+  enable_teacher_view: false
+  enable_action_aux: false
+  teacher_traj_cache_dir: /data/teacher_cache/traj15
+
+loss_weights:
+  gt_cot_loss: 0.1
+  teacher_cot_loss: 0.0
+  teacher_topk_kd_loss: 0.0
+  traj_loss: 1.0
+  teacher_traj_loss: 0.0
+  teacher_traj_topk_kd_loss: 0.20
+  teacher_traj_hidden_align_loss: 0.0
+  output_format_loss: 0.25
+  meta_action_loss: 0.0
+  traj_aux_loss: 0.0
+  traj_aux_xyz_loss: 0.0
+  traj_aux_final_loss: 0.0
+  traj_xyz_loss: 0.0
+  traj_delta_loss: 0.0
+  traj_final_loss: 0.0
+
+traj_token_reweighting:
+  enabled: false
+
+decode_eval:
+  enabled: false

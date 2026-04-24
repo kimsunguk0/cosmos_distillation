@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 112/204 38044f1c-345e-4948 ADE=3.64 FDE=10.25</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='48.6,514.2 54.8,514.2 61.1,514.2 67.3,514.1 73.6,514.1 79.9,514.1 86.1,514.0 92.4,514.0 98.7,513.9 105.0,513.9 111.3,513.9 117.6,513.8 123.9,513.8 130.2,513.7 136.5,513.7 142.8,513.7'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='149.2,513.7 155.5,513.7 161.8,513.8 168.1,513.8 174.5,513.9 180.8,514.0 187.1,514.0 193.5,514.2 199.8,514.3 206.2,514.4 212.6,514.6 218.9,514.8 225.3,514.9 231.7,515.1 238.0,515.3 244.4,515.6 250.8,515.8 257.2,516.1 263.6,516.4 270.0,516.7 276.3,517.0 282.7,517.4 289.1,517.8 295.5,518.3 301.9,518.7 308.3,519.2 314.7,519.8 321.1,520.3 327.5,520.9 333.8,521.6 340.2,522.2 346.6,522.9 353.0,523.7 359.3,524.4 365.7,525.2 372.1,526.1 378.4,526.9 384.8,527.8 391.1,528.6 397.5,529.5 403.8,530.5 410.1,531.4 416.5,532.4 422.8,533.3 429.1,534.3 435.4,535.3 441.7,536.2 448.0,537.2 454.3,538.2 460.6,539.2 466.8,540.2 473.1,541.2 479.4,542.2 485.7,543.1 491.9,544.0 498.2,544.9 504.5,545.8 510.7,546.7 517.0,547.5 523.2,548.3 529.5,549.1 535.7,549.9 542.0,550.7 548.2,551.4'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='149.2,513.7 155.5,513.7 161.8,513.7 168.1,513.7 174.5,513.7 180.8,513.7 187.2,513.7 193.5,513.7 199.9,513.7 206.2,513.7 212.6,513.7 218.9,513.7 225.3,513.7 231.7,513.7 238.0,513.7 244.4,513.7 250.8,513.7 257.2,513.7 263.5,513.7 269.9,513.7 276.3,513.7 282.7,513.7 289.0,513.7 295.4,513.7 301.8,513.7 308.2,513.7 314.6,513.7 321.0,513.7 327.3,513.7 333.7,513.7 340.1,513.7 346.5,513.7 352.9,513.7 359.3,513.7 365.7,513.7 372.1,513.7 378.5,513.6 384.8,513.6 391.2,513.6 397.6,513.6 404.0,513.6 410.4,513.6 416.8,513.6 423.2,513.6 429.6,513.6 436.0,513.6 442.4,513.6 448.8,513.6 455.2,513.6 461.7,513.6 468.1,513.6 474.5,513.6 480.9,513.6 487.3,513.6 493.7,513.6 500.1,513.6 506.5,513.6 512.9,513.6 519.4,513.6 525.8,513.6 532.2,513.6 538.6,513.5 545.0,513.5 551.4,513.5'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>F_repetition_or_local_band_oscillation,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>B_curvature_or_lateral_failure,</text>
+<text x='610' y='90' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='115' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>Go straight while following the temporary lane</text>
+<text x='610' y='148' font-size='11' font-family='monospace' fill='#333'>delineated by traffic cones.</text>
+<text x='610' y='173' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>Steer right following temporary traffic</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>delineators.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Nudge to the left to clear the construction</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>cones blocking the right side of our lane</text>
+</svg>

@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 91/204 8e18e12f-d102-48ec ADE=3.46 FDE=17.24</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='88.9,510.2 100.2,510.0 111.5,509.9 122.7,509.8 133.8,509.7 144.9,509.6 155.9,509.5 166.7,509.4 177.5,509.4 188.1,509.3 198.6,509.3 209.0,509.2 219.2,509.2 229.3,509.2 239.1,509.1 248.9,509.1'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='258.4,509.1 267.8,509.1 276.8,509.2 285.7,509.2 294.3,509.2 302.6,509.2 310.7,509.3 318.6,509.3 326.3,509.4 333.8,509.4 341.0,509.5 348.0,509.5 354.8,509.6 361.3,509.6 367.6,509.7 373.6,509.8 379.4,509.8 384.9,509.9 390.1,509.9 395.1,510.0 399.9,510.0 404.4,510.1 408.7,510.1 412.8,510.2 416.7,510.2 420.3,510.2 423.7,510.2 427.0,510.3 430.1,510.3 433.0,510.3 435.9,510.4 438.5,510.4 441.0,510.4 443.4,510.5 445.6,510.5 447.7,510.5 449.7,510.5 451.6,510.5 453.4,510.6 455.1,510.6 456.9,510.6 458.6,510.6 460.3,510.6 462.0,510.6 463.6,510.6 465.3,510.7 466.9,510.7 468.6,510.7 470.3,510.7 471.9,510.7 473.7,510.7 475.5,510.7 477.5,510.8 479.6,510.8 481.8,510.8 484.2,510.8 486.8,510.8 489.5,510.9 492.5,510.9 495.7,510.9 499.1,511.0 502.8,511.0 506.8,511.0 511.1,511.1'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='258.4,509.1 267.8,509.1 276.9,509.1 285.9,509.1 294.6,509.1 303.2,509.2 311.5,509.2 319.6,509.2 327.4,509.2 335.0,509.2 342.4,509.2 349.4,509.2 356.1,509.2 362.6,509.2 368.8,509.2 374.7,509.2 380.4,509.2 385.7,509.2 390.7,509.2 395.5,509.2 399.9,509.2 404.1,509.2 407.9,509.1 411.5,509.1 414.7,509.1 417.7,509.1 420.3,509.1 422.7,509.1 424.7,509.1 426.5,509.1 427.9,509.1 429.1,509.1 429.9,509.1 430.5,509.1 430.7,509.1 430.7,509.1 430.3,509.1 429.7,509.1 428.8,509.1 427.5,509.1 426.0,509.1 424.1,509.1 422.0,509.1 419.6,509.1 416.8,509.1 413.8,509.1 410.4,509.1 406.8,509.2 402.9,509.2 398.6,509.2 394.1,509.2 389.3,509.2 384.1,509.2 378.7,509.2 373.0,509.2 366.9,509.2 360.6,509.2 354.0,509.2 347.1,509.2 339.8,509.2 332.3,509.2 324.5,509.2 316.4,509.2 307.9,509.2'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='85' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='103' font-size='11' font-family='monospace' fill='#333'>Strong deceleration to maintain a safe</text>
+<text x='610' y='118' font-size='11' font-family='monospace' fill='#333'>distance from the pedestrian crossing the</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>road.</text>
+<text x='610' y='158' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='176' font-size='11' font-family='monospace' fill='#333'>Decelerate to maintain a safe distance from</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>the pedestrian crossing the crosswalk while</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>approaching the intersection.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Yield due to a pedestrian walking across the</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>crosswalk</text>
+</svg>

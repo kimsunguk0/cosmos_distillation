@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 203/204 1b46ddc3-ac86-42ce ADE=4.61 FDE=10.63</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='93.8,501.8 100.6,501.4 107.4,501.0 114.3,500.8 121.3,500.5 128.3,500.3 135.5,500.1 142.6,500.0 149.9,499.9 157.1,499.9 164.4,499.8 171.7,499.8 179.0,499.8 186.4,499.7 193.7,499.7 200.9,499.7'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='208.2,499.7 215.4,499.7 222.6,499.7 229.6,499.7 236.6,499.7 243.4,499.7 250.0,499.7 256.4,499.6 262.6,499.5 268.7,499.4 274.6,499.4 280.3,499.3 285.7,499.2 290.9,499.1 295.9,499.0 300.6,498.9 305.2,498.8 309.5,498.7 313.6,498.6 317.6,498.5 321.2,498.4 324.7,498.3 328.0,498.2 331.1,498.1 333.9,498.0 336.6,497.9 339.1,497.8 341.4,497.7 343.6,497.7 345.6,497.6 347.5,497.5 349.2,497.4 350.8,497.3 352.2,497.3 353.5,497.2 354.8,497.2 356.0,497.1 357.1,497.0 358.1,497.0 359.1,496.9 360.0,496.9 360.9,496.8 361.7,496.8 362.4,496.7 363.2,496.7 363.8,496.6 364.5,496.6 365.1,496.6 365.7,496.5 366.2,496.5 366.8,496.5 367.3,496.4 367.7,496.4 368.1,496.4 368.5,496.3 368.9,496.3 369.2,496.3 369.5,496.3 369.7,496.3 370.0,496.3 370.2,496.2 370.4,496.2 370.6,496.2 370.8,496.2'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='208.2,499.7 215.3,499.7 222.5,499.8 229.6,499.8 236.7,499.8 243.7,499.9 250.7,499.9 257.7,500.0 264.5,500.0 271.4,500.1 278.1,500.2 284.8,500.2 291.4,500.3 297.9,500.4 304.4,500.5 310.8,500.6 317.1,500.7 323.3,500.8 329.4,500.8 335.5,500.9 341.4,501.0 347.2,501.1 353.0,501.2 358.6,501.3 364.2,501.4 369.6,501.5 375.0,501.6 380.3,501.7 385.6,501.8 390.7,501.9 395.8,502.0 400.7,502.1 405.6,502.2 410.4,502.3 415.1,502.4 419.8,502.6 424.3,502.7 428.7,502.8 433.1,503.0 437.3,503.1 441.5,503.3 445.6,503.4 449.6,503.6 453.5,503.7 457.3,503.9 461.0,504.0 464.5,504.2 468.0,504.3 471.3,504.5 474.4,504.6 477.5,504.8 480.4,504.9 483.2,505.1 485.9,505.2 488.5,505.3 491.0,505.4 493.4,505.5 495.6,505.7 497.6,505.8 499.6,505.8 501.4,505.9 503.1,506.0 504.7,506.1 506.2,506.2'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>G_teacher_also_far_from_gt,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>C_speed_scale_failure,</text>
+<text x='610' y='90' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='115' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>Yield to crossing pedestrians at the</text>
+<text x='610' y='148' font-size='11' font-family='monospace' fill='#333'>crosswalk.</text>
+<text x='610' y='173' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>Decelerate to maintain a safe distance from</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>the lead vehicle ahead.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Keep distance to the lead vehicle since it is</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>slowing ahead</text>
+</svg>

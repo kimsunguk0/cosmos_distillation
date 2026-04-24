@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 22/204 d5a12810-7ed5-47ad ADE=4.58 FDE=11.42</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='44.9,515.7 51.0,515.7 57.0,515.8 63.1,515.8 69.1,515.9 75.1,516.0 81.2,516.0 87.2,516.0 93.3,516.1 99.3,516.1 105.3,516.2 111.4,516.2 117.5,516.2 123.5,516.2 129.6,516.2 135.7,516.2'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='141.8,516.3 147.8,516.3 153.9,516.3 159.9,516.3 166.0,516.3 172.0,516.4 178.0,516.5 184.0,516.5 189.9,516.6 195.9,516.7 201.8,516.9 207.7,517.0 213.6,517.2 219.4,517.4 225.3,517.6 231.1,517.9 237.0,518.2 242.8,518.5 248.6,518.8 254.4,519.1 260.2,519.5 265.9,519.9 271.7,520.3 277.5,520.8 283.3,521.3 289.1,521.8 294.9,522.3 300.8,522.8 306.6,523.4 312.5,524.0 318.3,524.6 324.2,525.2 330.1,525.9 336.1,526.5 342.0,527.2 348.0,527.9 353.9,528.6 359.9,529.3 365.9,530.0 371.9,530.7 377.9,531.5 384.0,532.3 390.0,533.1 396.1,533.9 402.2,534.8 408.3,535.7 414.5,536.6 420.7,537.5 426.8,538.5 433.0,539.5 439.2,540.5 445.5,541.5 451.7,542.5 458.0,543.6 464.3,544.7 470.7,545.8 477.0,546.9 483.4,548.1 489.8,549.3 496.2,550.4 502.7,551.6 509.1,552.8 515.6,554.0 522.1,555.1'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='141.8,516.2 147.8,516.2 153.9,516.2 160.0,516.2 166.1,516.2 172.2,516.2 178.3,516.3 184.4,516.3 190.5,516.4 196.6,516.5 202.8,516.7 209.0,516.9 215.1,517.2 221.4,517.5 227.6,517.8 233.8,518.2 240.1,518.7 246.4,519.2 252.7,519.8 259.0,520.4 265.3,521.0 271.7,521.6 278.1,522.3 284.4,523.0 290.9,523.7 297.3,524.3 303.7,525.0 310.2,525.7 316.6,526.3 323.1,527.0 329.7,527.6 336.2,528.2 342.7,528.9 349.3,529.5 355.9,530.1 362.5,530.7 369.1,531.3 375.7,531.9 382.4,532.5 389.0,533.1 395.7,533.7 402.4,534.3 409.1,534.9 415.9,535.5 422.6,536.1 429.4,536.6 436.2,537.2 443.0,537.8 449.9,538.4 456.7,539.0 463.6,539.6 470.5,540.2 477.5,540.8 484.4,541.4 491.4,542.0 498.4,542.7 505.4,543.3 512.4,543.9 519.5,544.5 526.6,545.1 533.7,545.7 540.8,546.4 548.0,547.0 555.1,547.6'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>B_curvature_or_lateral_failure,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='100' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='118' font-size='11' font-family='monospace' fill='#333'>Go straight and proceed through the</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>intersection while following the green traffic</text>
+<text x='610' y='148' font-size='11' font-family='monospace' fill='#333'>light indication.</text>
+<text x='610' y='173' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>Slightly shift left to maintain a safe</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>distance from the traffic delineators ahead.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Keep speed through the intersection since the</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>traffic light is green</text>
+</svg>

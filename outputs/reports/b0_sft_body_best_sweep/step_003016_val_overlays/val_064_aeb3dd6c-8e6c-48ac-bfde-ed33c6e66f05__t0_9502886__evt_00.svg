@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 64/204 aeb3dd6c-8e6c-48ac ADE=4.85 FDE=19.84</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='45.5,530.1 52.5,529.9 59.4,529.7 66.3,529.5 73.2,529.3 80.1,529.1 87.0,528.9 93.9,528.7 100.7,528.6 107.6,528.4 114.5,528.3 121.3,528.2 128.1,528.1 134.9,528.0 141.7,528.0 148.5,527.9'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='155.2,527.9 161.9,527.9 168.5,527.9 175.2,527.9 181.8,528.0 188.3,528.0 194.9,528.1 201.4,528.2 207.9,528.3 214.4,528.4 220.9,528.6 227.3,528.7 233.8,528.9 240.2,529.0 246.6,529.2 253.0,529.4 259.3,529.7 265.6,529.9 271.9,530.2 278.2,530.5 284.4,530.8 290.5,531.1 296.7,531.5 302.8,531.8 308.9,532.2 315.0,532.6 321.0,532.9 327.1,533.3 333.2,533.7 339.2,534.0 345.3,534.4 351.3,534.7 357.4,535.1 363.5,535.4 369.6,535.8 375.6,536.1 381.7,536.4 387.9,536.6 394.0,536.9 400.1,537.1 406.3,537.3 412.4,537.4 418.6,537.5 424.8,537.7 431.0,537.7 437.2,537.8 443.5,537.8 449.8,537.8 456.1,537.8 462.4,537.8 468.8,537.7 475.2,537.6 481.6,537.5 488.0,537.4 494.5,537.2 500.9,537.1 507.5,536.9 514.1,536.7 520.7,536.5 527.3,536.4 534.0,536.2 540.8,536.0 547.6,535.8 554.5,535.7'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='155.2,528.0 161.9,528.0 168.5,528.0 175.1,528.1 181.7,528.2 188.3,528.3 194.8,528.5 201.3,528.7 207.7,528.9 214.2,529.1 220.6,529.3 226.9,529.6 233.2,529.8 239.5,530.1 245.8,530.4 252.0,530.7 258.2,531.0 264.4,531.3 270.5,531.7 276.6,532.0 282.6,532.4 288.6,532.8 294.6,533.1 300.4,533.5 306.3,534.0 312.1,534.4 317.8,534.8 323.5,535.2 329.1,535.7 334.7,536.1 340.3,536.6 345.8,537.1 351.2,537.5 356.6,538.0 362.0,538.5 367.3,539.0 372.5,539.5 377.7,540.0 382.9,540.5 388.0,541.0 393.0,541.6 398.0,542.1 403.0,542.6 407.9,543.2 412.8,543.7 417.6,544.3 422.3,544.8 427.1,545.4 431.7,545.9 436.3,546.5 440.9,547.1 445.4,547.6 449.9,548.2 454.3,548.8 458.7,549.3 463.0,549.9 467.3,550.5 471.5,551.0 475.7,551.6 479.8,552.2 483.9,552.8 487.9,553.3 491.9,553.9 495.8,554.5'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>B_curvature_or_lateral_failure,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='100' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='118' font-size='11' font-family='monospace' fill='#333'>Adapt speed for the upcoming road curvature</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>while following the temporary lane delineated</text>
+<text x='610' y='148' font-size='11' font-family='monospace' fill='#333'>by construction cones.</text>
+<text x='610' y='173' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>Steer right following temporary traffic</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>delineators.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Adapt speed for the narrowed construction lane</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>marked by cones</text>
+</svg>

@@ -1,0 +1,30 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 165/204 5e8ac384-e9b5-41dc ADE=7.69 FDE=19.21</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='70.3,522.9 71.8,522.9 73.3,522.8 74.8,522.8 76.3,522.8 77.8,522.8 79.3,522.7 80.8,522.7 82.5,522.7 84.4,522.7 86.6,522.7 89.0,522.6 91.7,522.6 94.6,522.6 97.5,522.7 100.6,522.7'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='103.9,522.7 107.3,522.7 111.0,522.7 114.8,522.6 118.8,522.6 123.1,522.5 127.6,522.4 132.3,522.3 137.2,522.1 142.3,521.8 147.5,521.5 152.8,521.2 158.3,520.8 164.0,520.3 169.7,519.8 175.6,519.3 181.5,518.7 187.6,518.1 193.7,517.5 199.9,516.9 206.2,516.2 212.6,515.6 219.0,514.9 225.5,514.2 232.2,513.6 238.8,512.9 245.6,512.2 252.3,511.6 259.2,511.0 266.1,510.3 273.1,509.7 280.2,509.1 287.3,508.6 294.5,508.0 301.8,507.6 309.1,507.1 316.5,506.7 324.0,506.4 331.5,506.1 339.1,505.8 346.7,505.6 354.3,505.4 362.0,505.3 369.7,505.1 377.5,505.1 385.4,505.1 393.3,505.1 401.2,505.1 409.1,505.2 417.1,505.3 425.1,505.5 433.2,505.7 441.2,505.9 449.3,506.1 457.3,506.3 465.4,506.6 473.4,506.9 481.5,507.2 489.5,507.5 497.6,507.8 505.6,508.1 513.6,508.4 521.7,508.8 529.7,509.1'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='103.8,522.7 107.0,522.7 110.4,522.7 113.8,522.7 117.3,522.7 120.8,522.7 124.5,522.7 128.2,522.8 131.9,522.8 135.7,522.9 139.6,522.9 143.5,523.0 147.4,523.0 151.4,523.1 155.5,523.2 159.5,523.3 163.7,523.4 167.8,523.5 172.1,523.6 176.3,523.7 180.6,523.8 184.9,523.9 189.3,524.0 193.6,524.1 198.1,524.2 202.5,524.3 207.0,524.4 211.5,524.5 216.0,524.7 220.5,524.8 225.1,524.9 229.7,525.0 234.2,525.1 238.8,525.3 243.4,525.4 248.0,525.5 252.6,525.7 257.1,525.8 261.7,525.9 266.3,526.1 270.9,526.2 275.5,526.3 280.1,526.5 284.7,526.6 289.3,526.8 293.8,526.9 298.4,527.0 303.0,527.2 307.6,527.3 312.2,527.5 316.7,527.6 321.3,527.8 325.9,527.9 330.5,528.1 335.1,528.2 339.7,528.4 344.2,528.6 348.8,528.7 353.4,528.9 358.0,529.0 362.5,529.2 367.1,529.4 371.7,529.5 376.2,529.7'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>G_teacher_also_far_from_gt,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>F_repetition_or_local_band_oscillation,</text>
+<text x='610' y='90' font-size='11' font-family='monospace' fill='#333'>B_curvature_or_lateral_failure,</text>
+<text x='610' y='105' font-size='11' font-family='monospace' fill='#333'>C_speed_scale_failure,</text>
+<text x='610' y='120' font-size='11' font-family='monospace' fill='#333'>D_initial_prefix_failure,</text>
+<text x='610' y='135' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='160' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='178' font-size='11' font-family='monospace' fill='#333'>Decelerate to maintain a safe distance from</text>
+<text x='610' y='193' font-size='11' font-family='monospace' fill='#333'>the cyclist ahead while navigating through the</text>
+<text x='610' y='208' font-size='11' font-family='monospace' fill='#333'>construction zone with traffic cones.</text>
+<text x='610' y='233' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='251' font-size='11' font-family='monospace' fill='#333'>Steer left following temporary traffic</text>
+<text x='610' y='266' font-size='11' font-family='monospace' fill='#333'>barriers on both sides.</text>
+<text x='610' y='291' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='309' font-size='11' font-family='monospace' fill='#333'>Turn right at the intersection since the</text>
+<text x='610' y='324' font-size='11' font-family='monospace' fill='#333'>crossing cyclist has cleared</text>
+</svg>

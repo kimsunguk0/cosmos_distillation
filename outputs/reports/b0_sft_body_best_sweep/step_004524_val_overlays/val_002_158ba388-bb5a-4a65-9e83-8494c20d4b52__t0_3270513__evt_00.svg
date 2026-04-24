@@ -1,0 +1,24 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 2/204 158ba388-bb5a-4a65 ADE=2.68 FDE=8.36</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='73.3,526.4 79.4,526.5 85.6,526.5 91.8,526.5 98.0,526.5 104.3,526.5 110.5,526.5 116.7,526.6 122.9,526.6 129.1,526.6 135.3,526.6 141.5,526.6 147.7,526.7 153.9,526.7 160.1,526.7 166.3,526.7'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='172.4,526.7 178.6,526.7 184.7,526.7 190.8,526.7 197.0,526.7 203.0,526.6 209.1,526.6 215.1,526.5 221.0,526.5 226.9,526.4 232.7,526.4 238.5,526.4 244.2,526.3 249.9,526.3 255.5,526.2 261.0,526.2 266.4,526.2 271.8,526.1 277.2,526.1 282.4,526.0 287.6,526.0 292.8,526.0 297.9,525.9 302.9,525.9 307.9,525.8 312.8,525.8 317.6,525.7 322.4,525.7 327.1,525.6 331.7,525.5 336.3,525.5 340.9,525.4 345.3,525.3 349.7,525.3 354.0,525.2 358.3,525.1 362.5,525.0 366.7,524.9 370.8,524.9 374.8,524.8 378.8,524.7 382.7,524.6 386.6,524.6 390.4,524.5 394.2,524.4 397.9,524.4 401.5,524.3 405.2,524.3 408.7,524.2 412.2,524.2 415.7,524.2 419.1,524.1 422.4,524.1 425.7,524.1 429.0,524.0 432.2,524.0 435.4,524.0 438.5,524.0 441.5,524.0 444.5,524.0 447.5,524.0 450.4,524.0 453.2,524.0 455.9,524.0'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='172.4,526.7 178.6,526.7 184.7,526.7 190.8,526.6 196.9,526.6 203.0,526.5 209.1,526.5 215.1,526.4 221.1,526.3 227.2,526.2 233.2,526.1 239.2,525.9 245.1,525.8 251.1,525.6 257.0,525.5 263.0,525.3 268.9,525.1 274.8,524.9 280.6,524.7 286.5,524.5 292.4,524.3 298.2,524.0 304.0,523.8 309.9,523.5 315.7,523.3 321.5,523.0 327.3,522.7 333.0,522.5 338.8,522.2 344.5,521.9 350.2,521.6 355.8,521.3 361.5,520.9 367.1,520.6 372.8,520.3 378.3,520.0 383.9,519.7 389.5,519.3 395.0,519.0 400.5,518.6 406.0,518.3 411.5,517.9 416.9,517.6 422.4,517.2 427.8,516.9 433.2,516.5 438.5,516.1 443.9,515.7 449.2,515.4 454.5,515.0 459.8,514.6 465.1,514.2 470.3,513.8 475.6,513.4 480.8,513.0 486.0,512.6 491.1,512.2 496.3,511.8 501.4,511.4 506.5,510.9 511.6,510.5 516.7,510.1 521.7,509.7 526.7,509.2'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='85' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='103' font-size='11' font-family='monospace' fill='#333'>Steer left to maintain a safe distance from</text>
+<text x='610' y='118' font-size='11' font-family='monospace' fill='#333'>the pedestrian on the right.</text>
+<text x='610' y='143' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='161' font-size='11' font-family='monospace' fill='#333'>Stop for the red traffic light while yielding</text>
+<text x='610' y='176' font-size='11' font-family='monospace' fill='#333'>to the pedestrians crossing the street.</text>
+<text x='610' y='201' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='219' font-size='11' font-family='monospace' fill='#333'>Nudge left due to the roadside structure</text>
+<text x='610' y='234' font-size='11' font-family='monospace' fill='#333'>encroaching from the right</text>
+</svg>

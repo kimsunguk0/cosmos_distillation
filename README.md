@@ -38,6 +38,14 @@ Neither run reproduced the old `<i1499>` single-token plateau.
 
 The important correction is that reweighting is not required for non-collapse under the full recipe. It may still be a useful training-shaping knob, but the `reweight off` ablation was actually better on ADE/FDE in this run.
 
+Main-repo artifacts for the current SFT branch:
+
+- `configs/train/stage_t1_sft_lora_reweight_off.yaml`
+- `scripts/24_continue_sft_reweight_off_10k.sh`
+- `outputs/checkpoints/stage_t1_sft_reweight_off_5k/final`
+- `outputs/reports/stage_t1_sft_reweight_off_5k_val204_overlays_summary.json`
+- `outputs/reports/stage_t1_sft_reweight_on_5k_val204_overlays_summary.json`
+
 ## What We Were Trying To Solve
 
 The target was to distill Alpamayo-style VLM trajectory generation into a Cosmos-Reason2-2B student.

@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 14/204 0e72c091-b4ab-4f12 ADE=3.86 FDE=8.68</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='117.0,482.5 122.8,482.5 128.6,482.6 134.5,482.7 140.5,482.7 146.5,482.7 152.6,482.8 158.7,482.8 164.9,482.8 171.2,482.9 177.5,482.9 183.8,482.9 190.2,482.9 196.5,483.0 202.9,483.0 209.2,483.0'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='215.5,483.0 221.8,483.0 227.9,482.9 233.9,482.9 239.9,482.9 245.7,482.9 251.4,482.9 256.9,482.9 262.3,482.8 267.4,482.8 272.4,482.8 277.2,482.8 281.8,482.7 286.1,482.7 290.2,482.7 294.1,482.7 297.7,482.6 301.1,482.6 304.1,482.6 307.0,482.6 309.5,482.6 311.9,482.5 314.1,482.5 316.2,482.5 318.2,482.5 320.0,482.5 321.7,482.5 323.3,482.5 324.7,482.4 325.9,482.4 327.0,482.4 328.0,482.4 328.7,482.4 329.3,482.4 329.8,482.4 330.2,482.4 330.4,482.4 330.6,482.4 330.8,482.4 331.0,482.4 331.2,482.4 331.3,482.4 331.5,482.4 331.6,482.4 331.7,482.4 331.8,482.4 331.9,482.4 331.9,482.4 331.9,482.4 331.9,482.4 331.9,482.4 331.9,482.4 331.9,482.4 331.9,482.4 331.9,482.4 331.9,482.4 331.9,482.4 331.9,482.4 331.9,482.4 331.9,482.4 331.9,482.4 331.9,482.4 331.9,482.4 331.9,482.4'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='215.5,483.0 221.8,483.0 228.1,483.0 234.3,483.0 240.5,482.9 246.7,482.9 252.9,482.9 259.1,482.9 265.2,482.9 271.2,482.9 277.2,482.9 283.2,482.9 289.1,482.9 294.9,482.9 300.7,482.9 306.4,482.9 312.0,482.8 317.6,482.8 323.0,482.8 328.5,482.8 333.8,482.8 339.1,482.8 344.4,482.8 349.5,482.7 354.6,482.7 359.6,482.7 364.6,482.7 369.4,482.7 374.2,482.7 379.0,482.6 383.6,482.6 388.2,482.6 392.6,482.6 397.1,482.6 401.4,482.6 405.7,482.5 409.9,482.5 414.0,482.5 418.0,482.5 422.0,482.5 425.8,482.4 429.6,482.4 433.2,482.4 436.7,482.4 440.1,482.4 443.4,482.4 446.5,482.4 449.5,482.3 452.4,482.3 455.2,482.3 457.9,482.3 460.4,482.3 462.8,482.3 465.1,482.3 467.3,482.3 469.4,482.3 471.4,482.3 473.3,482.3 475.1,482.3 476.9,482.4 478.5,482.4 480.1,482.4 481.6,482.4 483.0,482.4'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>C_speed_scale_failure,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='100' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='118' font-size='11' font-family='monospace' fill='#333'>Decelerate to maintain a safe distance from</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>the car parked in the same lane and oncoming</text>
+<text x='610' y='148' font-size='11' font-family='monospace' fill='#333'>traffic.</text>
+<text x='610' y='173' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>Stop behind the lead vehicle while yielding to</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>the pedestrian crossing the street.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Keep distance to the lead vehicle since it is</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>stopped ahead</text>
+</svg>

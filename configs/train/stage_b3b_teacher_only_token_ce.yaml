@@ -1,0 +1,49 @@
+stage_name: stage_a
+epochs: 1.0
+batch_size: 1
+max_length: 4096
+bf16: true
+gradient_checkpointing: true
+learning_rate: 5.0e-5
+
+# B3b / Teacher-only trajectory-token ablation.
+# Same setup as B3a, but GT trajectory token CE is removed.
+# This intentionally does not renormalize teacher_traj_loss; the only change
+# from B3a is traj_loss: 0.0.
+
+data_view:
+  prompt_mode: joint
+  target_mode: joint
+  teacher_pair_target: false
+  hard_view_uses_teacher_cot: true
+  enable_teacher_view: true
+  teacher_view_force_enable: true
+  teacher_view_uses_teacher_traj: true
+  teacher_view_default_traj_weight: 1.0
+  teacher_traj_topk_on_teacher_view: true
+  enable_action_aux: false
+  teacher_traj_cache_dir: /data/teacher_cache/traj15
+
+loss_weights:
+  # Legacy key name: with hard_view_uses_teacher_cot=true, this is teacher CoT hard CE.
+  gt_cot_loss: 0.08
+  teacher_cot_loss: 0.0
+  teacher_topk_kd_loss: 0.05
+  traj_loss: 0.0
+  teacher_traj_loss: 0.30
+  teacher_traj_topk_kd_loss: 0.05
+  teacher_traj_hidden_align_loss: 0.0
+  output_format_loss: 0.25
+  meta_action_loss: 0.0
+  traj_aux_loss: 0.0
+  traj_aux_xyz_loss: 0.0
+  traj_aux_final_loss: 0.0
+  traj_xyz_loss: 0.0
+  traj_delta_loss: 0.0
+  traj_final_loss: 0.0
+
+traj_token_reweighting:
+  enabled: false
+
+decode_eval:
+  enabled: false

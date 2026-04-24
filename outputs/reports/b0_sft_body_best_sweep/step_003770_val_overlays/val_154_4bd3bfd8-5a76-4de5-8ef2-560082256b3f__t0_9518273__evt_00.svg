@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 154/204 4bd3bfd8-5a76-4de5 ADE=4.05 FDE=12.78</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='86.3,510.1 92.1,510.0 97.9,509.9 103.7,509.8 109.5,509.8 115.2,509.7 121.0,509.6 126.8,509.5 132.5,509.5 138.3,509.4 144.1,509.4 149.9,509.3 155.8,509.3 161.6,509.3 167.3,509.2 173.1,509.2'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='178.8,509.2 184.5,509.2 190.1,509.2 195.7,509.2 201.3,509.3 206.9,509.3 212.4,509.4 217.8,509.4 223.3,509.4 228.6,509.5 233.9,509.5 239.2,509.5 244.5,509.4 249.7,509.4 254.8,509.3 259.9,509.2 264.9,509.1 269.9,508.9 274.9,508.8 279.8,508.6 284.7,508.4 289.6,508.2 294.4,508.0 299.3,507.7 304.2,507.4 309.0,507.2 313.9,506.9 318.8,506.6 323.7,506.3 328.7,506.0 333.7,505.6 338.7,505.3 343.7,504.9 348.8,504.4 353.9,504.0 359.0,503.5 364.2,503.0 369.4,502.5 374.7,501.9 380.0,501.3 385.4,500.7 390.8,500.0 396.2,499.4 401.6,498.7 407.0,498.0 412.5,497.3 418.0,496.7 423.6,496.0 429.1,495.3 434.7,494.7 440.2,494.0 445.8,493.4 451.4,492.7 457.1,492.1 462.7,491.5 468.4,490.8 474.0,490.2 479.7,489.6 485.3,489.0 491.0,488.4 496.6,487.8 502.3,487.2 508.0,486.6 513.7,486.0'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='178.8,509.2 184.5,509.2 190.1,509.2 195.7,509.3 201.3,509.3 206.7,509.3 212.1,509.4 217.3,509.4 222.6,509.5 227.7,509.6 232.7,509.7 237.6,509.7 242.4,509.8 247.1,509.9 251.6,510.0 256.1,510.1 260.4,510.2 264.7,510.3 268.8,510.4 272.8,510.5 276.8,510.6 280.6,510.7 284.2,510.8 287.8,510.9 291.3,511.0 294.7,511.0 297.9,511.1 301.1,511.2 304.1,511.3 307.0,511.4 309.9,511.5 312.6,511.6 315.2,511.6 317.6,511.7 320.0,511.8 322.3,511.9 324.5,512.0 326.7,512.0 328.7,512.1 330.7,512.2 332.7,512.3 334.5,512.3 336.3,512.4 338.1,512.5 339.7,512.5 341.4,512.6 343.1,512.7 344.8,512.7 346.5,512.8 348.2,512.9 349.9,512.9 351.6,513.0 353.3,513.1 355.0,513.1 356.8,513.2 358.5,513.2 360.2,513.3 362.0,513.4 363.7,513.4 365.4,513.5 367.2,513.5 369.0,513.6 370.7,513.7 372.5,513.7'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>C_speed_scale_failure,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='100' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='118' font-size='11' font-family='monospace' fill='#333'>Decelerate to maintain a safe distance from</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>the pedestrians crossing the road at the</text>
+<text x='610' y='148' font-size='11' font-family='monospace' fill='#333'>crosswalk.</text>
+<text x='610' y='173' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>Gentle deceleration to yield to pedestrians on</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>the road.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Yield due to pedestrians walking in our lane</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>ahead</text>
+</svg>

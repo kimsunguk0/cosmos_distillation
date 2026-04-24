@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 165/204 5e8ac384-e9b5-41dc ADE=6.56 FDE=15.06</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='70.3,529.7 71.8,529.7 73.3,529.6 74.8,529.6 76.3,529.6 77.8,529.5 79.3,529.5 80.8,529.5 82.5,529.5 84.4,529.5 86.6,529.4 89.0,529.4 91.7,529.4 94.6,529.4 97.5,529.4 100.6,529.4'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='103.9,529.4 107.3,529.4 111.0,529.4 114.8,529.4 118.8,529.4 123.1,529.3 127.6,529.2 132.3,529.1 137.2,528.9 142.3,528.6 147.5,528.3 152.8,528.0 158.3,527.6 164.0,527.1 169.7,526.6 175.6,526.0 181.5,525.5 187.6,524.9 193.7,524.3 199.9,523.6 206.2,523.0 212.6,522.3 219.0,521.7 225.5,521.0 232.2,520.4 238.8,519.7 245.6,519.0 252.3,518.4 259.2,517.7 266.1,517.1 273.1,516.5 280.2,515.9 287.3,515.4 294.5,514.8 301.8,514.3 309.1,513.9 316.5,513.5 324.0,513.2 331.5,512.8 339.1,512.6 346.7,512.4 354.3,512.2 362.0,512.0 369.7,511.9 377.5,511.9 385.4,511.9 393.3,511.9 401.2,511.9 409.1,512.0 417.1,512.1 425.1,512.3 433.2,512.4 441.2,512.7 449.3,512.9 457.3,513.1 465.4,513.4 473.4,513.7 481.5,514.0 489.5,514.3 497.6,514.6 505.6,514.9 513.6,515.2 521.7,515.5 529.7,515.9'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='103.8,529.4 107.0,529.4 110.3,529.4 113.7,529.4 117.2,529.4 120.7,529.4 124.2,529.4 127.9,529.4 131.6,529.3 135.3,529.3 139.1,529.2 142.9,529.1 146.8,529.0 150.7,528.9 154.7,528.8 158.8,528.7 162.8,528.5 167.0,528.3 171.1,528.2 175.4,528.0 179.7,527.7 184.1,527.5 188.6,527.3 193.1,527.0 197.7,526.7 202.3,526.4 207.0,526.1 211.8,525.8 216.6,525.5 221.5,525.1 226.5,524.8 231.6,524.4 236.7,524.1 241.8,523.7 247.0,523.3 252.2,523.0 257.5,522.6 262.8,522.2 268.2,521.8 273.6,521.4 279.1,521.1 284.5,520.7 290.0,520.3 295.5,519.9 301.0,519.5 306.6,519.2 312.1,518.8 317.7,518.4 323.3,518.1 328.9,517.7 334.6,517.4 340.2,517.0 345.9,516.7 351.6,516.3 357.2,516.0 362.9,515.7 368.6,515.4 374.3,515.0 380.0,514.7 385.7,514.4 391.3,514.1 397.0,513.9 402.7,513.6 408.4,513.3'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>G_teacher_also_far_from_gt,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>D_initial_prefix_failure,</text>
+<text x='610' y='90' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='115' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>Steer left to return to the driving lane after</text>
+<text x='610' y='148' font-size='11' font-family='monospace' fill='#333'>passing the construction zone.</text>
+<text x='610' y='173' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>Steer left following temporary traffic</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>barriers on both sides.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Turn right at the intersection since the</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>crossing cyclist has cleared</text>
+</svg>

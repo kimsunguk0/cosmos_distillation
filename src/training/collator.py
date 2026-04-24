@@ -349,6 +349,24 @@ def _build_label_token_weights(
     return weights
 
 
+def _teacher_traj_token_kd_weights_from_sample(sample_weights: Mapping[str, Any]) -> np.ndarray | None:
+    """Read optional per-body-token teacher trajectory KD weights from a corpus record."""
+    raw_weights = None
+    for key in ("teacher_traj_token_kd_weights", "teacher_traj_kd_token_weights", "teacher_traj_token_weights"):
+        if key in sample_weights and sample_weights[key] is not None:
+            raw_weights = sample_weights[key]
+            break
+    if raw_weights is None:
+        return None
+    if isinstance(raw_weights, (int, float)):
+        return np.full((128,), float(raw_weights), dtype=np.float32)
+    try:
+        weights = np.asarray(raw_weights, dtype=np.float32).reshape(-1)
+    except (TypeError, ValueError):
+        return None
+    return weights if weights.size > 0 else None
+
+
 def _pad_ego_history_batch(history_items: list[np.ndarray]) -> tuple[torch.Tensor, torch.Tensor]:
     max_steps = max(item.shape[0] for item in history_items)
     max_dim = max(item.shape[-1] for item in history_items)
@@ -503,6 +521,54 @@ def _pad_teacher_signal_batch(
     return outputs
 
 
+def _pad_teacher_traj_topk_batch(
+    signal_items: list[dict[str, np.ndarray | float] | None],
+    traj_token_masks: torch.Tensor,
+    tokenizer: Any,
+) -> dict[str, torch.Tensor]:
+    """Pad teacher trajectory top-k caches for a teacher trajectory view."""
+    outputs: dict[str, torch.Tensor] = {}
+    topk_ready = [item for item in signal_items if item is not None and "topk_indices" in item and "topk_logprobs" in item]
+    if not topk_ready:
+        return outputs
+    topk = int(np.asarray(topk_ready[0]["topk_indices"]).shape[-1])
+    max_tokens = max(
+        min(
+            int(np.asarray(item["topk_indices"]).shape[0]),
+            int(torch.count_nonzero(traj_token_masks[row_index]).item()),
+        )
+        for row_index, item in enumerate(signal_items)
+        if item is not None and "topk_indices" in item and "topk_logprobs" in item
+    )
+    teacher_traj_topk_indices = torch.zeros((len(signal_items), max_tokens, topk), dtype=torch.long)
+    teacher_traj_topk_logprobs = torch.zeros((len(signal_items), max_tokens, topk), dtype=torch.float32)
+    teacher_traj_topk_mask = torch.zeros((len(signal_items), max_tokens), dtype=torch.bool)
+    traj_token_start_idx = getattr(tokenizer, "traj_token_start_idx", None)
+    if not isinstance(traj_token_start_idx, int) or traj_token_start_idx < 0:
+        raise ValueError("Tokenizer is missing traj_token_start_idx required for teacher traj cache.")
+    for row_index, item in enumerate(signal_items):
+        if item is None or "topk_indices" not in item or "topk_logprobs" not in item:
+            continue
+        raw_indices = np.asarray(item["topk_indices"], dtype=np.int32)
+        raw_logprobs = np.asarray(item["topk_logprobs"], dtype=np.float32)
+        token_count = min(
+            int(raw_indices.shape[0]),
+            int(torch.count_nonzero(traj_token_masks[row_index]).item()),
+            max_tokens,
+        )
+        if token_count <= 0:
+            continue
+        teacher_traj_topk_indices[row_index, :token_count] = torch.from_numpy(
+            raw_indices[:token_count] + int(traj_token_start_idx)
+        ).long()
+        teacher_traj_topk_logprobs[row_index, :token_count] = torch.from_numpy(raw_logprobs[:token_count]).float()
+        teacher_traj_topk_mask[row_index, :token_count] = True
+    outputs["teacher_traj_topk_indices"] = teacher_traj_topk_indices
+    outputs["teacher_traj_topk_logprobs"] = teacher_traj_topk_logprobs
+    outputs["teacher_traj_topk_mask"] = teacher_traj_topk_mask
+    return outputs
+
+
 def _action_aux_label(sample: dict[str, Any]) -> str | None:
     teacher_target = sample.get("teacher_target") or {}
     derived = sample.get("derived") or {}
@@ -532,6 +598,11 @@ class DistillationCollator:
     teacher_traj_cache_dir: Path | None = None
     teacher_traj_hidden_source: str = "hidden"
     teacher_traj_latent_suffix: str = "lat32"
+    hard_view_uses_teacher_cot: bool = False
+    teacher_view_force_enable: bool = False
+    teacher_view_uses_teacher_traj: bool = False
+    teacher_view_default_traj_weight: float = 0.0
+    teacher_traj_topk_on_teacher_view: bool = False
 
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, Any]:
         prompt_messages: list[list[dict[str, Any]]] = []
@@ -556,12 +627,14 @@ class DistillationCollator:
         hard_teacher_signal_items: list[dict[str, np.ndarray | int] | None] = []
         hard_teacher_signal_weights: list[float] = []
         hard_teacher_quality_multiplier: list[float] = []
+        teacher_traj_token_weight_items: list[np.ndarray | None] = []
 
         teacher_prompt_messages: list[list[dict[str, Any]]] = []
         teacher_full_messages: list[list[dict[str, Any]]] = []
         teacher_image_batch: list[list[Image.Image]] = []
         teacher_layouts: list[TargetLayout] = []
         teacher_signal_items: list[dict[str, np.ndarray | int] | None] = []
+        teacher_view_traj_signal_items: list[dict[str, np.ndarray | float] | None] = []
         teacher_sample_ids: list[str] = []
         teacher_source_indices: list[int] = []
         teacher_seq_ce_weights: list[float] = []
@@ -583,10 +656,19 @@ class DistillationCollator:
                 teacher_traj_latent_suffix=self.teacher_traj_latent_suffix,
             )
             explicit_teacher_traj_weight = resolve_optional_loss_weight_value(weights, "teacher_traj_ce")
+            teacher_traj_token_weight_items.append(_teacher_traj_token_kd_weights_from_sample(weights))
 
             traj_token_ids = [int(token_id) for token_id in hard_target.get("traj_future_token_ids") or []]
             target_cot_text = hard_target.get("cot_text")
             target_provenance = "hard_target"
+            if self.hard_view_uses_teacher_cot and not self.teacher_pair_target:
+                teacher_pair_cot = str(teacher_target.get("cot_text") or "").strip()
+                if not teacher_pair_cot:
+                    raise ValueError(
+                        f"Sample {sample.get('sample_id')} is missing teacher_target.cot_text required for hard_view_uses_teacher_cot"
+                    )
+                target_cot_text = teacher_pair_cot
+                target_provenance = "teacher_cot_gt_traj"
             if self.teacher_pair_target:
                 teacher_pair_traj_ids = [int(token_id) for token_id in (teacher_traj_signal or {}).get("token_ids", [])]
                 if not teacher_pair_traj_ids:
@@ -650,11 +732,15 @@ class DistillationCollator:
             action_labels.append(action_class_to_id(_action_aux_label(sample)))
             hard_cot_weights.append(resolve_loss_weight_value(weights, "hard_cot_ce", 1.0))
             traj_weights.append(resolve_loss_weight_value(weights, "traj_ce", 1.0))
+            teacher_pair_traj_ids_for_view = [
+                int(token_id) for token_id in (teacher_traj_signal or {}).get("token_ids", [])
+            ]
             teacher_allowed = (
                 self.enable_teacher_view
                 and self.target_mode != "traj_only"
-                and bool(gate.get("teacher_view_allowed"))
                 and bool(teacher_target.get("cot_text"))
+                and (self.teacher_view_force_enable or bool(gate.get("teacher_view_allowed")))
+                and (not self.teacher_view_uses_teacher_traj or bool(teacher_pair_traj_ids_for_view))
             )
             teacher_weight = float(gate.get("teacher_view_weight") or teacher_target.get("teacher_view_weight") or 0.0)
             teacher_view_allowed.append(teacher_allowed)
@@ -664,8 +750,12 @@ class DistillationCollator:
             action_aux_allowed.append(aux_allowed)
             action_aux_weight.append(aux_weight if aux_allowed else 0.0)
             teacher_traj_signal_items.append(teacher_traj_signal)
-            hard_teacher_signal_items.append(teacher_signal if self.teacher_pair_target else None)
-            hard_teacher_signal_weights.append(1.0 if self.teacher_pair_target and teacher_signal is not None else 0.0)
+            hard_teacher_signal_items.append(
+                teacher_signal if (self.teacher_pair_target or self.hard_view_uses_teacher_cot) else None
+            )
+            hard_teacher_signal_weights.append(
+                1.0 if (self.teacher_pair_target or self.hard_view_uses_teacher_cot) and teacher_signal is not None else 0.0
+            )
             hard_teacher_quality_multiplier.append(float(teacher_target.get("teacher_quality_multiplier", 1.0)))
 
             if not teacher_allowed:
@@ -674,6 +764,8 @@ class DistillationCollator:
             teacher_layout_traj_ids = traj_token_ids
             if not self.teacher_pair_target:
                 teacher_layout_traj_ids = [int(token_id) for token_id in hard_target.get("traj_future_token_ids") or []]
+            if self.teacher_view_uses_teacher_traj:
+                teacher_layout_traj_ids = teacher_pair_traj_ids_for_view
             teacher_layout = _build_target_layout(
                 self.tokenizer,
                 teacher_target.get("cot_text"),
@@ -684,6 +776,7 @@ class DistillationCollator:
             teacher_image_batch.append(images)
             teacher_layouts.append(teacher_layout)
             teacher_signal_items.append(teacher_signal)
+            teacher_view_traj_signal_items.append(teacher_traj_signal)
             teacher_sample_ids.append(str(sample.get("sample_id")))
             teacher_source_indices.append(sample_index)
             teacher_seq_ce_weights.append(resolve_loss_weight_value(weights, "teacher_seq_ce", teacher_weight))
@@ -695,7 +788,7 @@ class DistillationCollator:
             teacher_traj_weights.append(
                 explicit_teacher_traj_weight
                 if explicit_teacher_traj_weight is not None
-                else 0.0
+                else (float(self.teacher_view_default_traj_weight) if self.teacher_view_uses_teacher_traj else 0.0)
             )
             teacher_quality_multiplier.append(float(teacher_target.get("teacher_quality_multiplier", 1.0)))
 
@@ -745,6 +838,7 @@ class DistillationCollator:
             "teacher_quality_multiplier": torch.ones((len(features),), dtype=torch.float32),
             "teacher_pair_weight": torch.tensor(hard_teacher_signal_weights, dtype=torch.float32),
             "teacher_pair_quality_multiplier": torch.tensor(hard_teacher_quality_multiplier, dtype=torch.float32),
+            "teacher_traj_topk_on_teacher_view": self.teacher_traj_topk_on_teacher_view,
             "action_class_labels": torch.tensor(action_labels, dtype=torch.long),
             "hard_cot_weights": torch.tensor(hard_cot_weights, dtype=torch.float32),
             "traj_weights": torch.tensor(traj_weights, dtype=torch.float32),
@@ -761,8 +855,12 @@ class DistillationCollator:
         )
         batch["teacher_traj_available"] = teacher_traj_available
         batch["teacher_traj_quality_multiplier"] = teacher_traj_quality
+        has_teacher_traj_token_weights = any(item is not None for item in teacher_traj_token_weight_items)
         if any(item is not None and "token_ids" in item for item in teacher_traj_signal_items):
             teacher_traj_labels = torch.full_like(labels, IGNORE_INDEX)
+            teacher_traj_label_token_weights = (
+                torch.ones_like(labels, dtype=torch.float32) if has_teacher_traj_token_weights else None
+            )
             for row_index, item in enumerate(teacher_traj_signal_items):
                 if item is None or "token_ids" not in item:
                     continue
@@ -785,7 +883,16 @@ class DistillationCollator:
                     tokenizer_token_ids,
                     dtype=teacher_traj_labels.dtype,
                 )
+                if teacher_traj_label_token_weights is not None:
+                    raw_weights = teacher_traj_token_weight_items[row_index]
+                    if raw_weights is not None:
+                        weight_count = min(int(raw_weights.shape[0]), token_count)
+                        teacher_traj_label_token_weights[row_index, active_positions[:weight_count]] = torch.from_numpy(
+                            raw_weights[:weight_count]
+                        ).float()
             batch["teacher_traj_labels"] = teacher_traj_labels
+            if teacher_traj_label_token_weights is not None:
+                batch["teacher_traj_label_token_weights"] = teacher_traj_label_token_weights
         topk_ready = [item for item in teacher_traj_signal_items if item is not None and "topk_indices" in item]
         if topk_ready:
             topk = int(np.asarray(topk_ready[0]["topk_indices"]).shape[-1])
@@ -800,6 +907,11 @@ class DistillationCollator:
             teacher_traj_topk_indices = torch.zeros((len(features), max_tokens, topk), dtype=torch.long)
             teacher_traj_topk_logprobs = torch.zeros((len(features), max_tokens, topk), dtype=torch.float32)
             teacher_traj_topk_mask = torch.zeros((len(features), max_tokens), dtype=torch.bool)
+            teacher_traj_token_weights = (
+                torch.ones((len(features), max_tokens), dtype=torch.float32)
+                if has_teacher_traj_token_weights
+                else None
+            )
             traj_token_start_idx = getattr(self.tokenizer, "traj_token_start_idx", None)
             if not isinstance(traj_token_start_idx, int) or traj_token_start_idx < 0:
                 raise ValueError("Tokenizer is missing traj_token_start_idx required for teacher traj cache.")
@@ -820,9 +932,18 @@ class DistillationCollator:
                 ).long()
                 teacher_traj_topk_logprobs[row_index, :token_count] = torch.from_numpy(raw_logprobs[:token_count]).float()
                 teacher_traj_topk_mask[row_index, :token_count] = True
+                if teacher_traj_token_weights is not None:
+                    raw_weights = teacher_traj_token_weight_items[row_index]
+                    if raw_weights is not None:
+                        weight_count = min(int(raw_weights.shape[0]), token_count)
+                        teacher_traj_token_weights[row_index, :weight_count] = torch.from_numpy(
+                            raw_weights[:weight_count]
+                        ).float()
             batch["teacher_traj_topk_indices"] = teacher_traj_topk_indices
             batch["teacher_traj_topk_logprobs"] = teacher_traj_topk_logprobs
             batch["teacher_traj_topk_mask"] = teacher_traj_topk_mask
+            if teacher_traj_token_weights is not None:
+                batch["teacher_traj_token_weights"] = teacher_traj_token_weights
         hidden_ready = [item for item in teacher_traj_signal_items if item is not None and "hidden" in item]
         if hidden_ready:
             hidden_dim = int(np.asarray(hidden_ready[0]["hidden"]).shape[-1])
@@ -923,6 +1044,14 @@ class DistillationCollator:
                 "teacher_quality_multiplier": torch.tensor(teacher_quality_multiplier, dtype=torch.float32),
             }
             teacher_view_batch.update(_pad_teacher_signal_batch(teacher_signal_items, teacher_masks["cot_content_positions"]))
+            if self.teacher_traj_topk_on_teacher_view:
+                teacher_view_batch.update(
+                    _pad_teacher_traj_topk_batch(
+                        teacher_view_traj_signal_items,
+                        teacher_masks["traj_token_mask"],
+                        self.tokenizer,
+                    )
+                )
             teacher_traj_token_label_weights = _build_label_token_weights(
                 teacher_labels,
                 teacher_masks["traj_token_mask"],

@@ -1,0 +1,104 @@
+{
+  "mode": "data_only_dry_run",
+  "corpus_jsonl": "data/corpus/distill_v3_2_959_b1d_horizon.jsonl",
+  "train_records": 2,
+  "train_records_with_materialized_assets": 2,
+  "all_train_records": 754,
+  "val_records": 204,
+  "val_records_with_materialized_assets": 204,
+  "all_val_records": 204,
+  "teacher_ready_records": 2,
+  "action_aux_ready_records": 2,
+  "val_teacher_ready_records": 193,
+  "val_action_aux_ready_records": 182,
+  "stage_name": "stage_a",
+  "batch_size": 1,
+  "epochs": 1.0,
+  "max_length": 4096,
+  "steps_per_epoch": 2,
+  "resolved_max_steps": 2,
+  "eval_every_steps": 1,
+  "save_every_steps": 2,
+  "student_model": "/workspace/base_models_weights/Cosmos-Reason2-2B",
+  "prompt_mode": "joint",
+  "target_mode": "joint",
+  "teacher_pair_target": false,
+  "enable_teacher_view": false,
+  "enable_action_aux": false,
+  "teacher_traj_cache_dir": "/data/teacher_cache/traj15",
+  "teacher_traj_hidden_size": null,
+  "traj_hidden_bridge_size": null,
+  "traj_aux_num_buckets": 1,
+  "traj_aux_interface": {
+    "enabled": true,
+    "num_buckets": 1,
+    "normalize_targets": false,
+    "tanh_bound": 3.0,
+    "huber_delta": 1.0,
+    "decode_tanh_scale": 1.0,
+    "decode_edge_margin": 0,
+    "decode_prior_sigma": 96.0
+  },
+  "traj_hidden_bridge": {},
+  "optimization": {},
+  "curriculum": {},
+  "traj_body_prefix_tokens": null,
+  "interface_loss_weights": null,
+  "traj_token_reweighting": {
+    "enabled": false
+  },
+  "traj_decode": {
+    "enabled": true,
+    "config_path": "/workspace/base_models_weights/Alpamayo-1.5-10B/config.json",
+    "num_bins": 3000,
+    "n_waypoints": 64,
+    "short_horizon_steps": 24,
+    "short_horizon_weight": 1.0
+  },
+  "decode_eval": {
+    "enabled": false,
+    "split": "val",
+    "num_samples": 8
+  },
+  "first_batch_shapes": {
+    "input_ids": [
+      1,
+      3403
+    ],
+    "labels": [
+      1,
+      3403
+    ],
+    "cot_span_mask": [
+      1,
+      3403
+    ],
+    "traj_span_mask": [
+      1,
+      3403
+    ],
+    "pixel_values": [
+      11520,
+      1536
+    ],
+    "image_grid_thw": [
+      16,
+      3
+    ],
+    "teacher_view_input_ids": null,
+    "teacher_topk_indices": null,
+    "teacher_traj_topk_indices": [
+      1,
+      128,
+      32
+    ],
+    "teacher_traj_token_weights": [
+      1,
+      128
+    ],
+    "teacher_traj_label_token_weights": [
+      1,
+      3403
+    ]
+  }
+}

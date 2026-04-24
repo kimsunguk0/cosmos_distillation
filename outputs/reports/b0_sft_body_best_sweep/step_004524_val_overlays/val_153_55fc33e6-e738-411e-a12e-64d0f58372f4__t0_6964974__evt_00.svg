@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 153/204 55fc33e6-e738-411e ADE=6.86 FDE=22.56</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='105.2,493.4 106.9,493.4 108.6,493.4 110.4,493.4 112.4,493.4 114.4,493.4 116.6,493.4 118.9,493.4 121.3,493.4 123.7,493.4 126.3,493.4 128.9,493.4 131.5,493.4 134.1,493.5 136.6,493.5 138.9,493.5'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='141.0,493.5 143.0,493.5 144.8,493.4 146.3,493.4 147.7,493.4 148.9,493.4 149.9,493.4 150.8,493.4 151.6,493.4 152.2,493.4 152.8,493.4 153.3,493.4 153.8,493.4 154.2,493.4 154.5,493.4 154.8,493.4 155.0,493.4 155.2,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4 155.3,493.4'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='141.1,493.5 143.1,493.5 145.1,493.5 147.0,493.5 148.9,493.5 150.7,493.5 152.5,493.5 154.2,493.5 156.0,493.5 157.8,493.5 159.6,493.5 161.4,493.5 163.2,493.5 165.0,493.5 166.8,493.5 168.6,493.5 170.5,493.5 172.4,493.5 174.4,493.5 176.6,493.5 178.8,493.5 181.3,493.4 183.9,493.4 186.7,493.4 189.8,493.4 193.1,493.4 196.6,493.4 200.4,493.4 204.4,493.4 208.7,493.4 213.3,493.4 218.2,493.4 223.3,493.3 228.6,493.3 234.2,493.3 240.0,493.3 246.1,493.3 252.3,493.3 258.8,493.3 265.6,493.3 272.5,493.3 279.7,493.3 287.1,493.3 294.7,493.3 302.5,493.3 310.6,493.3 318.9,493.4 327.5,493.4 336.2,493.4 345.2,493.5 354.4,493.5 363.8,493.6 373.5,493.6 383.4,493.7 393.5,493.7 403.8,493.8 414.4,493.9 425.2,494.0 436.2,494.1 447.4,494.2 458.9,494.3 470.6,494.5 482.6,494.6 494.8,494.8'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>A_stop_or_decel_failure,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>C_speed_scale_failure,</text>
+<text x='610' y='90' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='115' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>Stop behind the lead vehicle in the same lane</text>
+<text x='610' y='148' font-size='11' font-family='monospace' fill='#333'>while a pedestrian crosses the crosswalk.</text>
+<text x='610' y='173' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>Stop for the pedestrian crossing the road at</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>the crosswalk.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Yield due to a pedestrian walking across the</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>crosswalk ahead</text>
+</svg>

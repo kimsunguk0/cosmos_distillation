@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 77/204 e6c42304-9c10-4f76 ADE=2.21 FDE=7.60</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='88.1,511.7 91.2,511.7 94.4,511.7 97.6,511.7 101.0,511.7 104.5,511.7 108.1,511.7 111.9,511.8 115.7,511.8 119.6,511.8 123.6,511.8 127.7,511.8 131.9,511.8 136.1,511.8 140.3,511.8 144.7,511.8'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='149.1,511.8 153.6,511.9 158.1,511.8 162.8,511.8 167.5,511.8 172.2,511.8 177.1,511.8 182.0,511.8 186.9,511.7 191.9,511.7 196.9,511.6 201.9,511.5 206.9,511.5 212.0,511.4 217.1,511.3 222.2,511.2 227.3,511.0 232.5,510.9 237.6,510.7 242.8,510.6 248.0,510.4 253.2,510.1 258.5,509.9 263.7,509.7 269.0,509.4 274.4,509.0 279.8,508.7 285.2,508.3 290.7,507.8 296.2,507.3 301.8,506.8 307.5,506.2 313.2,505.5 318.9,504.8 324.7,504.0 330.5,503.1 336.4,502.2 342.2,501.3 348.2,500.3 354.1,499.2 360.2,498.0 366.3,496.8 372.4,495.5 378.6,494.1 384.8,492.7 391.1,491.2 397.4,489.7 403.7,488.1 410.1,486.4 416.6,484.7 423.1,482.9 429.7,481.0 436.3,479.0 442.9,477.0 449.7,474.9 456.4,472.8 463.2,470.5 470.1,468.2 477.0,465.8 483.9,463.3 490.9,460.8 497.8,458.2 504.8,455.5 511.9,452.8'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='149.1,511.8 153.5,511.8 158.0,511.8 162.5,511.8 167.0,511.8 171.5,511.8 176.1,511.8 180.7,511.8 185.3,511.8 190.0,511.8 194.6,511.7 199.3,511.7 204.0,511.7 208.6,511.7 213.3,511.7 218.0,511.6 222.7,511.6 227.4,511.6 232.1,511.6 236.8,511.6 241.6,511.5 246.3,511.5 251.0,511.5 255.7,511.4 260.4,511.4 265.2,511.4 269.9,511.4 274.6,511.3 279.3,511.3 284.1,511.3 288.8,511.3 293.6,511.3 298.3,511.2 303.1,511.2 307.9,511.2 312.7,511.2 317.4,511.2 322.2,511.2 327.0,511.2 331.7,511.1 336.4,511.1 341.1,511.1 345.7,511.1 350.4,511.1 355.0,511.1 359.6,511.1 364.3,511.1 368.9,511.1 373.6,511.1 378.3,511.1 383.0,511.1 387.7,511.1 392.4,511.1 397.2,511.1 401.9,511.1 406.7,511.1 411.5,511.1 416.4,511.1 421.2,511.1 426.1,511.1 430.9,511.1 435.8,511.2 440.7,511.2 445.6,511.2'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>B_curvature_or_lateral_failure,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='100' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='118' font-size='11' font-family='monospace' fill='#333'>Maintain lane and proceed along the route</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>while navigating through the construction</text>
+<text x='610' y='148' font-size='11' font-family='monospace' fill='#333'>zone.</text>
+<text x='610' y='173' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>Steer left following temporary traffic</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>delineators.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Keep distance to the lead vehicle since it is</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>directly ahead in our lane</text>
+</svg>

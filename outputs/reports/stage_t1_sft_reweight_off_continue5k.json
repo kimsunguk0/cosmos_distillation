@@ -1,0 +1,127 @@
+{
+  "mode": "train",
+  "student_model": "/workspace/base_models_weights/Cosmos-Reason2-2B",
+  "stage_name": "stage_a",
+  "train_records": 754,
+  "all_train_records": 754,
+  "val_records": 204,
+  "all_val_records": 204,
+  "teacher_ready_records": 714,
+  "action_aux_ready_records": 657,
+  "val_teacher_ready_records": 193,
+  "val_action_aux_ready_records": 182,
+  "global_steps": 5000,
+  "steps_per_epoch": 754,
+  "requested_epochs": 1.0,
+  "completed_epochs": 6.63129973474801,
+  "resolved_max_steps": 5000,
+  "eval_every_steps": 753246,
+  "save_every_steps": 754,
+  "effective_batch_size": 1,
+  "learning_rate": 0.0001,
+  "use_lora": true,
+  "multi_gpu_mode": "single",
+  "cuda_visible_devices": "0",
+  "device_count": 1,
+  "device_ids": [
+    0
+  ],
+  "best_val_total_loss": null,
+  "best_decode_score": null,
+  "best_decode_checkpoint_dir": null,
+  "consecutive_val_regressions": 0,
+  "early_stop_enabled": false,
+  "early_stop_stage": "stage_b",
+  "early_stop_patience": 9999,
+  "early_stop_triggered": false,
+  "early_stop_reason": null,
+  "eval_history": [],
+  "saved_checkpoints": [
+    {
+      "global_step": 754,
+      "checkpoint_dir": "/workspace/cosmos_distillation/outputs/checkpoints/stage_t1_sft_reweight_off_continue5k/step_000754",
+      "checkpoint": {
+        "format": "lora_adapter",
+        "adapter_dir": "lora_adapter",
+        "meta_action_head": "meta_action_head.pt",
+        "traj_aux_head": "traj_aux_head.pt",
+        "traj_aux_num_buckets": 1
+      }
+    },
+    {
+      "global_step": 1508,
+      "checkpoint_dir": "/workspace/cosmos_distillation/outputs/checkpoints/stage_t1_sft_reweight_off_continue5k/step_001508",
+      "checkpoint": {
+        "format": "lora_adapter",
+        "adapter_dir": "lora_adapter",
+        "meta_action_head": "meta_action_head.pt",
+        "traj_aux_head": "traj_aux_head.pt",
+        "traj_aux_num_buckets": 1
+      }
+    },
+    {
+      "global_step": 2262,
+      "checkpoint_dir": "/workspace/cosmos_distillation/outputs/checkpoints/stage_t1_sft_reweight_off_continue5k/step_002262",
+      "checkpoint": {
+        "format": "lora_adapter",
+        "adapter_dir": "lora_adapter",
+        "meta_action_head": "meta_action_head.pt",
+        "traj_aux_head": "traj_aux_head.pt",
+        "traj_aux_num_buckets": 1
+      }
+    },
+    {
+      "global_step": 3016,
+      "checkpoint_dir": "/workspace/cosmos_distillation/outputs/checkpoints/stage_t1_sft_reweight_off_continue5k/step_003016",
+      "checkpoint": {
+        "format": "lora_adapter",
+        "adapter_dir": "lora_adapter",
+        "meta_action_head": "meta_action_head.pt",
+        "traj_aux_head": "traj_aux_head.pt",
+        "traj_aux_num_buckets": 1
+      }
+    },
+    {
+      "global_step": 3770,
+      "checkpoint_dir": "/workspace/cosmos_distillation/outputs/checkpoints/stage_t1_sft_reweight_off_continue5k/step_003770",
+      "checkpoint": {
+        "format": "lora_adapter",
+        "adapter_dir": "lora_adapter",
+        "meta_action_head": "meta_action_head.pt",
+        "traj_aux_head": "traj_aux_head.pt",
+        "traj_aux_num_buckets": 1
+      }
+    },
+    {
+      "global_step": 4524,
+      "checkpoint_dir": "/workspace/cosmos_distillation/outputs/checkpoints/stage_t1_sft_reweight_off_continue5k/step_004524",
+      "checkpoint": {
+        "format": "lora_adapter",
+        "adapter_dir": "lora_adapter",
+        "meta_action_head": "meta_action_head.pt",
+        "traj_aux_head": "traj_aux_head.pt",
+        "traj_aux_num_buckets": 1
+      }
+    }
+  ],
+  "versions": {
+    "canonical_localization_version": "v2_explicit_t0_anchor",
+    "path_semantics_version": "v2_action_turn_stop_records",
+    "teacher_runtime_bundle_version": "v2_runtime_only_bundle",
+    "teacher_prompt_family_version": "v5_official_cot_plus_honest_vqa_probe",
+    "teacher_selection_policy_version": "v5_long_cot_primary_honest_teacher_contract",
+    "kd_schema_version": "v5_long_cot_primary_meta_derived_answer_probe",
+    "teacher_signal_cache_version": "v3_field_scoped_sparse_topk"
+  },
+  "elapsed_sec": 9818.242,
+  "metrics_path": "/workspace/cosmos_distillation/outputs/checkpoints/stage_t1_sft_reweight_off_continue5k/metrics.jsonl",
+  "output_dir": "/workspace/cosmos_distillation/outputs/checkpoints/stage_t1_sft_reweight_off_continue5k",
+  "checkpoint_dir": "/workspace/cosmos_distillation/outputs/checkpoints/stage_t1_sft_reweight_off_continue5k/final",
+  "checkpoint": {
+    "format": "lora_adapter",
+    "adapter_dir": "lora_adapter",
+    "meta_action_head": "meta_action_head.pt",
+    "traj_aux_head": "traj_aux_head.pt",
+    "traj_aux_num_buckets": 1
+  }
+}

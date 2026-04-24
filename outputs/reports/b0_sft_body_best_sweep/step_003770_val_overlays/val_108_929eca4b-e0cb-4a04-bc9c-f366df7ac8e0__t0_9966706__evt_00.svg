@@ -1,0 +1,27 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 108/204 929eca4b-e0cb-4a04 ADE=7.37 FDE=27.44</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='45.9,458.8 52.7,458.3 59.5,457.8 66.3,457.3 73.1,456.9 79.9,456.5 86.7,456.1 93.4,455.8 100.1,455.6 106.8,455.3 113.4,455.1 120.1,454.9 126.7,454.8 133.3,454.7 139.9,454.6 146.5,454.6'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='153.0,454.6 159.6,454.6 166.1,454.8 172.6,454.9 179.0,455.2 185.5,455.5 192.0,455.8 198.4,456.2 204.8,456.6 211.3,457.2 217.7,457.7 224.1,458.4 230.5,459.0 236.9,459.8 243.4,460.5 249.8,461.3 256.2,462.1 262.6,463.0 269.0,463.9 275.5,464.8 281.9,465.8 288.3,466.8 294.8,467.9 301.2,469.1 307.6,470.3 314.0,471.6 320.4,472.9 326.7,474.3 333.1,475.7 339.4,477.2 345.7,478.8 352.0,480.4 358.4,482.0 364.7,483.7 371.0,485.4 377.3,487.1 383.7,488.9 390.0,490.7 396.4,492.5 402.8,494.4 409.2,496.3 415.5,498.3 421.9,500.3 428.3,502.3 434.7,504.4 441.1,506.6 447.5,508.8 453.9,511.0 460.3,513.3 466.7,515.7 473.0,518.1 479.4,520.6 485.7,523.1 492.0,525.7 498.3,528.4 504.6,531.1 510.9,533.8 517.1,536.6 523.4,539.4 529.6,542.2 535.7,545.2 541.9,548.1 548.0,551.1 554.1,554.1'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='153.0,454.6 159.6,454.6 166.1,454.7 172.6,454.8 179.1,454.9 185.6,455.0 192.1,455.2 198.5,455.4 205.0,455.7 211.4,456.0 217.8,456.4 224.2,456.8 230.6,457.3 237.0,457.8 243.3,458.4 249.7,459.0 256.0,459.6 262.4,460.3 268.7,461.0 275.0,461.6 281.3,462.3 287.7,463.0 294.0,463.7 300.3,464.4 306.6,465.1 312.9,465.8 319.2,466.4 325.4,467.0 331.7,467.6 338.0,468.2 344.3,468.7 350.6,469.2 356.8,469.6 363.1,470.1 369.3,470.5 375.6,470.8 381.8,471.2 388.0,471.5 394.2,471.7 400.4,472.0 406.6,472.2 412.8,472.4 419.0,472.5 425.1,472.6 431.2,472.7 437.4,472.7 443.5,472.7 449.6,472.7 455.6,472.6 461.7,472.5 467.8,472.3 473.8,472.2 479.8,472.0 485.8,471.7 491.8,471.5 497.8,471.1 503.8,470.8 509.7,470.4 515.7,470.0 521.6,469.6 527.5,469.1 533.4,468.6 539.3,468.1 545.1,467.5'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>B_curvature_or_lateral_failure,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='100' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='118' font-size='11' font-family='monospace' fill='#333'>Decelerate to maintain a safe distance from</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>the construction cones while following the</text>
+<text x='610' y='148' font-size='11' font-family='monospace' fill='#333'>temporary lane delineated by the cones.</text>
+<text x='610' y='173' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>Steer right following temporary traffic</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>delineators.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Split to the right to stay on the I-90 West</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>ramp since construction barrels close the left</text>
+<text x='610' y='279' font-size='11' font-family='monospace' fill='#333'>lanes</text>
+</svg>

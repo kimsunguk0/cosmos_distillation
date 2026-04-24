@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 30/204 6fb0ec61-90f9-4424 ADE=1.05 FDE=3.25</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='54.1,545.8 60.3,545.8 66.5,545.8 72.8,545.8 79.0,545.8 85.2,545.8 91.4,545.8 97.6,545.8 103.8,545.8 110.0,545.8 116.3,545.8 122.5,545.8 128.7,545.8 134.9,545.9 141.2,545.9 147.4,545.9'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='153.7,545.9 159.9,545.9 166.1,545.9 172.3,545.9 178.5,545.9 184.8,545.8 191.0,545.8 197.2,545.8 203.5,545.7 209.7,545.7 215.9,545.6 222.1,545.5 228.4,545.4 234.6,545.3 240.8,545.2 247.0,545.0 253.3,544.9 259.5,544.7 265.7,544.6 271.9,544.4 278.1,544.2 284.3,544.0 290.5,543.8 296.7,543.5 302.9,543.3 309.0,543.0 315.2,542.8 321.3,542.5 327.4,542.2 333.5,541.9 339.6,541.6 345.7,541.3 351.8,541.0 357.8,540.8 363.8,540.5 369.8,540.2 375.8,539.9 381.8,539.6 387.8,539.3 393.7,539.0 399.7,538.7 405.6,538.4 411.6,538.2 417.5,537.9 423.4,537.6 429.3,537.4 435.2,537.1 441.2,536.8 447.1,536.6 452.9,536.3 458.8,536.1 464.7,535.8 470.6,535.6 476.5,535.3 482.3,535.0 488.2,534.8 494.0,534.6 499.8,534.3 505.7,534.1 511.5,533.8 517.3,533.6 523.1,533.4 529.0,533.2 534.8,532.9'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='153.7,545.9 159.9,545.9 166.1,545.9 172.3,545.8 178.6,545.8 184.8,545.8 191.0,545.8 197.2,545.7 203.5,545.7 209.7,545.7 215.9,545.6 222.1,545.6 228.4,545.5 234.6,545.5 240.8,545.4 247.1,545.4 253.3,545.3 259.5,545.2 265.7,545.2 272.0,545.1 278.2,545.1 284.4,545.0 290.6,545.0 296.9,544.9 303.1,544.9 309.3,544.8 315.5,544.8 321.8,544.7 328.0,544.7 334.2,544.6 340.4,544.6 346.7,544.6 352.9,544.5 359.1,544.5 365.3,544.4 371.6,544.4 377.8,544.4 384.0,544.3 390.2,544.3 396.5,544.3 402.7,544.3 408.9,544.2 415.2,544.2 421.4,544.2 427.6,544.2 433.8,544.1 440.1,544.1 446.3,544.1 452.5,544.1 458.7,544.1 465.0,544.0 471.2,544.0 477.4,544.0 483.6,544.0 489.9,544.0 496.1,544.0 502.3,544.0 508.5,544.0 514.8,544.0 521.0,544.0 527.2,544.0 533.4,544.0 539.7,544.0 545.9,544.0'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>ok_or_low_error</text>
+<text x='610' y='85' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='103' font-size='11' font-family='monospace' fill='#333'>Gentle deceleration to maintain a safe</text>
+<text x='610' y='118' font-size='11' font-family='monospace' fill='#333'>distance from the construction zone with</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>traffic cones and barriers.</text>
+<text x='610' y='158' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='176' font-size='11' font-family='monospace' fill='#333'>Steer left to maintain a safe distance from</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>the construction zone with traffic barriers</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>ahead.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Keep speed through the intersection since the</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>traffic light is green</text>
+</svg>

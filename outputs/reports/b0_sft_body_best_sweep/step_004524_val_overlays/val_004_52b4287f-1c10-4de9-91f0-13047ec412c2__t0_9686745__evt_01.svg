@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 4/204 52b4287f-1c10-4de9 ADE=6.79 FDE=23.07</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='50.8,541.4 57.6,541.7 64.4,542.0 71.2,542.3 78.0,542.5 84.7,542.7 91.4,542.9 98.1,543.1 104.8,543.2 111.4,543.3 118.0,543.4 124.6,543.5 131.1,543.5 137.6,543.6 144.1,543.6 150.5,543.6'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='156.9,543.6 163.3,543.6 169.7,543.6 176.0,543.5 182.3,543.5 188.5,543.5 194.8,543.5 201.0,543.5 207.2,543.6 213.3,543.6 219.4,543.6 225.5,543.6 231.6,543.7 237.5,543.7 243.4,543.8 249.2,543.9 255.0,544.0 260.7,544.1 266.3,544.1 271.9,544.3 277.4,544.4 282.8,544.5 288.2,544.6 293.6,544.8 298.9,544.9 304.2,545.1 309.4,545.2 314.5,545.4 319.5,545.5 324.5,545.6 329.4,545.8 334.3,545.9 339.1,546.1 343.7,546.2 348.3,546.3 352.9,546.4 357.4,546.6 361.8,546.7 366.1,546.8 370.4,546.9 374.5,547.1 378.6,547.1 382.7,547.3 386.7,547.4 390.6,547.4 394.4,547.5 398.1,547.6 401.8,547.7 405.5,547.8 409.1,547.9 412.7,548.0 416.2,548.1 419.6,548.2 423.0,548.3 426.3,548.4 429.6,548.5 432.7,548.6 435.9,548.6 438.9,548.7 442.0,548.8 445.0,548.9 447.9,549.0 450.8,549.1 453.7,549.2'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='156.9,543.6 163.3,543.5 169.6,543.5 175.9,543.5 182.2,543.5 188.5,543.4 194.7,543.4 201.0,543.4 207.2,543.3 213.4,543.3 219.6,543.2 225.8,543.2 232.1,543.2 238.3,543.1 244.5,543.1 250.7,543.0 256.9,543.0 263.2,542.9 269.4,542.9 275.6,542.8 281.8,542.8 288.0,542.8 294.2,542.7 300.5,542.7 306.7,542.6 312.9,542.6 319.1,542.5 325.3,542.5 331.6,542.4 337.8,542.4 344.0,542.4 350.2,542.3 356.4,542.3 362.7,542.2 368.9,542.2 375.1,542.1 381.3,542.1 387.5,542.0 393.8,542.0 400.0,541.9 406.2,541.9 412.4,541.9 418.6,541.8 424.8,541.8 431.1,541.7 437.3,541.7 443.5,541.6 449.7,541.6 455.9,541.5 462.2,541.5 468.4,541.4 474.6,541.4 480.8,541.3 487.0,541.3 493.3,541.3 499.5,541.2 505.7,541.2 511.9,541.1 518.1,541.1 524.3,541.0 530.6,541.0 536.8,540.9 543.0,540.9 549.2,540.8'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='85' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='103' font-size='11' font-family='monospace' fill='#333'>Decelerate when approaching the construction</text>
+<text x='610' y='118' font-size='11' font-family='monospace' fill='#333'>zone ahead.</text>
+<text x='610' y='143' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='161' font-size='11' font-family='monospace' fill='#333'>Go straight following temporary traffic</text>
+<text x='610' y='176' font-size='11' font-family='monospace' fill='#333'>delineators.</text>
+<text x='610' y='201' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='219' font-size='11' font-family='monospace' fill='#333'>Lane change to the left due to construction</text>
+<text x='610' y='234' font-size='11' font-family='monospace' fill='#333'>cones blocking and narrowing our current lane</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>ahead, then match speed with lead traffic</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>after merging.</text>
+</svg>

@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 202/204 287c7ca2-5505-443c ADE=1.84 FDE=4.48</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='56.9,542.9 62.0,542.9 67.1,542.9 72.2,542.9 77.3,542.9 82.5,542.9 87.7,542.9 93.0,543.0 98.3,543.0 103.6,543.0 109.0,543.0 114.4,543.0 119.9,543.1 125.4,543.1 130.9,543.1 136.5,543.1'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='142.2,543.1 147.8,543.1 153.5,543.1 159.2,543.0 165.0,543.0 170.7,542.9 176.5,542.8 182.3,542.7 188.1,542.6 194.0,542.4 199.8,542.3 205.7,542.0 211.6,541.8 217.6,541.6 223.5,541.3 229.6,541.0 235.6,540.6 241.6,540.3 247.7,539.9 253.9,539.5 260.0,539.0 266.2,538.6 272.4,538.1 278.7,537.6 284.9,537.1 291.2,536.5 297.5,536.0 303.8,535.5 310.1,535.0 316.5,534.5 322.8,533.9 329.2,533.4 335.7,533.0 342.1,532.5 348.6,532.0 355.1,531.5 361.7,531.1 368.3,530.6 374.9,530.2 381.5,529.7 388.2,529.3 394.9,528.9 401.6,528.5 408.3,528.1 415.1,527.7 421.8,527.3 428.6,527.0 435.3,526.6 442.1,526.3 448.8,526.0 455.6,525.7 462.3,525.3 469.0,525.0 475.8,524.7 482.5,524.4 489.3,524.1 496.0,523.8 502.8,523.5 509.5,523.2 516.3,522.9 523.0,522.6 529.7,522.4 536.4,522.1 543.1,521.8'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='142.2,543.1 147.8,543.1 153.5,543.1 159.3,543.1 165.0,543.1 170.8,543.0 176.6,543.0 182.5,543.0 188.3,543.0 194.2,543.0 200.1,542.9 206.0,542.9 211.9,542.9 217.9,542.8 223.9,542.8 229.9,542.8 235.9,542.7 242.0,542.7 248.1,542.7 254.1,542.6 260.2,542.6 266.3,542.6 272.4,542.5 278.5,542.5 284.7,542.5 290.8,542.4 297.0,542.4 303.1,542.3 309.3,542.3 315.5,542.3 321.7,542.2 327.9,542.2 334.1,542.2 340.3,542.1 346.6,542.1 352.8,542.0 359.0,542.0 365.3,542.0 371.5,541.9 377.7,541.9 384.0,541.8 390.2,541.8 396.5,541.8 402.7,541.7 409.0,541.7 415.2,541.7 421.5,541.6 427.8,541.6 434.0,541.5 440.3,541.5 446.6,541.5 452.9,541.4 459.2,541.4 465.5,541.3 471.7,541.3 478.0,541.3 484.3,541.2 490.6,541.2 496.9,541.1 503.2,541.1 509.6,541.1 515.9,541.0 522.2,541.0 528.5,540.9'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='85' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='103' font-size='11' font-family='monospace' fill='#333'>Go straight and navigate through the</text>
+<text x='610' y='118' font-size='11' font-family='monospace' fill='#333'>construction zone.</text>
+<text x='610' y='143' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='161' font-size='11' font-family='monospace' fill='#333'>Steer left to avoid the construction zone in</text>
+<text x='610' y='176' font-size='11' font-family='monospace' fill='#333'>the driving lane marked by traffic cones and</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>signs.</text>
+<text x='610' y='216' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='234' font-size='11' font-family='monospace' fill='#333'>Wait for a gap because a car is coming from</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>behind in the left lane blocking an immediate</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>merge to the left</text>
+</svg>

@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 193/204 cf624891-61eb-4039 ADE=6.51 FDE=15.38</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='100.1,496.5 104.2,496.5 108.3,496.4 112.4,496.4 116.5,496.4 120.5,496.3 124.5,496.3 128.5,496.3 132.4,496.3 136.3,496.3 140.3,496.3 144.2,496.3 148.0,496.2 151.9,496.2 155.7,496.2 159.7,496.2'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='163.7,496.2 167.8,496.2 172.1,496.3 176.5,496.3 180.9,496.3 185.5,496.4 190.2,496.5 194.9,496.6 199.8,496.7 204.7,496.8 209.7,496.9 214.7,497.1 219.9,497.2 225.1,497.4 230.4,497.6 235.8,497.8 241.2,498.0 246.7,498.2 252.3,498.4 258.0,498.6 263.7,498.8 269.5,499.0 275.4,499.1 281.3,499.3 287.2,499.4 293.0,499.5 299.0,499.7 304.9,499.7 310.8,499.8 316.8,499.8 322.7,499.9 328.6,499.9 334.5,499.9 340.4,499.8 346.3,499.8 352.2,499.7 358.1,499.6 364.0,499.5 369.9,499.4 375.8,499.3 381.6,499.1 387.5,498.9 393.2,498.8 398.9,498.6 404.6,498.4 410.2,498.2 415.8,497.9 421.3,497.7 426.7,497.4 432.1,497.1 437.4,496.8 442.7,496.5 447.9,496.2 453.0,495.9 458.1,495.5 463.1,495.2 468.0,494.9 472.8,494.6 477.6,494.3 482.3,494.1 486.9,493.8 491.3,493.6 495.7,493.3 499.9,493.1'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='163.6,496.2 167.5,496.2 171.3,496.2 175.1,496.2 178.8,496.2 182.4,496.2 185.9,496.3 189.4,496.3 192.8,496.3 196.1,496.3 199.3,496.3 202.5,496.3 205.6,496.3 208.6,496.3 211.5,496.3 214.3,496.3 217.0,496.3 219.6,496.3 222.2,496.3 224.6,496.4 227.0,496.4 229.2,496.4 231.4,496.4 233.4,496.4 235.4,496.4 237.2,496.4 239.0,496.4 240.8,496.4 242.4,496.4 244.1,496.4 245.7,496.4 247.3,496.4 248.9,496.4 250.4,496.4 251.9,496.4 253.3,496.4 254.7,496.4 256.0,496.4 257.3,496.4 258.6,496.4 260.0,496.4 261.3,496.4 262.7,496.4 264.0,496.5 265.3,496.5 266.6,496.5 267.9,496.5 269.1,496.5 270.2,496.5 271.3,496.5 272.3,496.5 273.3,496.5 274.3,496.5 275.3,496.5 276.2,496.5 277.2,496.5 278.1,496.5 279.0,496.5 279.9,496.5 280.7,496.5 281.6,496.5 282.5,496.5 283.3,496.5 284.2,496.5'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>C_speed_scale_failure,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='100' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='118' font-size='11' font-family='monospace' fill='#333'>Gentle deceleration to maintain a safe</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>distance from the pedestrian crossing the</text>
+<text x='610' y='148' font-size='11' font-family='monospace' fill='#333'>road.</text>
+<text x='610' y='173' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>Steer right to maintain a safe distance from</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>the pedestrian on the left.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Nudge right due to the person walking into the</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>lane from the left</text>
+</svg>

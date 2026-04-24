@@ -44,6 +44,14 @@ Validation decode on 204 samples:
 Both runs generated 128/128 trajectory body tokens on all 204 validation samples.
 Neither run reproduced the old `<i1499>` full-body plateau.
 
+Main-repo artifacts:
+
+- 5k reweight-off checkpoint: `outputs/checkpoints/stage_t1_sft_reweight_off_5k/final`
+- reweight-off val204 summary: `outputs/reports/stage_t1_sft_reweight_off_5k_val204_overlays_summary.json`
+- reweight-on val204 summary: `outputs/reports/stage_t1_sft_reweight_on_5k_val204_overlays_summary.json`
+- continuation config: `configs/train/stage_t1_sft_lora_reweight_off.yaml`
+- continuation launcher: `scripts/24_continue_sft_reweight_off_10k.sh`
+
 ## What Was Solved
 
 - The model can now emit the required trajectory body span.
@@ -81,7 +89,7 @@ Hidden/KD work may still matter later, but it should now be used to improve geom
    Validate on broader splits and overlays before fully committing.
 
 2. **Continue clean GT SFT longer.**
-   Run from the `reweight off` checkpoint to 8k-10k total steps, saving periodic checkpoints.
+   Run from the imported `stage_t1_sft_reweight_off_5k/final` checkpoint to 8k-10k total steps, saving periodic checkpoints.
 
 3. **Select by validation geometry, not final step.**
    Evaluate ADE/FDE, unique-token count, max-run, top-token histogram, and overlays every checkpoint interval.

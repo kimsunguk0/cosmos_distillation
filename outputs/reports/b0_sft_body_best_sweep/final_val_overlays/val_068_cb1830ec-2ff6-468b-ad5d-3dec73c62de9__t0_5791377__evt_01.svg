@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 68/204 cb1830ec-2ff6-468b ADE=7.75 FDE=26.76</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='69.4,352.9 77.6,352.9 85.6,352.8 93.6,352.7 101.4,352.6 109.1,352.6 116.6,352.5 124.0,352.5 131.3,352.4 138.4,352.4 145.4,352.4 152.3,352.3 159.1,352.3 165.7,352.3 172.2,352.3 178.7,352.3'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='185.0,352.3 191.3,352.3 197.5,352.3 203.5,352.3 209.4,352.3 215.2,352.3 220.9,352.4 226.4,352.4 231.8,352.5 237.0,352.6 242.1,352.7 247.1,352.9 251.9,353.1 256.7,353.4 261.3,353.7 265.8,354.0 270.2,354.4 274.4,354.9 278.6,355.5 282.8,356.1 286.9,356.8 290.9,357.6 294.9,358.5 298.8,359.5 302.6,360.7 306.4,362.0 310.2,363.5 313.8,365.1 317.4,367.0 320.8,368.9 324.2,371.1 327.5,373.4 330.7,376.0 333.7,378.7 336.7,381.6 339.6,384.7 342.3,388.0 345.0,391.6 347.5,395.3 350.0,399.2 352.4,403.3 354.7,407.6 356.9,412.1 359.0,416.8 361.1,421.6 363.2,426.7 365.3,431.8 367.3,437.1 369.3,442.5 371.4,448.0 373.6,453.5 375.8,459.2 378.1,464.9 380.5,470.7 382.9,476.5 385.4,482.4 387.9,488.3 390.4,494.3 392.9,500.3 395.4,506.3 398.0,512.4 400.5,518.4 403.1,524.5 405.7,530.6'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='185.0,352.3 191.3,352.3 197.4,352.3 203.4,352.3 209.4,352.4 215.2,352.4 221.0,352.5 226.7,352.6 232.3,352.6 237.9,352.8 243.4,352.9 248.8,353.1 254.2,353.2 259.6,353.4 265.0,353.7 270.3,353.9 275.6,354.2 280.9,354.5 286.2,354.8 291.5,355.1 296.7,355.5 302.0,355.9 307.2,356.2 312.5,356.6 317.7,357.0 323.0,357.4 328.2,357.8 333.5,358.2 338.8,358.6 344.1,359.0 349.5,359.4 354.8,359.8 360.2,360.1 365.6,360.5 371.0,360.8 376.4,361.1 381.9,361.3 387.3,361.5 392.8,361.7 398.3,361.9 403.8,362.0 409.3,362.0 414.8,362.1 420.3,362.1 425.8,362.1 431.3,362.1 436.8,362.0 442.3,362.0 447.9,361.9 453.4,361.8 458.9,361.7 464.4,361.6 469.9,361.5 475.4,361.3 480.9,361.2 486.5,361.1 492.0,361.0 497.5,360.9 503.0,360.8 508.5,360.7 514.0,360.7 519.5,360.6 525.1,360.5 530.6,360.4'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>G_teacher_also_far_from_gt,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>B_curvature_or_lateral_failure,</text>
+<text x='610' y='90' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='115' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>Decelerate to maintain a safe distance from</text>
+<text x='610' y='148' font-size='11' font-family='monospace' fill='#333'>the construction zone ahead.</text>
+<text x='610' y='173' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>Steer right following temporary traffic</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>barriers.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Turn right because the lane is closed by</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>barricades ahead</text>
+</svg>

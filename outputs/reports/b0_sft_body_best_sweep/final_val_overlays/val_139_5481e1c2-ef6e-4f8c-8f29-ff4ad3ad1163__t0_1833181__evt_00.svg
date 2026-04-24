@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 139/204 5481e1c2-ef6e-4f8c ADE=10.00 FDE=26.89</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='72.7,526.9 80.4,526.8 88.1,526.7 95.8,526.7 103.4,526.6 111.0,526.6 118.5,526.6 126.0,526.6 133.4,526.6 140.7,526.6 148.0,526.6 155.2,526.6 162.3,526.5 169.2,526.5 176.0,526.5 182.6,526.5'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='189.0,526.5 195.3,526.5 201.4,526.6 207.2,526.6 212.9,526.6 218.4,526.6 223.7,526.6 228.8,526.6 233.6,526.7 238.2,526.7 242.6,526.7 246.8,526.7 250.8,526.8 254.6,526.8 258.2,526.8 261.5,526.9 264.6,526.9 267.6,526.9 270.3,527.0 272.9,527.0 275.2,527.0 277.3,527.0 279.3,527.0 281.0,527.1 282.6,527.1 284.1,527.1 285.4,527.1 286.6,527.1 287.7,527.2 288.7,527.2 289.6,527.2 290.4,527.2 291.0,527.2 291.6,527.2 292.1,527.2 292.5,527.2 292.9,527.2 293.2,527.2 293.4,527.2 293.7,527.2 293.9,527.2 294.1,527.2 294.3,527.2 294.4,527.2 294.6,527.2 294.7,527.2 294.9,527.2 295.0,527.2 295.1,527.2 295.3,527.2 295.4,527.2 295.5,527.3 295.7,527.3 295.8,527.3 295.9,527.3 296.1,527.3 296.2,527.3 296.4,527.3 296.6,527.3 296.7,527.3 296.9,527.3 297.1,527.3 297.3,527.3 297.5,527.3'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='189.0,526.5 195.3,526.5 201.5,526.5 207.5,526.6 213.4,526.6 219.1,526.6 224.7,526.6 230.3,526.6 235.7,526.6 241.2,526.6 246.5,526.7 251.9,526.7 257.2,526.7 262.5,526.7 267.8,526.8 273.1,526.8 278.4,526.8 283.7,526.8 289.0,526.9 294.3,526.9 299.6,526.9 304.9,526.9 310.2,526.9 315.4,526.9 320.7,527.0 326.0,527.0 331.3,527.0 336.6,527.0 341.9,527.0 347.2,527.0 352.5,527.0 357.8,527.0 363.1,527.0 368.4,527.0 373.7,527.0 379.0,527.0 384.3,527.0 389.6,527.0 394.9,527.0 400.2,527.0 405.5,527.0 410.8,527.0 416.1,527.0 421.4,527.0 426.7,527.0 432.0,527.0 437.3,527.0 442.6,527.0 447.8,527.0 453.1,526.9 458.4,526.9 463.7,526.9 469.0,526.9 474.3,526.9 479.6,526.9 484.9,526.8 490.2,526.8 495.5,526.8 500.8,526.8 506.1,526.7 511.4,526.7 516.7,526.7 522.0,526.6 527.3,526.6'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>A_stop_or_decel_failure,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>C_speed_scale_failure,</text>
+<text x='610' y='90' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='115' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>Decelerate to maintain a safe distance from</text>
+<text x='610' y='148' font-size='11' font-family='monospace' fill='#333'>the lead vehicle ahead.</text>
+<text x='610' y='173' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>Stop behind the lead vehicle in the same lane</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>at the intersection.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Keep distance to the lead vehicle since it is</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>slowing ahead</text>
+</svg>

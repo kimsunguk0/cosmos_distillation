@@ -1,0 +1,24 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 173/204 4d8a54c5-ab84-427b ADE=4.33 FDE=13.26</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='44.8,542.8 50.8,542.5 56.9,542.2 62.9,542.0 69.0,541.8 75.0,541.6 81.1,541.4 87.2,541.2 93.3,541.1 99.3,541.0 105.4,540.9 111.5,540.8 117.6,540.7 123.8,540.7 129.9,540.6 136.0,540.6'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='142.1,540.6 148.2,540.6 154.4,540.6 160.5,540.6 166.7,540.7 172.8,540.7 178.9,540.7 185.1,540.7 191.2,540.7 197.3,540.8 203.4,540.8 209.5,540.8 215.6,540.8 221.7,540.8 227.8,540.8 233.9,540.8 239.9,540.8 246.0,540.8 252.0,540.8 258.1,540.9 264.1,540.8 270.1,540.8 276.2,540.8 282.2,540.8 288.2,540.8 294.2,540.8 300.2,540.8 306.1,540.8 312.1,540.8 318.1,540.8 324.0,540.9 330.0,540.9 335.9,540.9 341.9,541.0 347.8,541.0 353.7,541.0 359.6,541.1 365.5,541.2 371.4,541.2 377.3,541.3 383.2,541.4 389.1,541.5 394.9,541.5 400.8,541.6 406.6,541.7 412.5,541.8 418.3,541.9 424.2,541.9 430.0,542.0 435.8,542.1 441.6,542.1 447.5,542.2 453.3,542.2 459.2,542.3 465.0,542.3 470.9,542.3 476.7,542.4 482.6,542.4 488.5,542.4 494.4,542.4 500.3,542.4 506.2,542.4 512.1,542.4 518.1,542.4'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='142.1,540.6 148.2,540.6 154.4,540.6 160.5,540.7 166.7,540.7 172.9,540.7 179.1,540.8 185.2,540.8 191.4,540.9 197.7,540.9 203.9,541.0 210.1,541.1 216.4,541.2 222.6,541.3 228.9,541.3 235.3,541.4 241.6,541.5 247.9,541.7 254.3,541.8 260.6,541.9 267.0,542.0 273.4,542.2 279.8,542.3 286.2,542.4 292.7,542.6 299.1,542.8 305.6,542.9 312.1,543.1 318.6,543.3 325.1,543.5 331.6,543.7 338.2,543.9 344.7,544.1 351.3,544.4 357.9,544.6 364.5,544.9 371.1,545.1 377.7,545.4 384.4,545.6 391.0,545.9 397.7,546.2 404.4,546.5 411.1,546.8 417.8,547.1 424.5,547.4 431.3,547.8 438.1,548.1 444.8,548.4 451.6,548.8 458.4,549.2 465.2,549.5 472.1,549.9 478.9,550.3 485.8,550.7 492.7,551.1 499.6,551.5 506.5,552.0 513.4,552.4 520.3,552.8 527.3,553.3 534.2,553.8 541.2,554.2 548.2,554.7 555.2,555.2'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>B_curvature_or_lateral_failure,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='100' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='118' font-size='11' font-family='monospace' fill='#333'>Go straight following temporary traffic</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>delineators.</text>
+<text x='610' y='158' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='176' font-size='11' font-family='monospace' fill='#333'>Go straight following temporary traffic</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>delineators.</text>
+<text x='610' y='216' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='234' font-size='11' font-family='monospace' fill='#333'>Keep lane since the lane is clear ahead</text>
+</svg>

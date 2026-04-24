@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 83/204 4e6f59c0-0ded-48cb ADE=11.76 FDE=32.64</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='59.5,540.5 62.3,540.4 65.1,540.3 68.0,540.2 70.9,540.2 73.8,540.1 76.7,540.0 79.7,540.0 82.6,539.9 85.6,539.9 88.6,539.9 91.7,539.9 94.7,539.9 97.8,539.9 100.9,539.9 104.1,539.9'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='107.3,539.9 110.5,539.9 113.9,539.9 117.4,539.8 121.0,539.7 124.7,539.5 128.5,539.3 132.5,538.9 136.6,538.4 140.8,537.9 145.2,537.3 149.7,536.7 154.4,536.0 159.3,535.2 164.4,534.5 169.7,533.7 175.2,533.0 180.9,532.3 186.7,531.6 192.6,531.0 198.7,530.5 204.9,530.0 211.3,529.5 217.8,529.2 224.5,528.8 231.3,528.5 238.3,528.3 245.4,528.2 252.7,528.1 260.1,528.1 267.6,528.2 275.3,528.4 283.2,528.6 291.2,529.0 299.3,529.4 307.6,530.0 315.9,530.5 324.4,531.1 332.9,531.7 341.4,532.3 349.9,532.7 358.4,533.1 366.9,533.3 375.5,533.4 384.1,533.2 392.6,532.9 401.2,532.4 409.7,531.7 418.2,530.8 426.7,529.7 435.1,528.5 443.5,527.0 451.8,525.4 460.1,523.6 468.3,521.7 476.5,519.6 484.6,517.3 492.7,514.9 500.7,512.5 508.7,509.9 516.7,507.4 524.6,504.7 532.6,502.1 540.5,499.4'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='107.3,539.9 110.5,539.9 113.8,539.9 117.2,539.9 120.6,539.9 124.1,539.9 127.6,539.9 131.2,539.8 134.8,539.8 138.5,539.8 142.2,539.8 146.0,539.8 149.8,539.8 153.6,539.7 157.5,539.7 161.3,539.7 165.2,539.7 169.2,539.6 173.1,539.6 177.1,539.6 181.1,539.6 185.2,539.6 189.2,539.5 193.3,539.5 197.4,539.5 201.5,539.5 205.5,539.4 209.6,539.4 213.7,539.4 217.8,539.4 221.8,539.4 225.9,539.3 229.9,539.3 234.0,539.3 238.0,539.3 242.0,539.2 246.0,539.2 250.0,539.2 254.0,539.2 258.0,539.1 262.0,539.1 266.0,539.1 270.0,539.1 273.9,539.0 277.9,539.0 281.9,539.0 285.8,539.0 289.8,538.9 293.7,538.9 297.6,538.9 301.5,538.8 305.5,538.8 309.4,538.7 313.3,538.7 317.2,538.7 321.1,538.6 325.0,538.6 328.9,538.5 332.8,538.5 336.7,538.5 340.6,538.4 344.4,538.4 348.3,538.3 352.1,538.3'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>B_curvature_or_lateral_failure,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>C_speed_scale_failure,</text>
+<text x='610' y='90' font-size='11' font-family='monospace' fill='#333'>D_initial_prefix_failure,</text>
+<text x='610' y='105' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='130' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='148' font-size='11' font-family='monospace' fill='#333'>Steer left to pass the lead vehicle ahead.</text>
+<text x='610' y='173' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>Pass/Overtake while maintaining a safe</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>distance from the lead vehicle ahead.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Keep distance to the lead vehicle since it is</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>directly ahead in our lane</text>
+</svg>

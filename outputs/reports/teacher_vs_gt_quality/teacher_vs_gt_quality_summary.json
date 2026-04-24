@@ -1,0 +1,301 @@
+{
+  "overall": {
+    "num_samples": 958,
+    "group_counts": {
+      "A_good": 707,
+      "B_ok": 127,
+      "D_middle": 53,
+      "C_bad": 71
+    },
+    "relative_kd_group_counts": {
+      "group2_mixed_gt_primary": 285,
+      "group3_teacher_downweight_or_exclude": 328,
+      "group1_teacher_trusted": 345
+    },
+    "teacher_failure_tag_counts": {
+      "ok_or_low_error": 656,
+      "E_long_horizon_divergence": 265,
+      "C_speed_scale_failure": 111,
+      "B_curvature_or_lateral_failure": 50,
+      "A_stop_or_decel_failure": 26,
+      "B_curvature_or_turn_direction_failure": 8,
+      "F_repetition_or_local_band_oscillation": 6,
+      "D_initial_prefix_failure": 5
+    },
+    "prefix_teacher_good_count": 945,
+    "mean_teacher_ADE_to_GT": 1.4743723713497325,
+    "mean_teacher_FDE_to_GT": 4.182894190579909,
+    "mean_student_ADE_to_GT": 2.063898406709308,
+    "mean_student_FDE_to_GT": 6.37211409016637,
+    "mean_teacher_minus_student_ADE": -0.5895260353595755,
+    "mean_teacher_minus_student_FDE": -2.189219899586461,
+    "mean_teacher_token_match_3000": 0.04269963465553236
+  },
+  "by_split": {
+    "train": {
+      "num_samples": 754,
+      "group_counts": {
+        "A_good": 555,
+        "B_ok": 100,
+        "D_middle": 42,
+        "C_bad": 57
+      },
+      "relative_kd_group_counts": {
+        "group2_mixed_gt_primary": 239,
+        "group3_teacher_downweight_or_exclude": 311,
+        "group1_teacher_trusted": 204
+      },
+      "teacher_failure_tag_counts": {
+        "ok_or_low_error": 512,
+        "E_long_horizon_divergence": 210,
+        "C_speed_scale_failure": 97,
+        "B_curvature_or_lateral_failure": 38,
+        "A_stop_or_decel_failure": 21,
+        "F_repetition_or_local_band_oscillation": 6,
+        "B_curvature_or_turn_direction_failure": 5,
+        "D_initial_prefix_failure": 3
+      },
+      "prefix_teacher_good_count": 745,
+      "mean_teacher_ADE_to_GT": 1.4711814673829933,
+      "mean_teacher_FDE_to_GT": 4.181279272956413,
+      "mean_student_ADE_to_GT": 1.3591980831628105,
+      "mean_student_FDE_to_GT": 4.478695032667367,
+      "mean_teacher_minus_student_ADE": 0.11198338422018278,
+      "mean_teacher_minus_student_FDE": -0.29741575971095385,
+      "mean_teacher_token_match_3000": 0.04406705901856764
+    },
+    "val": {
+      "num_samples": 204,
+      "group_counts": {
+        "B_ok": 27,
+        "C_bad": 14,
+        "A_good": 152,
+        "D_middle": 11
+      },
+      "relative_kd_group_counts": {
+        "group2_mixed_gt_primary": 46,
+        "group3_teacher_downweight_or_exclude": 17,
+        "group1_teacher_trusted": 141
+      },
+      "teacher_failure_tag_counts": {
+        "ok_or_low_error": 144,
+        "E_long_horizon_divergence": 55,
+        "C_speed_scale_failure": 14,
+        "B_curvature_or_lateral_failure": 12,
+        "A_stop_or_decel_failure": 5,
+        "B_curvature_or_turn_direction_failure": 3,
+        "D_initial_prefix_failure": 2
+      },
+      "prefix_teacher_good_count": 200,
+      "mean_teacher_ADE_to_GT": 1.486166202677779,
+      "mean_teacher_FDE_to_GT": 4.188863052776558,
+      "mean_student_ADE_to_GT": 4.668526073150775,
+      "mean_student_FDE_to_GT": 13.370339430138177,
+      "mean_teacher_minus_student_ADE": -3.182359870472996,
+      "mean_teacher_minus_student_FDE": -9.18147637736162,
+      "mean_teacher_token_match_3000": 0.03764552696078431
+    }
+  },
+  "by_group": {
+    "A_good": {
+      "num_samples": 707,
+      "group_counts": {
+        "A_good": 707
+      },
+      "relative_kd_group_counts": {
+        "group2_mixed_gt_primary": 209,
+        "group1_teacher_trusted": 345,
+        "group3_teacher_downweight_or_exclude": 153
+      },
+      "teacher_failure_tag_counts": {
+        "ok_or_low_error": 656,
+        "C_speed_scale_failure": 30,
+        "E_long_horizon_divergence": 15,
+        "A_stop_or_decel_failure": 8,
+        "F_repetition_or_local_band_oscillation": 5,
+        "B_curvature_or_turn_direction_failure": 1
+      },
+      "prefix_teacher_good_count": 706,
+      "mean_teacher_ADE_to_GT": 0.7786209444637915,
+      "mean_teacher_FDE_to_GT": 2.032782149972734,
+      "mean_student_ADE_to_GT": 1.9446452767066222,
+      "mean_student_FDE_to_GT": 6.047642731573186,
+      "mean_teacher_minus_student_ADE": -1.1660243322428308,
+      "mean_teacher_minus_student_FDE": -4.014860581600452,
+      "mean_teacher_token_match_3000": 0.0497591053748232
+    },
+    "B_ok": {
+      "num_samples": 127,
+      "group_counts": {
+        "B_ok": 127
+      },
+      "relative_kd_group_counts": {
+        "group3_teacher_downweight_or_exclude": 71,
+        "group2_mixed_gt_primary": 56
+      },
+      "teacher_failure_tag_counts": {
+        "E_long_horizon_divergence": 127,
+        "B_curvature_or_lateral_failure": 22,
+        "C_speed_scale_failure": 20,
+        "B_curvature_or_turn_direction_failure": 4,
+        "A_stop_or_decel_failure": 3
+      },
+      "prefix_teacher_good_count": 125,
+      "mean_teacher_ADE_to_GT": 2.3270922382985515,
+      "mean_teacher_FDE_to_GT": 6.475234440931185,
+      "mean_student_ADE_to_GT": 2.42483367070585,
+      "mean_student_FDE_to_GT": 7.448115696372486,
+      "mean_teacher_minus_student_ADE": -0.09774143240729889,
+      "mean_teacher_minus_student_FDE": -0.9728812554413013,
+      "mean_teacher_token_match_3000": 0.02620570866141732
+    },
+    "C_bad": {
+      "num_samples": 71,
+      "group_counts": {
+        "C_bad": 71
+      },
+      "relative_kd_group_counts": {
+        "group3_teacher_downweight_or_exclude": 71
+      },
+      "teacher_failure_tag_counts": {
+        "E_long_horizon_divergence": 70,
+        "C_speed_scale_failure": 38,
+        "B_curvature_or_lateral_failure": 21,
+        "A_stop_or_decel_failure": 10,
+        "D_initial_prefix_failure": 5,
+        "B_curvature_or_turn_direction_failure": 2
+      },
+      "prefix_teacher_good_count": 62,
+      "mean_teacher_ADE_to_GT": 5.5306753037681045,
+      "mean_teacher_FDE_to_GT": 17.207974030937947,
+      "mean_student_ADE_to_GT": 2.5064021187152346,
+      "mean_student_FDE_to_GT": 7.5533056416135596,
+      "mean_teacher_minus_student_ADE": 3.0242731850528695,
+      "mean_teacher_minus_student_FDE": 9.654668389324387,
+      "mean_teacher_token_match_3000": 0.01793573943661972
+    },
+    "D_middle": {
+      "num_samples": 53,
+      "group_counts": {
+        "D_middle": 53
+      },
+      "relative_kd_group_counts": {
+        "group3_teacher_downweight_or_exclude": 33,
+        "group2_mixed_gt_primary": 20
+      },
+      "teacher_failure_tag_counts": {
+        "E_long_horizon_divergence": 53,
+        "C_speed_scale_failure": 23,
+        "B_curvature_or_lateral_failure": 7,
+        "A_stop_or_decel_failure": 5,
+        "B_curvature_or_turn_direction_failure": 1,
+        "F_repetition_or_local_band_oscillation": 1
+      },
+      "prefix_teacher_good_count": 52,
+      "mean_teacher_ADE_to_GT": 3.278208739352676,
+      "mean_teacher_FDE_to_GT": 9.92291932735803,
+      "mean_student_ADE_to_GT": 2.197019554481332,
+      "mean_student_FDE_to_GT": 6.539745154023996,
+      "mean_teacher_minus_student_ADE": 1.081189184871344,
+      "mean_teacher_minus_student_FDE": 3.3831741733340337,
+      "mean_teacher_token_match_3000": 0.02122641509433962
+    }
+  },
+  "by_relative_kd_group": {
+    "group1_teacher_trusted": {
+      "num_samples": 345,
+      "group_counts": {
+        "A_good": 345
+      },
+      "relative_kd_group_counts": {
+        "group1_teacher_trusted": 345
+      },
+      "teacher_failure_tag_counts": {
+        "ok_or_low_error": 332,
+        "C_speed_scale_failure": 7,
+        "E_long_horizon_divergence": 5,
+        "A_stop_or_decel_failure": 4
+      },
+      "prefix_teacher_good_count": 344,
+      "mean_teacher_ADE_to_GT": 0.7105931830659941,
+      "mean_teacher_FDE_to_GT": 1.8769777933891485,
+      "mean_student_ADE_to_GT": 3.813166783447715,
+      "mean_student_FDE_to_GT": 11.66092437652574,
+      "mean_teacher_minus_student_ADE": -3.102573600381721,
+      "mean_teacher_minus_student_FDE": -9.783946583136592,
+      "mean_teacher_token_match_3000": 0.04762228260869565
+    },
+    "group2_mixed_gt_primary": {
+      "num_samples": 285,
+      "group_counts": {
+        "A_good": 209,
+        "D_middle": 20,
+        "B_ok": 56
+      },
+      "relative_kd_group_counts": {
+        "group2_mixed_gt_primary": 285
+      },
+      "teacher_failure_tag_counts": {
+        "ok_or_low_error": 192,
+        "E_long_horizon_divergence": 79,
+        "C_speed_scale_failure": 24,
+        "B_curvature_or_lateral_failure": 13,
+        "F_repetition_or_local_band_oscillation": 5,
+        "B_curvature_or_turn_direction_failure": 2,
+        "A_stop_or_decel_failure": 1
+      },
+      "prefix_teacher_good_count": 284,
+      "mean_teacher_ADE_to_GT": 1.1165382199120104,
+      "mean_teacher_FDE_to_GT": 2.9986155029190216,
+      "mean_student_ADE_to_GT": 1.5606592802727073,
+      "mean_student_FDE_to_GT": 4.935993027976477,
+      "mean_teacher_minus_student_ADE": -0.4441210603606969,
+      "mean_teacher_minus_student_FDE": -1.9373775250574559,
+      "mean_teacher_token_match_3000": 0.055482456140350876
+    },
+    "group3_teacher_downweight_or_exclude": {
+      "num_samples": 328,
+      "group_counts": {
+        "B_ok": 71,
+        "D_middle": 33,
+        "C_bad": 71,
+        "A_good": 153
+      },
+      "relative_kd_group_counts": {
+        "group3_teacher_downweight_or_exclude": 328
+      },
+      "teacher_failure_tag_counts": {
+        "E_long_horizon_divergence": 181,
+        "ok_or_low_error": 132,
+        "C_speed_scale_failure": 80,
+        "B_curvature_or_lateral_failure": 37,
+        "A_stop_or_decel_failure": 21,
+        "B_curvature_or_turn_direction_failure": 6,
+        "D_initial_prefix_failure": 5,
+        "F_repetition_or_local_band_oscillation": 1
+      },
+      "prefix_teacher_good_count": 317,
+      "mean_teacher_ADE_to_GT": 2.5886606430498564,
+      "mean_teacher_FDE_to_GT": 7.637347187574317,
+      "mean_student_ADE_to_GT": 0.6612324343302867,
+      "mean_student_FDE_to_GT": 2.0570377301972744,
+      "mean_teacher_minus_student_ADE": 1.9274282087195698,
+      "mean_teacher_minus_student_FDE": 5.580309457377043,
+      "mean_teacher_token_match_3000": 0.02641482469512195
+    }
+  },
+  "inputs": {
+    "corpus_jsonl": "/workspace/cosmos_distillation/data/corpus/distill_v3_2_959.jsonl",
+    "student_summary_json": [
+      "outputs/reports/b0_sft_body_best_sweep/final_val_summary.json",
+      "outputs/reports/b0_sft_body_best_sweep/final_train_full_summary.json"
+    ],
+    "teacher_traj_tokens_dir": "/data/teacher_cache/traj15/tokens",
+    "teacher_traj_manifest_dir": "/data/teacher_cache/traj15/manifest",
+    "traj_tokenizer_config": "/workspace/base_models_weights/Alpamayo-1.5-10B/config.json"
+  },
+  "missing": {
+    "missing_teacher_samples": 0,
+    "missing_student_summaries": 0
+  }
+}

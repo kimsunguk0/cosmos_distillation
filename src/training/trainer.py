@@ -47,6 +47,14 @@ class TrainerConfig:
     max_steps: int | None = None
 
 
+@dataclass(slots=True)
+class ScheduledSamplingConfig:
+    enabled: bool = False
+    probability: float = 0.0
+    traj_token_start_id: int = 0
+    replacement_vocab_size: int = 3000
+
+
 def move_batch_to_device(batch: dict[str, Any], device: torch.device) -> dict[str, Any]:
     """Move a nested batch dict onto the target device."""
     moved: dict[str, Any] = {}
@@ -83,6 +91,72 @@ def _restrict_traj_token_mask_to_prefix(
         return traj_token_mask
     body_order = torch.cumsum(traj_token_mask.to(dtype=torch.int64), dim=1) - 1
     return traj_token_mask & (body_order < int(max_body_tokens))
+
+
+def _apply_scheduled_sampling(
+    model,
+    batch: dict[str, Any],
+    active_traj_token_mask: torch.Tensor,
+    config: ScheduledSamplingConfig | None,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """Replace some trajectory body input tokens with current-model predictions."""
+    if config is None or not config.enabled or float(config.probability) <= 0:
+        return batch["input_ids"], {
+            "scheduled_sampling_candidates": 0.0,
+            "scheduled_sampling_replaced": 0.0,
+            "scheduled_sampling_rate": 0.0,
+        }
+
+    probability = min(max(float(config.probability), 0.0), 1.0)
+    vocab_start = int(config.traj_token_start_id)
+    vocab_size = int(config.replacement_vocab_size)
+    if vocab_start < 0 or vocab_size <= 0:
+        return batch["input_ids"], {
+            "scheduled_sampling_candidates": 0.0,
+            "scheduled_sampling_replaced": 0.0,
+            "scheduled_sampling_rate": 0.0,
+        }
+
+    # Causal alignment: logits[:, j-1] predicts token position j. We replace
+    # input_ids[:, j] so later trajectory positions see model-sampled context.
+    candidate_mask = active_traj_token_mask[:, 1:].to(dtype=torch.bool)
+    candidate_count = int(candidate_mask.sum().detach().cpu())
+    if candidate_count <= 0:
+        return batch["input_ids"], {
+            "scheduled_sampling_candidates": 0.0,
+            "scheduled_sampling_replaced": 0.0,
+            "scheduled_sampling_rate": 0.0,
+        }
+
+    with torch.no_grad():
+        teacher_forced_outputs = model(
+            input_ids=batch["input_ids"],
+            attention_mask=batch["attention_mask"],
+            pixel_values=batch.get("pixel_values"),
+            image_grid_thw=batch.get("image_grid_thw"),
+        )
+        shifted_logits = teacher_forced_outputs["logits"][:, :-1, vocab_start : vocab_start + vocab_size]
+        predicted_tokens = shifted_logits.argmax(dim=-1).to(dtype=batch["input_ids"].dtype) + vocab_start
+        del teacher_forced_outputs
+
+    replacement_draw = torch.rand(candidate_mask.shape, device=candidate_mask.device) < probability
+    replacement_mask = candidate_mask & replacement_draw
+    replaced_count = int(replacement_mask.sum().detach().cpu())
+    if replaced_count <= 0:
+        return batch["input_ids"], {
+            "scheduled_sampling_candidates": float(candidate_count),
+            "scheduled_sampling_replaced": 0.0,
+            "scheduled_sampling_rate": 0.0,
+        }
+
+    sampled_input_ids = batch["input_ids"].clone()
+    sampled_tail = sampled_input_ids[:, 1:]
+    sampled_tail[replacement_mask] = predicted_tokens[replacement_mask]
+    return sampled_input_ids, {
+        "scheduled_sampling_candidates": float(candidate_count),
+        "scheduled_sampling_replaced": float(replaced_count),
+        "scheduled_sampling_rate": float(replaced_count / max(candidate_count, 1)),
+    }
 
 
 def _teacher_view_has_active_supervision(
@@ -122,6 +196,7 @@ def run_train_step(
     traj_aux_interface_config: TrajectoryAuxInterfaceConfig | None = None,
     traj_body_prefix_tokens: int | None = None,
     traj_hidden_bridge_config: dict[str, float] | None = None,
+    scheduled_sampling_config: ScheduledSamplingConfig | None = None,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Run one train step and return total loss plus scalar logs."""
     device = batch["input_ids"].device
@@ -130,8 +205,14 @@ def run_train_step(
         batch["traj_token_mask"],
         traj_body_prefix_tokens,
     )
+    input_ids, scheduled_sampling_logs = _apply_scheduled_sampling(
+        model,
+        batch,
+        active_traj_token_mask,
+        scheduled_sampling_config,
+    )
     hard_outputs = model(
-        input_ids=batch["input_ids"],
+        input_ids=input_ids,
         attention_mask=batch["attention_mask"],
         pixel_values=batch.get("pixel_values"),
         image_grid_thw=batch.get("image_grid_thw"),
@@ -277,15 +358,19 @@ def run_train_step(
             teacher_traj_sample_weights = (
                 teacher_traj_sample_weights * batch["teacher_traj_quality_multiplier"].float()
             )
+    teacher_traj_label_token_weights = batch.get("teacher_traj_label_token_weights")
+    if teacher_traj_label_token_weights is None:
+        teacher_traj_label_token_weights = batch.get("traj_token_label_weights")
     if weights.teacher_traj_ce is not None and batch.get("teacher_traj_labels") is not None:
         teacher_traj_ce, _ = weighted_causal_ce(
             hard_outputs["logits"],
             batch["teacher_traj_labels"],
             teacher_traj_sample_weights,
             active_traj_token_mask,
-            batch.get("traj_token_label_weights"),
+            teacher_traj_label_token_weights,
         )
-    if weights.teacher_traj_topk_kd > 0:
+    teacher_traj_topk_on_teacher_view = bool(batch.get("teacher_traj_topk_on_teacher_view", False))
+    if weights.teacher_traj_topk_kd > 0 and not teacher_traj_topk_on_teacher_view:
         teacher_traj_topk_kd = teacher_logit_kd_loss(
             hard_outputs["logits"],
             active_traj_token_mask,
@@ -293,6 +378,7 @@ def run_train_step(
             batch.get("teacher_traj_topk_logprobs"),
             batch.get("teacher_traj_topk_mask"),
             teacher_traj_sample_weights,
+            token_weights=batch.get("teacher_traj_token_weights"),
         )
     if weights.teacher_traj_hidden_align > 0:
         hidden_bridge_cfg = dict(traj_hidden_bridge_config or {})
@@ -439,6 +525,7 @@ def run_train_step(
 
     teacher_view = batch.get("teacher_view")
     teacher_cot_acc = _zero(device)
+    hard_teacher_traj_active = batch.get("teacher_traj_labels") is not None
     if _teacher_view_has_active_supervision(teacher_view, weights):
         teacher_outputs = model(
             input_ids=teacher_view["input_ids"],
@@ -469,6 +556,15 @@ def run_train_step(
             teacher_view["traj_token_mask"],
             teacher_view.get("traj_token_label_weights"),
         )
+        if weights.teacher_traj_topk_kd > 0 and teacher_traj_topk_on_teacher_view:
+            teacher_traj_topk_kd = teacher_traj_topk_kd + teacher_logit_kd_loss(
+                teacher_outputs["logits"],
+                teacher_view["traj_token_mask"],
+                teacher_view.get("teacher_traj_topk_indices"),
+                teacher_view.get("teacher_traj_topk_logprobs"),
+                teacher_view.get("teacher_traj_topk_mask"),
+                teacher_view["traj_weights"] * teacher_view["teacher_quality_multiplier"],
+            )
         if weights.feat_align > 0 and teacher_view.get("teacher_pooled_hidden") is not None:
             feat_weights = seq_weights
             hidden_mask = teacher_view.get("teacher_pooled_hidden_mask")
@@ -491,7 +587,7 @@ def run_train_step(
     traj_total = weights.traj_ce * hard_traj_ce
     if weights.teacher_traj_ce is not None:
         traj_total = weights.traj_ce * hard_traj_ce
-        if _teacher_view_has_active_supervision(teacher_view, weights):
+        if hard_teacher_traj_active or _teacher_view_has_active_supervision(teacher_view, weights):
             traj_total = traj_total + weights.teacher_traj_ce * teacher_traj_ce
 
     total = (
@@ -556,6 +652,7 @@ def run_train_step(
         "teacher_cot_acc": float(teacher_cot_acc.detach().cpu()),
         "traj_aux_abs_max": traj_aux_abs_max,
         "traj_body_prefix_tokens": float(traj_body_prefix_tokens or 0),
+        **scheduled_sampling_logs,
         "total_loss": float(total.detach().cpu()),
         }
     )

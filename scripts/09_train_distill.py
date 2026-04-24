@@ -50,7 +50,7 @@ from src.training.losses import (
     resolve_optional_loss_weight_value,
     resolve_loss_weight_value,
 )
-from src.training.trainer import TrainerConfig, move_batch_to_device, run_train_step
+from src.training.trainer import ScheduledSamplingConfig, TrainerConfig, move_batch_to_device, run_train_step
 from src.utils.runtime_paths import remap_external_path, resolve_student_model_path
 from src.utils.seeds import set_seed
 from src.utils.traj_tokens import discrete_traj_token
@@ -236,6 +236,7 @@ def stage_weights_from_yaml(path: Path) -> tuple[TrainerConfig, DistillationLoss
         "optimization": dict(config.get("optimization") or {}),
         "curriculum": dict(config.get("curriculum") or {}),
         "interface_loss_weights": dict(config.get("interface_loss_weights") or {}),
+        "scheduled_sampling": dict(config.get("scheduled_sampling") or {}),
     }
     return trainer_config, loss_weights, stage_options
 
@@ -727,6 +728,46 @@ def decode_eval_config_from_yaml(config: dict[str, object] | None, *, fallback_s
     )
 
 
+def scheduled_sampling_config_from_yaml(config: dict[str, object] | None, tokenizer) -> tuple[ScheduledSamplingConfig | None, dict[str, object]]:
+    cfg = dict(config or {})
+    enabled = bool(cfg.get("enabled", False))
+    probability = float(cfg.get("p", cfg.get("probability", 0.0)) or 0.0)
+    vocab_spec = str(cfg.get("replacement_vocab", "<i0>~<i2999>")).strip()
+
+    traj_start = tokenizer.convert_tokens_to_ids("<i0>")
+    replacement_vocab_size = int(cfg.get("replacement_vocab_size", 3000) or 3000)
+    match = re.fullmatch(r"<i(\d+)>\s*~\s*<i(\d+)>", vocab_spec)
+    if match:
+        start_index = int(match.group(1))
+        end_index = int(match.group(2))
+        traj_start = tokenizer.convert_tokens_to_ids(discrete_traj_token(start_index))
+        replacement_vocab_size = max(end_index - start_index + 1, 0)
+
+    if not enabled or probability <= 0:
+        return None, {
+            "enabled": False,
+            "p": probability,
+            "replacement_vocab": vocab_spec,
+            "replacement_vocab_size": replacement_vocab_size,
+        }
+    if not isinstance(traj_start, int) or traj_start < 0 or replacement_vocab_size <= 0:
+        raise ValueError(f"Invalid scheduled_sampling replacement_vocab={vocab_spec!r}")
+
+    config_obj = ScheduledSamplingConfig(
+        enabled=True,
+        probability=probability,
+        traj_token_start_id=int(traj_start),
+        replacement_vocab_size=int(replacement_vocab_size),
+    )
+    return config_obj, {
+        "enabled": True,
+        "p": probability,
+        "replacement_vocab": vocab_spec,
+        "traj_token_start_id": int(traj_start),
+        "replacement_vocab_size": int(replacement_vocab_size),
+    }
+
+
 def build_dataloader(
     records: list[dict],
     *,
@@ -877,6 +918,11 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     enable_teacher_view = bool(data_view_cfg.get("enable_teacher_view", True))
     enable_action_aux = bool(data_view_cfg.get("enable_action_aux", True))
     teacher_pair_target = bool(data_view_cfg.get("teacher_pair_target", False))
+    hard_view_uses_teacher_cot = bool(data_view_cfg.get("hard_view_uses_teacher_cot", False))
+    teacher_view_force_enable = bool(data_view_cfg.get("teacher_view_force_enable", False))
+    teacher_view_uses_teacher_traj = bool(data_view_cfg.get("teacher_view_uses_teacher_traj", False))
+    teacher_view_default_traj_weight = float(data_view_cfg.get("teacher_view_default_traj_weight", 0.0) or 0.0)
+    teacher_traj_topk_on_teacher_view = bool(data_view_cfg.get("teacher_traj_topk_on_teacher_view", False))
     teacher_traj_cache_dir_raw = data_view_cfg.get("teacher_traj_cache_dir")
     teacher_traj_cache_dir = (
         Path(str(remap_external_path(teacher_traj_cache_dir_raw)))
@@ -924,6 +970,10 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     tokenizer = load_student_tokenizer(wrapper_cfg)
     processor = load_student_processor(wrapper_cfg, tokenizer=tokenizer)
     lora_spec = LoraConfigSpec(trainable_token_indices=tuple(distill_trainable_token_ids(tokenizer)))
+    scheduled_sampling_config, scheduled_sampling_summary = scheduled_sampling_config_from_yaml(
+        stage_options.get("scheduled_sampling"),
+        tokenizer,
+    )
     traj_decode_config, traj_decode_summary = load_traj_decode_config(
         student_model,
         tokenizer,
@@ -1033,6 +1083,11 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         teacher_traj_cache_dir=teacher_traj_cache_dir,
         teacher_traj_hidden_source=teacher_traj_hidden_source,
         teacher_traj_latent_suffix=teacher_traj_latent_suffix,
+        hard_view_uses_teacher_cot=hard_view_uses_teacher_cot,
+        teacher_view_force_enable=teacher_view_force_enable,
+        teacher_view_uses_teacher_traj=teacher_view_uses_teacher_traj,
+        teacher_view_default_traj_weight=teacher_view_default_traj_weight,
+        teacher_traj_topk_on_teacher_view=teacher_traj_topk_on_teacher_view,
     )
     train_dataloader, train_sampler = build_dataloader(
         train_records,
@@ -1107,7 +1162,12 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "prompt_mode": prompt_mode,
             "target_mode": target_mode,
             "teacher_pair_target": teacher_pair_target,
+            "hard_view_uses_teacher_cot": hard_view_uses_teacher_cot,
             "enable_teacher_view": enable_teacher_view,
+            "teacher_view_force_enable": teacher_view_force_enable,
+            "teacher_view_uses_teacher_traj": teacher_view_uses_teacher_traj,
+            "teacher_view_default_traj_weight": teacher_view_default_traj_weight,
+            "teacher_traj_topk_on_teacher_view": teacher_traj_topk_on_teacher_view,
             "enable_action_aux": enable_action_aux,
             "teacher_traj_cache_dir": str(teacher_traj_cache_dir) if teacher_traj_cache_dir is not None else None,
             "teacher_traj_hidden_size": teacher_traj_hidden_size,
@@ -1151,6 +1211,21 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                     if first_batch is not None
                     and first_batch.get("teacher_view") is not None
                     and first_batch["teacher_view"].get("teacher_topk_indices") is not None
+                    else None
+                ),
+                "teacher_traj_topk_indices": (
+                    list(first_batch["teacher_traj_topk_indices"].shape)
+                    if first_batch is not None and first_batch.get("teacher_traj_topk_indices") is not None
+                    else None
+                ),
+                "teacher_traj_token_weights": (
+                    list(first_batch["teacher_traj_token_weights"].shape)
+                    if first_batch is not None and first_batch.get("teacher_traj_token_weights") is not None
+                    else None
+                ),
+                "teacher_traj_label_token_weights": (
+                    list(first_batch["teacher_traj_label_token_weights"].shape)
+                    if first_batch is not None and first_batch.get("teacher_traj_label_token_weights") is not None
                     else None
                 ),
             },
@@ -1231,6 +1306,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                 f"prompt_mode={prompt_mode} target_mode={target_mode} "
                 f"teacher_pair_target={teacher_pair_target} "
                 f"teacher_traj_hidden_size={teacher_traj_hidden_size} "
+                f"scheduled_sampling={scheduled_sampling_summary} "
                 f"traj_aux_num_buckets={traj_aux_num_buckets} "
                 f"freeze_aux_only={bool(optimization_cfg.get('freeze_all_but_traj_aux_head', False))} "
                 f"interface_every_n={curriculum_cfg.get('interface_every_n_steps')} "
@@ -1296,6 +1372,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "curriculum": curriculum_cfg,
             "interface_loss_weights": export_loss_weights(interface_loss_weights) if interface_loss_weights is not None else None,
         },
+        "scheduled_sampling": scheduled_sampling_summary,
         "traj_token_reweighting": traj_token_reweight_summary,
         "traj_decode": traj_decode_summary,
         "decode_eval": {
@@ -1343,6 +1420,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                         traj_aux_interface_config=traj_aux_interface_runtime_config,
                         traj_body_prefix_tokens=traj_body_prefix_tokens,
                         traj_hidden_bridge_config=traj_hidden_bridge_cfg,
+                        scheduled_sampling_config=scheduled_sampling_config,
                     )
                 loss.backward()
                 grad_norm = torch.nn.utils.clip_grad_norm_(trainable_params, args.grad_clip_norm)
@@ -1369,6 +1447,25 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                         or (resolved_max_steps is not None and global_step == resolved_max_steps)
                     ):
                         epoch_progress = (global_step / steps_per_epoch) if steps_per_epoch else 0.0
+                        gt_cot_raw = float(logs.get("gt_cot_loss") or 0.0)
+                        teacher_text_kd_raw = float(logs.get("teacher_topk_kd_loss") or 0.0)
+                        gt_traj_raw = float(logs.get("traj_loss") or 0.0)
+                        teacher_traj_ce_raw = float(logs.get("teacher_traj_loss") or 0.0)
+                        teacher_traj_kd_raw = float(logs.get("teacher_traj_topk_kd_loss") or 0.0)
+                        format_raw = float(logs.get("output_format_loss") or 0.0)
+                        ss_rate = float(logs.get("scheduled_sampling_rate") or 0.0)
+                        ss_replaced = float(logs.get("scheduled_sampling_replaced") or 0.0)
+                        ss_candidates = float(logs.get("scheduled_sampling_candidates") or 0.0)
+                        gt_cot_weighted = float(active_loss_weights.hard_cot_ce) * gt_cot_raw
+                        teacher_text_kd_weighted = float(active_loss_weights.teacher_logit_kd) * teacher_text_kd_raw
+                        gt_traj_weighted = float(active_loss_weights.traj_ce) * gt_traj_raw
+                        teacher_traj_ce_weighted = (
+                            float(active_loss_weights.teacher_traj_ce or 0.0) * teacher_traj_ce_raw
+                        )
+                        teacher_traj_kd_weighted = (
+                            float(active_loss_weights.teacher_traj_topk_kd) * teacher_traj_kd_raw
+                        )
+                        format_weighted = float(active_loss_weights.format_ce) * format_raw
                         print(
                             (
                                 f"[train][{trainer_cfg.stage_name}] "
@@ -1376,15 +1473,17 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                                 f"step={global_step}/{resolved_max_steps or '?'} "
                                 f"epoch={epoch_progress:.3f} "
                                 f"total={_format_metric(logs.get('total_loss'))} "
-                                f"gt_cot={_format_metric(logs.get('gt_cot_loss'))} "
-                                f"teacher_cot={_format_metric(logs.get('teacher_cot_loss'))} "
-                                f"topk_kd={_format_metric(logs.get('teacher_topk_kd_loss'))} "
-                                f"traj={_format_metric(logs.get('traj_loss'))} "
-                                f"traj_aux={_format_metric(logs.get('traj_aux_loss'))} "
-                                f"traj_aux_abs={_format_metric(logs.get('traj_aux_abs_max'))} "
-                                f"traj_xyz={_format_metric(logs.get('traj_xyz_loss'))} "
-                                f"traj_delta={_format_metric(logs.get('traj_delta_loss'))} "
-                                f"meta_action={_format_metric(logs.get('meta_action_loss'))} "
+                                f"raw(cot/text_kd/gtraj/ttraj_ce/ttraj_kd/fmt)="
+                                f"{gt_cot_raw:.4f}/{teacher_text_kd_raw:.4f}/{gt_traj_raw:.4f}/{teacher_traj_ce_raw:.4f}/"
+                                f"{teacher_traj_kd_raw:.4f}/{format_raw:.4f} "
+                                f"w(cot/text_kd/gtraj/ttraj_ce/ttraj_kd/fmt)="
+                                f"{gt_cot_weighted:.4f}/{teacher_text_kd_weighted:.4f}/{gt_traj_weighted:.4f}/"
+                                f"{teacher_traj_ce_weighted:.4f}/{teacher_traj_kd_weighted:.4f}/"
+                                f"{format_weighted:.4f} "
+                                f"acc(cot/traj)="
+                                f"{_format_metric(logs.get('gt_cot_token_acc'))}/"
+                                f"{_format_metric(logs.get('traj_token_acc'))} "
+                                f"ss={ss_replaced:.0f}/{ss_candidates:.0f}@{ss_rate:.3f} "
                                 f"grad={_format_metric(grad_norm_value)}"
                             ),
                             flush=True,

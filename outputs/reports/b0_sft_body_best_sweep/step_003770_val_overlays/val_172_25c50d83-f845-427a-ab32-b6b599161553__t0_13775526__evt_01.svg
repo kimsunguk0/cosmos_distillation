@@ -1,0 +1,28 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 172/204 25c50d83-f845-427a ADE=2.35 FDE=10.09</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='46.8,552.1 53.8,552.2 60.9,552.3 67.9,552.4 74.9,552.5 81.9,552.6 88.9,552.7 95.9,552.8 102.9,552.9 109.8,552.9 116.7,553.0 123.6,553.1 130.5,553.1 137.3,553.2 144.1,553.2 150.8,553.2'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='157.6,553.2 164.2,553.2 170.9,553.2 177.4,553.2 184.0,553.2 190.5,553.1 196.9,553.1 203.3,553.0 209.7,553.0 216.0,552.9 222.2,552.8 228.5,552.7 234.8,552.6 241.0,552.5 247.3,552.4 253.5,552.3 259.8,552.2 266.0,552.1 272.2,552.0 278.4,551.8 284.6,551.7 290.8,551.6 297.0,551.4 303.2,551.3 309.3,551.1 315.5,551.0 321.6,550.8 327.7,550.6 333.9,550.5 340.0,550.3 346.0,550.2 352.1,550.0 358.2,549.9 364.3,549.7 370.3,549.6 376.3,549.5 382.4,549.3 388.4,549.2 394.4,549.2 400.5,549.1 406.5,549.0 412.6,549.0 418.7,548.9 424.8,548.9 431.0,548.9 437.2,548.8 443.4,548.8 449.6,548.8 455.8,548.8 462.1,548.8 468.5,548.8 474.8,548.8 481.2,548.8 487.6,548.8 494.1,548.8 500.5,548.8 507.0,548.8 513.5,548.8 520.1,548.8 526.7,548.8 533.3,548.8 539.9,548.8 546.5,548.8 553.2,548.8'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='157.6,553.2 164.2,553.2 170.9,553.1 177.5,553.1 184.1,553.1 190.7,553.0 197.2,552.9 203.7,552.8 210.2,552.7 216.6,552.6 223.0,552.5 229.4,552.4 235.8,552.2 242.1,552.1 248.4,551.9 254.6,551.8 260.9,551.6 267.1,551.4 273.2,551.2 279.4,551.0 285.5,550.8 291.5,550.6 297.6,550.3 303.6,550.1 309.6,549.9 315.5,549.6 321.5,549.3 327.4,549.1 333.2,548.8 339.1,548.5 344.9,548.2 350.7,547.9 356.4,547.6 362.2,547.3 367.9,547.0 373.5,546.6 379.2,546.3 384.8,546.0 390.4,545.6 395.9,545.2 401.5,544.9 407.0,544.5 412.4,544.1 417.9,543.8 423.3,543.4 428.7,543.0 434.1,542.6 439.4,542.2 444.7,541.8 450.0,541.4 455.3,541.0 460.6,540.5 465.8,540.1 471.0,539.7 476.2,539.3 481.4,538.8 486.5,538.4 491.7,537.9 496.8,537.5 501.9,537.0 507.0,536.6 512.1,536.1 517.2,535.7 522.2,535.2'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>B_curvature_or_lateral_failure,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='100' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='118' font-size='11' font-family='monospace' fill='#333'>Decelerate to maintain a safe distance from</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>the green truck ahead.</text>
+<text x='610' y='158' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='176' font-size='11' font-family='monospace' fill='#333'>Steer left to pass the lead truck ahead.</text>
+<text x='610' y='201' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='219' font-size='11' font-family='monospace' fill='#333'>Change lanes to the left and overtake because</text>
+<text x='610' y='234' font-size='11' font-family='monospace' fill='#333'>a slow-moving truck is blocking our lane; slow</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>briefly to assess and then accelerate after</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>safely passing it, ensuring adequate gap with</text>
+<text x='610' y='279' font-size='11' font-family='monospace' fill='#333'>any potential opposing traffic after the</text>
+<text x='610' y='294' font-size='11' font-family='monospace' fill='#333'>overtake.</text>
+</svg>

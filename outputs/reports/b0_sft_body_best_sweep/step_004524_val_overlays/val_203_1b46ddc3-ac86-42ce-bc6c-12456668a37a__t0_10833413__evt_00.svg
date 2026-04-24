@@ -1,0 +1,27 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 203/204 1b46ddc3-ac86-42ce ADE=6.90 FDE=18.41</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='84.0,516.0 89.7,515.6 95.5,515.3 101.3,515.1 107.3,514.9 113.2,514.7 119.3,514.6 125.3,514.5 131.5,514.4 137.6,514.3 143.8,514.3 149.9,514.3 156.1,514.3 162.3,514.2 168.5,514.2 174.7,514.2'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='180.8,514.2 186.9,514.2 193.0,514.2 199.0,514.2 204.9,514.2 210.6,514.2 216.2,514.2 221.6,514.1 226.9,514.1 232.1,514.0 237.0,513.9 241.8,513.8 246.4,513.7 250.8,513.7 255.0,513.6 259.1,513.5 262.9,513.4 266.6,513.3 270.1,513.2 273.4,513.2 276.5,513.1 279.4,513.0 282.2,512.9 284.8,512.8 287.2,512.8 289.5,512.7 291.6,512.6 293.6,512.5 295.4,512.5 297.1,512.4 298.7,512.3 300.2,512.3 301.5,512.2 302.7,512.2 303.8,512.1 304.9,512.0 305.9,512.0 306.8,511.9 307.7,511.9 308.6,511.8 309.3,511.8 310.1,511.8 310.7,511.7 311.4,511.7 312.0,511.6 312.6,511.6 313.1,511.6 313.6,511.5 314.1,511.5 314.6,511.5 315.0,511.5 315.4,511.4 315.8,511.4 316.2,511.4 316.5,511.4 316.8,511.3 317.1,511.3 317.3,511.3 317.5,511.3 317.7,511.3 317.9,511.3 318.1,511.3 318.3,511.3 318.4,511.2'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='180.8,514.2 186.9,514.3 193.0,514.4 199.1,514.4 205.2,514.5 211.2,514.6 217.2,514.7 223.2,514.8 229.2,514.9 235.1,514.9 241.0,514.9 246.9,514.8 252.8,514.7 258.6,514.6 264.4,514.5 270.2,514.3 276.0,514.1 281.7,513.8 287.4,513.5 293.1,513.2 298.7,512.9 304.4,512.6 310.0,512.2 315.5,511.8 321.1,511.3 326.6,510.9 332.1,510.4 337.5,509.9 343.0,509.3 348.4,508.8 353.7,508.2 359.1,507.6 364.4,507.0 369.7,506.4 375.0,505.7 380.3,505.1 385.5,504.4 390.8,503.7 396.0,503.0 401.1,502.3 406.3,501.6 411.4,500.8 416.5,500.1 421.5,499.3 426.5,498.6 431.4,497.8 436.4,497.1 441.3,496.4 446.1,495.6 450.9,494.9 455.7,494.2 460.5,493.6 465.2,492.9 469.8,492.3 474.5,491.7 479.1,491.1 483.7,490.5 488.3,490.0 492.8,489.5 497.5,489.0 502.1,488.6 506.7,488.2 511.3,487.8 516.0,487.4'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>G_teacher_also_far_from_gt,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>A_stop_or_decel_failure,</text>
+<text x='610' y='90' font-size='11' font-family='monospace' fill='#333'>C_speed_scale_failure,</text>
+<text x='610' y='105' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='130' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='148' font-size='11' font-family='monospace' fill='#333'>Steer left to maintain a safe distance from</text>
+<text x='610' y='163' font-size='11' font-family='monospace' fill='#333'>the car parked ahead.</text>
+<text x='610' y='188' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>Decelerate to maintain a safe distance from</text>
+<text x='610' y='221' font-size='11' font-family='monospace' fill='#333'>the lead vehicle ahead.</text>
+<text x='610' y='246' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>Keep distance to the lead vehicle since it is</text>
+<text x='610' y='279' font-size='11' font-family='monospace' fill='#333'>slowing ahead</text>
+</svg>

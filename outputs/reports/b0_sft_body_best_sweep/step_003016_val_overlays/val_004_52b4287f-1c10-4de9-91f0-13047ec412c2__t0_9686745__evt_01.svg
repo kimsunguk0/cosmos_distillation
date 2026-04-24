@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 4/204 52b4287f-1c10-4de9 ADE=2.85 FDE=9.21</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='55.2,535.3 63.6,535.7 71.8,536.0 80.1,536.3 88.3,536.6 96.5,536.9 104.6,537.1 112.7,537.3 120.8,537.5 128.9,537.6 136.9,537.7 144.9,537.8 152.8,537.8 160.7,537.9 168.6,537.9 176.4,537.9'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='184.2,537.9 192.0,537.9 199.7,537.9 207.4,537.9 215.0,537.9 222.6,537.9 230.2,537.9 237.8,537.9 245.3,537.9 252.7,537.9 260.2,537.9 267.5,538.0 274.9,538.0 282.1,538.1 289.2,538.2 296.3,538.3 303.3,538.4 310.2,538.5 317.1,538.6 323.9,538.7 330.5,538.9 337.2,539.0 343.7,539.2 350.3,539.4 356.7,539.5 363.1,539.7 369.4,539.9 375.6,540.1 381.8,540.2 387.8,540.4 393.8,540.6 399.7,540.7 405.5,540.9 411.2,541.1 416.8,541.2 422.3,541.4 427.7,541.5 433.1,541.7 438.3,541.8 443.5,542.0 448.6,542.1 453.6,542.2 458.5,542.4 463.3,542.5 468.0,542.6 472.7,542.7 477.2,542.8 481.7,542.9 486.2,543.1 490.6,543.2 494.9,543.3 499.2,543.4 503.3,543.5 507.5,543.6 511.5,543.7 515.4,543.8 519.3,543.9 523.1,544.1 526.8,544.2 530.5,544.3 534.1,544.4 537.7,544.5 541.3,544.6 544.8,544.8'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='184.2,537.9 192.0,537.9 199.7,537.9 207.5,537.9 215.2,537.8 222.8,537.8 230.4,537.8 237.9,537.8 245.4,537.8 252.7,537.8 260.0,537.7 267.2,537.7 274.3,537.7 281.3,537.6 288.2,537.6 295.0,537.5 301.7,537.5 308.3,537.4 314.9,537.4 321.3,537.3 327.7,537.2 334.0,537.1 340.2,537.0 346.3,537.0 352.2,536.9 358.1,536.8 363.9,536.7 369.6,536.6 375.1,536.5 380.6,536.4 385.9,536.3 391.1,536.2 396.2,536.1 401.2,536.0 406.1,535.9 410.9,535.8 415.5,535.7 420.0,535.6 424.5,535.5 428.8,535.5 433.0,535.4 437.1,535.3 441.0,535.2 444.9,535.1 448.7,535.0 452.3,534.9 455.9,534.9 459.3,534.8 462.6,534.7 465.7,534.6 468.7,534.6 471.7,534.5 474.5,534.4 477.3,534.4 479.9,534.3 482.5,534.2 485.0,534.2 487.4,534.1 489.7,534.1 491.8,534.0 493.9,534.0 495.9,533.9 497.8,533.9 499.6,533.8'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='85' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='103' font-size='11' font-family='monospace' fill='#333'>Decelerate to maintain a safe distance from</text>
+<text x='610' y='118' font-size='11' font-family='monospace' fill='#333'>the lead vehicle ahead.</text>
+<text x='610' y='143' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='161' font-size='11' font-family='monospace' fill='#333'>Go straight following temporary traffic</text>
+<text x='610' y='176' font-size='11' font-family='monospace' fill='#333'>delineators.</text>
+<text x='610' y='201' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='219' font-size='11' font-family='monospace' fill='#333'>Lane change to the left due to construction</text>
+<text x='610' y='234' font-size='11' font-family='monospace' fill='#333'>cones blocking and narrowing our current lane</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>ahead, then match speed with lead traffic</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>after merging.</text>
+</svg>

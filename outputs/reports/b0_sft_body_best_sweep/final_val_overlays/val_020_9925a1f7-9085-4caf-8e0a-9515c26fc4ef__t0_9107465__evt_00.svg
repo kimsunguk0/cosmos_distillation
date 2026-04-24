@@ -1,0 +1,30 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 20/204 9925a1f7-9085-4caf ADE=5.00 FDE=14.86</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='52.4,547.4 59.0,547.4 65.5,547.3 72.1,547.3 78.6,547.3 85.1,547.3 91.6,547.3 98.2,547.3 104.7,547.4 111.2,547.4 117.7,547.4 124.2,547.4 130.7,547.5 137.2,547.5 143.7,547.5 150.2,547.5'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='156.7,547.6 163.2,547.6 169.7,547.5 176.2,547.5 182.7,547.5 189.1,547.4 195.6,547.3 202.1,547.1 208.5,547.0 215.0,546.8 221.4,546.6 227.9,546.4 234.3,546.1 240.7,545.9 247.1,545.6 253.6,545.4 260.0,545.1 266.4,544.9 272.8,544.6 279.2,544.3 285.6,544.1 292.0,543.8 298.3,543.5 304.7,543.2 311.1,543.0 317.4,542.7 323.8,542.4 330.2,542.2 336.5,541.9 342.8,541.7 349.2,541.5 355.5,541.2 361.8,541.0 368.2,540.8 374.5,540.6 380.8,540.4 387.1,540.2 393.3,540.0 399.6,539.8 405.9,539.6 412.1,539.4 418.3,539.3 424.5,539.1 430.6,538.9 436.8,538.8 442.9,538.6 449.0,538.4 455.0,538.3 461.0,538.1 467.0,537.9 473.0,537.8 478.9,537.6 484.8,537.5 490.7,537.3 496.6,537.2 502.4,537.0 508.1,536.8 513.9,536.7 519.6,536.5 525.2,536.4 530.9,536.2 536.5,536.1 542.0,535.9 547.6,535.8'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='156.7,547.5 163.2,547.5 169.7,547.5 176.2,547.4 182.6,547.4 189.1,547.3 195.5,547.1 201.9,547.0 208.3,546.8 214.7,546.5 221.0,546.2 227.3,545.8 233.5,545.4 239.8,544.9 246.0,544.4 252.1,543.8 258.3,543.1 264.4,542.4 270.4,541.7 276.5,540.9 282.5,540.0 288.4,539.1 294.4,538.2 300.3,537.2 306.2,536.2 312.0,535.2 317.9,534.1 323.6,533.0 329.3,531.9 335.0,530.8 340.6,529.7 346.2,528.5 351.7,527.3 357.2,526.1 362.6,524.9 368.0,523.7 373.3,522.5 378.6,521.4 383.8,520.2 388.9,519.1 394.0,517.9 399.1,516.8 404.0,515.7 409.0,514.6 413.8,513.5 418.6,512.5 423.3,511.4 428.0,510.4 432.6,509.3 437.1,508.3 441.6,507.3 446.0,506.3 450.4,505.4 454.7,504.4 458.9,503.5 463.1,502.5 467.2,501.6 471.2,500.7 475.2,499.7 479.2,498.8 483.1,497.9 487.0,497.0 490.9,496.1 494.7,495.2'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>B_curvature_or_lateral_failure,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='100' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='118' font-size='11' font-family='monospace' fill='#333'>Gentle deceleration to maintain a safe</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>distance from the construction zone with</text>
+<text x='610' y='148' font-size='11' font-family='monospace' fill='#333'>traffic cones and workers ahead.</text>
+<text x='610' y='173' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>Steer left following temporary traffic</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>delineators to maintain a safe distance from</text>
+<text x='610' y='221' font-size='11' font-family='monospace' fill='#333'>the construction zone in the same lane.</text>
+<text x='610' y='246' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>Merge left and slow slightly due to an</text>
+<text x='610' y='279' font-size='11' font-family='monospace' fill='#333'>upcoming right-lane closure marked by cones</text>
+<text x='610' y='294' font-size='11' font-family='monospace' fill='#333'>and a merge-left sign, ensuring a safe gap</text>
+<text x='610' y='309' font-size='11' font-family='monospace' fill='#333'>with vehicles already in the left lane and</text>
+<text x='610' y='324' font-size='11' font-family='monospace' fill='#333'>preparing for the work zone ahead.</text>
+</svg>

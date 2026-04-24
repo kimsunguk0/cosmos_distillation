@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 101/204 547ce352-b69b-44cd ADE=4.61 FDE=16.26</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='65.6,533.6 74.4,533.6 83.1,533.6 91.8,533.6 100.6,533.6 109.3,533.6 118.0,533.6 126.6,533.6 135.3,533.6 143.9,533.7 152.6,533.7 161.1,533.7 169.7,533.7 178.1,533.7 186.3,533.7 194.5,533.7'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='202.5,533.7 210.5,533.7 218.2,533.7 225.9,533.7 233.4,533.7 240.8,533.7 248.1,533.7 255.2,533.7 262.2,533.7 269.1,533.7 275.9,533.7 282.6,533.7 289.1,533.7 295.4,533.7 301.6,533.7 307.7,533.7 313.6,533.7 319.3,533.7 324.9,533.7 330.4,533.8 335.7,533.8 340.9,533.8 346.0,533.8 351.1,533.8 356.0,533.8 360.9,533.8 365.7,533.8 370.5,533.8 375.2,533.9 379.9,533.9 384.6,533.9 389.2,533.9 393.8,533.9 398.4,534.0 403.0,534.0 407.5,534.0 412.1,534.1 416.6,534.1 421.1,534.1 425.6,534.2 430.2,534.2 434.7,534.2 439.2,534.3 443.7,534.3 448.3,534.3 452.8,534.3 457.4,534.3 461.9,534.3 466.4,534.3 471.0,534.4 475.5,534.4 480.1,534.4 484.6,534.4 489.2,534.4 493.8,534.4 498.3,534.4 502.9,534.4 507.4,534.4 511.9,534.4 516.4,534.4 521.0,534.4 525.5,534.4 529.9,534.4 534.4,534.4'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='202.5,533.7 210.4,533.7 218.2,533.7 225.9,533.7 233.4,533.7 240.8,533.7 248.0,533.7 255.2,533.7 262.2,533.7 269.0,533.7 275.8,533.7 282.4,533.7 288.8,533.7 295.1,533.7 301.3,533.7 307.3,533.7 313.2,533.7 318.9,533.7 324.4,533.7 329.8,533.7 334.9,533.7 339.8,533.7 344.4,533.7 348.9,533.7 353.1,533.7 357.0,533.7 360.8,533.7 364.3,533.7 367.6,533.7 370.7,533.7 373.6,533.7 376.2,533.7 378.8,533.7 381.1,533.7 383.4,533.7 385.5,533.8 387.4,533.8 389.2,533.8 390.9,533.9 392.4,533.9 393.8,533.9 395.1,533.9 396.3,533.9 397.4,534.0 398.5,534.0 399.4,534.0 400.3,534.0 401.2,534.0 402.1,534.0 403.0,534.1 403.9,534.1 404.7,534.1 405.6,534.1 406.5,534.1 407.4,534.1 408.4,534.2 409.4,534.2 410.6,534.2 411.7,534.2 413.0,534.2 414.3,534.3 415.7,534.3 417.1,534.3 418.5,534.3'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='85' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='103' font-size='11' font-family='monospace' fill='#333'>Decelerate to maintain a safe distance from</text>
+<text x='610' y='118' font-size='11' font-family='monospace' fill='#333'>the lead vehicle ahead.</text>
+<text x='610' y='143' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='161' font-size='11' font-family='monospace' fill='#333'>Strong deceleration to maintain a safe</text>
+<text x='610' y='176' font-size='11' font-family='monospace' fill='#333'>distance from the lead vehicle ahead while</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>navigating through the construction zone with</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>traffic cones.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Keep distance to the lead vehicle since it is</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>directly ahead in our lane</text>
+</svg>

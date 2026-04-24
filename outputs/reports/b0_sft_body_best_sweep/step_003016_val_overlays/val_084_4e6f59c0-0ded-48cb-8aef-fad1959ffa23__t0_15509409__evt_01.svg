@@ -1,0 +1,32 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 84/204 4e6f59c0-0ded-48cb ADE=9.53 FDE=20.36</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='55.8,509.9 58.6,510.4 61.3,510.8 64.2,511.2 67.1,511.6 70.1,512.0 73.2,512.4 76.5,512.7 79.8,513.0 83.3,513.2 86.9,513.4 90.7,513.5 94.5,513.5 98.6,513.6 102.7,513.6 107.1,513.6'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='111.6,513.6 116.3,513.6 121.2,513.7 126.2,513.9 131.3,514.1 136.5,514.3 141.8,514.7 147.3,515.1 152.9,515.5 158.6,516.0 164.4,516.6 170.4,517.3 176.4,518.0 182.6,518.8 188.9,519.7 195.4,520.7 201.9,521.8 208.6,523.0 215.3,524.2 222.2,525.6 229.2,527.1 236.3,528.6 243.5,530.2 250.7,531.8 258.0,533.5 265.3,535.1 272.6,536.6 279.9,538.0 287.3,539.3 294.7,540.5 302.2,541.5 309.6,542.4 317.1,543.1 324.6,543.6 332.1,543.9 339.6,544.1 347.0,544.2 354.5,544.0 361.9,543.7 369.3,543.2 376.7,542.6 384.1,541.9 391.4,541.0 398.7,540.0 406.0,538.9 413.3,537.8 420.5,536.6 427.8,535.4 435.0,534.1 442.3,532.8 449.5,531.6 456.8,530.3 464.0,529.1 471.2,527.9 478.5,526.8 485.8,525.7 493.0,524.7 500.3,523.7 507.6,522.8 514.9,522.0 522.2,521.2 529.5,520.4 536.8,519.6 544.2,518.9'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='111.6,513.6 116.1,513.6 120.6,513.6 125.2,513.6 129.9,513.6 134.6,513.6 139.3,513.6 144.1,513.6 148.9,513.7 153.7,513.7 158.5,513.7 163.4,513.8 168.2,513.8 173.1,513.9 178.1,514.0 183.0,514.1 188.0,514.2 193.0,514.3 198.0,514.4 203.1,514.5 208.1,514.7 213.2,514.8 218.3,515.0 223.5,515.2 228.6,515.4 233.8,515.6 238.9,515.8 244.1,516.0 249.3,516.3 254.5,516.5 259.8,516.8 265.0,517.0 270.3,517.3 275.5,517.6 280.8,517.9 286.1,518.2 291.4,518.6 296.7,518.9 302.1,519.2 307.4,519.6 312.8,520.0 318.2,520.3 323.5,520.7 328.9,521.1 334.3,521.6 339.8,522.0 345.2,522.4 350.7,522.9 356.1,523.3 361.6,523.8 367.1,524.3 372.6,524.8 378.1,525.3 383.7,525.9 389.2,526.4 394.8,527.0 400.3,527.5 405.9,528.1 411.5,528.7 417.1,529.3 422.7,529.9 428.4,530.5 434.0,531.2 439.7,531.9'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>D_initial_prefix_failure,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='100' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='118' font-size='11' font-family='monospace' fill='#333'>Steer right to pass the car occupying part of</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>the lane.</text>
+<text x='610' y='158' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='176' font-size='11' font-family='monospace' fill='#333'>Steer right to return to the driving lane</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>after passing the lead vehicle ahead.</text>
+<text x='610' y='216' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='234' font-size='11' font-family='monospace' fill='#333'>Lane change to the left to overtake the slow</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>lead vehicle ahead, then merge back right</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>after clearing it, due to the lead car</text>
+<text x='610' y='279' font-size='11' font-family='monospace' fill='#333'>constraining our lane and a clear opposing</text>
+<text x='610' y='294' font-size='11' font-family='monospace' fill='#333'>lane, while accounting for low-visibility,</text>
+<text x='610' y='309' font-size='11' font-family='monospace' fill='#333'>slick conditions and an approaching right-side</text>
+<text x='610' y='324' font-size='11' font-family='monospace' fill='#333'>junction that makes staying right less</text>
+<text x='610' y='339' font-size='11' font-family='monospace' fill='#333'>favorable; then reduce speed for the upcoming</text>
+<text x='610' y='354' font-size='11' font-family='monospace' fill='#333'>curve/split after completing the pass.</text>
+</svg>

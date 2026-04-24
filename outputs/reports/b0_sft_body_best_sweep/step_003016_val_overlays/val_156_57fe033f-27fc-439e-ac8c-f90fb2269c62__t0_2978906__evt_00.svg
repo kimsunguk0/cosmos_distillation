@@ -1,0 +1,27 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='980' height='640'>
+<rect x='0' y='0' width='100%' height='100%' fill='white'/>
+<text x='16' y='22' font-size='14' font-family='monospace'>val 156/204 57fe033f-27fc-439e ADE=6.82 FDE=21.03</text>
+<polyline fill='none' stroke='#111111' stroke-width='3' points='99.6,362.6 99.6,362.6 99.6,362.6 99.6,362.6 99.6,362.6 99.6,362.6 99.7,362.6 99.8,362.6 99.9,362.6 100.0,362.5 100.1,362.5 100.3,362.5 100.6,362.5 100.9,362.5 101.3,362.5 101.8,362.5'><title>history</title></polyline>
+<polyline fill='none' stroke='#1b9e77' stroke-width='3' points='102.4,362.5 103.2,362.5 104.2,362.6 105.3,362.6 106.6,362.6 108.1,362.7 109.7,362.8 111.6,363.0 113.7,363.2 116.0,363.5 118.5,363.8 121.3,364.3 124.2,364.8 127.3,365.5 130.7,366.3 134.2,367.2 137.9,368.3 141.8,369.4 145.8,370.8 150.1,372.2 154.5,373.7 159.1,375.4 163.9,377.2 168.9,379.1 174.2,381.1 179.7,383.3 185.5,385.5 191.5,387.8 197.7,390.2 204.2,392.8 210.9,395.4 217.9,398.1 225.0,400.9 232.3,403.8 239.8,406.7 247.4,409.7 255.1,412.7 263.1,415.9 271.2,419.0 279.4,422.2 287.8,425.5 296.2,428.7 304.8,431.9 313.5,435.2 322.2,438.4 331.1,441.6 339.9,444.9 348.9,448.1 357.9,451.3 366.9,454.6 376.0,457.8 385.1,461.0 394.3,464.2 403.6,467.4 412.9,470.6 422.3,473.9 431.8,477.1 441.3,480.3 451.0,483.6 460.7,486.9 470.4,490.2 480.3,493.6 490.3,497.0 500.4,500.4'><title>GT future</title></polyline>
+<polyline fill='none' stroke='#e31a1c' stroke-width='3' points='102.4,362.5 103.2,362.5 104.1,362.5 105.1,362.5 106.3,362.5 107.5,362.5 108.8,362.5 110.3,362.5 111.8,362.5 113.5,362.5 115.3,362.5 117.1,362.5 119.1,362.5 121.2,362.5 123.4,362.5 125.7,362.5 128.0,362.5 130.5,362.5 132.9,362.5 135.5,362.5 138.1,362.5 140.7,362.5 143.3,362.5 146.1,362.5 148.8,362.5 151.6,362.5 154.4,362.5 157.1,362.5 159.9,362.5 162.6,362.5 165.4,362.5 168.0,362.5 170.7,362.5 173.3,362.5 176.0,362.5 178.5,362.4 181.1,362.4 183.7,362.4 186.2,362.4 188.7,362.4 191.2,362.4 193.7,362.4 196.2,362.4 198.6,362.4 201.0,362.4 203.4,362.4 205.7,362.4 208.1,362.3 210.4,362.3 212.7,362.3 215.0,362.3 217.3,362.3 219.5,362.3 221.8,362.3 223.9,362.3 226.1,362.3 228.1,362.3 230.2,362.3 232.3,362.3 234.3,362.2 236.3,362.2 238.4,362.2 240.4,362.2 242.5,362.2'><title>student future</title></polyline>
+<line x1='30' y1='590' x2='55' y2='590' stroke='#111111' stroke-width='3'/>
+<text x='65' y='594' font-size='12' font-family='monospace'>history</text>
+<line x1='145' y1='590' x2='170' y2='590' stroke='#1b9e77' stroke-width='3'/>
+<text x='180' y='594' font-size='12' font-family='monospace'>GT</text>
+<line x1='230' y1='590' x2='255' y2='590' stroke='#e31a1c' stroke-width='3'/>
+<text x='265' y='594' font-size='12' font-family='monospace'>student</text>
+<text x='610' y='42' font-size='13' font-family='monospace' fill='#111'>tags:</text>
+<text x='610' y='60' font-size='11' font-family='monospace' fill='#333'>B_curvature_or_lateral_failure,</text>
+<text x='610' y='75' font-size='11' font-family='monospace' fill='#333'>C_speed_scale_failure,</text>
+<text x='610' y='90' font-size='11' font-family='monospace' fill='#333'>E_long_horizon_divergence</text>
+<text x='610' y='115' font-size='13' font-family='monospace' fill='#111'>student:</text>
+<text x='610' y='133' font-size='11' font-family='monospace' fill='#333'>Yield to the pedestrian crossing the road at</text>
+<text x='610' y='148' font-size='11' font-family='monospace' fill='#333'>the crosswalk.</text>
+<text x='610' y='173' font-size='13' font-family='monospace' fill='#111'>human:</text>
+<text x='610' y='191' font-size='11' font-family='monospace' fill='#333'>Gentle acceleration after the pedestrian</text>
+<text x='610' y='206' font-size='11' font-family='monospace' fill='#333'>crosses the road.</text>
+<text x='610' y='231' font-size='13' font-family='monospace' fill='#111'>teacher:</text>
+<text x='610' y='249' font-size='11' font-family='monospace' fill='#333'>Stop to yield to the pedestrian in the</text>
+<text x='610' y='264' font-size='11' font-family='monospace' fill='#333'>crosswalk ahead since they are blocking our</text>
+<text x='610' y='279' font-size='11' font-family='monospace' fill='#333'>lane</text>
+</svg>
