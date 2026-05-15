@@ -20,6 +20,19 @@ from src.utils.traj_tokens import discrete_traj_token
 IGNORE_INDEX = -100
 SYSTEM_PROMPT = "You are a driving assistant that generates safe and accurate actions."
 FRAME_OFFSETS_DEFAULT = (-0.3, -0.2, -0.1, 0.0)
+BOUNDARY_HIDDEN_NAMES = ("cot_end", "traj_start", "action_pre")
+MATERIALIZED_4X4_IMAGE_NAMES = tuple(
+    f"cam{camera_idx}_f{frame_idx}.png" for camera_idx in range(4) for frame_idx in range(4)
+)
+CAMERA_DISPLAY_NAMES = {
+    0: "Front left camera",
+    1: "Front camera",
+    2: "Front right camera",
+    3: "Rear left camera",
+    4: "Rear camera",
+    5: "Rear right camera",
+    6: "Front telephoto camera",
+}
 
 
 @dataclass(slots=True)
@@ -87,6 +100,10 @@ def load_sample_images(sample: dict[str, Any], project_root: Path) -> list[Image
         return [Image.open(_resolve_path(path, project_root)).convert("RGB") for path in image_paths]
 
     sample_dir = resolve_sample_path(sample, project_root)
+    if sample_input.get("image_layout") == "materialized_4x4_png":
+        image_names = list(sample_input.get("image_names") or MATERIALIZED_4X4_IMAGE_NAMES)
+        return [Image.open(sample_dir / "images" / str(name)).convert("RGB") for name in image_names]
+
     frame_offsets = frame_offsets_from_sample(sample_dir)
     images: list[Image.Image] = []
     for camera_name in sample_input.get("camera_names") or []:
@@ -135,6 +152,17 @@ def load_ego_future_xyz(sample: dict[str, Any], project_root: Path) -> np.ndarra
     raise FileNotFoundError(f"Missing ego future xyz for sample {sample.get('sample_id')}")
 
 
+def load_traj_future_token_ids(target: dict[str, Any], project_root: Path) -> list[int]:
+    """Load 128 discrete future trajectory token ids from inline values or an artifact path."""
+    raw_token_ids = target.get("traj_future_token_ids")
+    if raw_token_ids:
+        return [int(token_id) for token_id in raw_token_ids]
+    token_path = target.get("traj_future_token_ids_path")
+    if token_path:
+        return [int(token_id) for token_id in np.load(_resolve_path(token_path, project_root)).reshape(-1).tolist()]
+    return []
+
+
 def format_history_text(history_xyz: np.ndarray) -> str:
     """Serialize ego history into a compact token block for the student input."""
     if history_xyz.ndim > 2:
@@ -146,17 +174,128 @@ def format_history_text(history_xyz: np.ndarray) -> str:
     return f"<|traj_history_start|>{joined}<|traj_history_end|>"
 
 
+def format_history_placeholder_text(num_history_tokens: int = 48) -> str:
+    """Return Alpamayo's placeholder history span before trajectory-token fusion."""
+    return f"<|traj_history_start|>{'<|traj_history|>' * int(num_history_tokens)}<|traj_history_end|>"
+
+
+def official_alpamayo_prompt_text(sample: dict[str, Any], *, num_history_tokens: int = 48) -> str:
+    """Create the public Alpamayo inference prompt text.
+
+    The raw chat template contains placeholder history tokens. Alpamayo replaces
+    those placeholders with encoded history delta tokens before the VLM forward.
+    """
+    sample_input = sample.get("input") or {}
+    route_section = ""
+    nav_text = str(sample_input.get("nav_text") or "").strip()
+    nav_available = bool(sample_input.get("nav_available", False))
+    if nav_available and nav_text:
+        route_section = f"<|route_start|>{nav_text}<|route_end|>"
+    prompt_text = (
+        "output the chain-of-thought reasoning of the driving process, "
+        "then output the future trajectory."
+    )
+    return f"{format_history_placeholder_text(num_history_tokens)}{route_section}{prompt_text}"
+
+
 def build_user_prompt(
     sample: dict[str, Any],
     project_root: Path,
     *,
     ego_history_xyz: np.ndarray | None = None,
+    prompt_text_style: str = "numeric_history_question",
 ) -> str:
     """Create the textual instruction paired with the image stack."""
+    style = str(prompt_text_style or "numeric_history_question").strip().lower()
+    if style in {"official", "official_alpamayo", "alpamayo"}:
+        return official_alpamayo_prompt_text(sample)
     history_xyz = ego_history_xyz if ego_history_xyz is not None else load_ego_history_xyz(sample, project_root)
     question = str((sample.get("input") or {}).get("question") or "").strip()
     history_text = format_history_text(history_xyz)
     return f"{history_text}\n<|question_start|>{question}<|question_end|>"
+
+
+def _encode_history_delta_token_ids(history_xyz: np.ndarray, tokenizer: Any) -> list[int]:
+    """Encode 16 ego-history xyz points into Alpamayo's 48 history token ids."""
+    history_xyz = np.asarray(history_xyz, dtype=np.float32)
+    if history_xyz.ndim > 2:
+        history_xyz = history_xyz.reshape(-1, history_xyz.shape[-1])
+    if history_xyz.shape[-1] < 3:
+        raise ValueError(f"ego history needs at least xyz dims, got shape={history_xyz.shape}")
+    xyz = history_xyz[:, :3]
+    padded = np.concatenate([np.zeros((1, 3), dtype=np.float32), xyz], axis=0)
+    delta = padded[1:] - padded[:-1]
+    mins = np.asarray([-4.0, -4.0, -10.0], dtype=np.float32)
+    maxs = np.asarray([4.0, 4.0, 10.0], dtype=np.float32)
+    bins = np.rint((delta - mins) / (maxs - mins) * 999.0).astype(np.int64)
+    bins = np.clip(bins, 0, 999).reshape(-1)
+
+    token_ids: list[int] = []
+    for value in bins.tolist():
+        token_id = tokenizer.convert_tokens_to_ids(discrete_traj_token(3000 + int(value)))
+        if not isinstance(token_id, int) or token_id < 0:
+            raise ValueError(f"Tokenizer is missing history token {discrete_traj_token(3000 + int(value))}")
+        token_ids.append(int(token_id))
+    return token_ids
+
+
+def fuse_history_tokens_in_input_ids(
+    input_ids: torch.Tensor,
+    tokenizer: Any,
+    ego_history_items: list[np.ndarray],
+) -> torch.Tensor:
+    """Replace `<|traj_history|>` placeholders with encoded history delta token ids."""
+    placeholder_id = tokenizer.convert_tokens_to_ids("<|traj_history|>")
+    if not isinstance(placeholder_id, int) or placeholder_id < 0:
+        raise ValueError("Tokenizer is missing <|traj_history|> placeholder token")
+    fused = input_ids.clone()
+    for row_index, history_xyz in enumerate(ego_history_items):
+        positions = torch.nonzero(fused[row_index] == int(placeholder_id), as_tuple=False).flatten()
+        history_token_ids = _encode_history_delta_token_ids(history_xyz, tokenizer)
+        if int(positions.numel()) != len(history_token_ids):
+            raise ValueError(
+                f"History placeholder count mismatch for row {row_index}: "
+                f"expected {len(history_token_ids)}, got {int(positions.numel())}"
+            )
+        fused[row_index, positions] = torch.tensor(history_token_ids, dtype=fused.dtype, device=fused.device)
+    return fused
+
+
+def resolve_camera_indices(
+    sample: dict[str, Any],
+    project_root: Path,
+    *,
+    image_count: int | None = None,
+) -> list[int]:
+    """Resolve real camera ids for materialized image slots.
+
+    Materialized 4x4 image filenames use slot names (`cam0`..`cam3`), while
+    Alpamayo's text contract expects real camera ids (`0,1,2,6` for 4V).
+    Prefer explicit corpus/metadata ids and fall back to the public 4V layout.
+    """
+    sample_input = sample.get("input") or {}
+    raw_indices = sample_input.get("camera_indices")
+    if raw_indices:
+        return [int(value) for value in raw_indices]
+
+    metadata_path = sample_input.get("metadata_path")
+    if metadata_path:
+        try:
+            metadata = json.loads(_resolve_path(metadata_path, project_root).read_text(encoding="utf-8"))
+            raw_indices = metadata.get("camera_indices")
+            if raw_indices:
+                return [int(value) for value in raw_indices]
+        except Exception:  # noqa: BLE001
+            pass
+
+    camera_count = int(sample_input.get("camera_count") or 0)
+    if camera_count == 4 or image_count == 16:
+        return [0, 1, 2, 6]
+    if camera_count > 0:
+        return list(range(camera_count))
+    if image_count is not None and image_count > 0:
+        return list(range(max(int(image_count) // 4, 1)))
+    return [0, 1, 2, 6]
 
 
 def build_traj_only_prompt(
@@ -178,11 +317,42 @@ def build_messages(
     *,
     target_text: str | None = None,
     assistant_prefix: str = "<|cot_start|>",
+    image_prompt_style: str = "compact",
+    camera_indices: list[int] | tuple[int, ...] | None = None,
+    num_frames_per_camera: int = 4,
 ) -> list[dict[str, Any]]:
     """Construct the multimodal chat message structure for one sample."""
     if completion_text is None and target_text is not None:
         completion_text = target_text
-    user_content: list[dict[str, Any]] = [{"type": "image"} for _ in range(image_count)]
+    style = str(image_prompt_style or "compact").strip().lower()
+    if style in {"compact", "unlabeled", "plain"}:
+        user_content: list[dict[str, Any]] = [{"type": "image"} for _ in range(image_count)]
+    elif style in {"camera_labeled", "alpamayo_camera_labeled", "official"}:
+        resolved_camera_indices = [int(value) for value in (camera_indices or [])]
+        if not resolved_camera_indices:
+            resolved_camera_indices = [0, 1, 2, 6] if image_count % 4 == 0 else list(range(max(image_count, 1)))
+        frames_per_camera = max(int(num_frames_per_camera or 4), 1)
+        if len(resolved_camera_indices) * frames_per_camera != image_count:
+            frames_per_camera = max(image_count // max(len(resolved_camera_indices), 1), 1)
+        user_content = []
+        emitted = 0
+        for camera_index in resolved_camera_indices:
+            if emitted >= image_count:
+                break
+            camera_name = CAMERA_DISPLAY_NAMES.get(int(camera_index), f"Camera {int(camera_index)}")
+            user_content.append({"type": "text", "text": f"{camera_name}: "})
+            for frame_index in range(frames_per_camera):
+                if emitted >= image_count:
+                    break
+                user_content.append({"type": "text", "text": f"frame {frame_index} "})
+                user_content.append({"type": "image"})
+                emitted += 1
+        while emitted < image_count:
+            user_content.append({"type": "text", "text": f"frame {emitted} "})
+            user_content.append({"type": "image"})
+            emitted += 1
+    else:
+        raise ValueError(f"Unsupported image_prompt_style={image_prompt_style!r}")
     user_content.append({"type": "text", "text": prompt_text})
     assistant_text = assistant_prefix
     if completion_text is not None:
@@ -284,19 +454,28 @@ def _target_layout_masks(labels: torch.Tensor, layouts: list[TargetLayout]) -> d
     traj_token_mask = torch.zeros_like(labels, dtype=torch.bool)
     format_token_mask = torch.zeros_like(labels, dtype=torch.bool)
     cot_content_positions: list[list[int]] = []
+    text_topk_positions: list[list[int]] = []
+    boundary_hidden_positions: list[list[int]] = []
 
     for row_index, layout in enumerate(layouts):
         valid_positions = torch.nonzero(labels[row_index] != IGNORE_INDEX, as_tuple=False).flatten()
         if valid_positions.numel() == 0:
             cot_content_positions.append([])
+            text_topk_positions.append([])
+            boundary_hidden_positions.append([-1, -1, -1])
             continue
 
         cursor = int(valid_positions[0].item())
         valid_end = int(valid_positions[-1].item()) + 1
+        row_cot_positions: list[int] = []
+        row_text_topk_positions: list[int] = []
+        row_boundary_positions = [-1, -1, -1]
 
         cot_content_len = min(layout.cot_content_len, max(valid_end - cursor, 0))
         if cot_content_len > 0:
             cot_content_mask[row_index, cursor : cursor + cot_content_len] = True
+            row_cot_positions = list(range(cursor, cursor + cot_content_len))
+            row_text_topk_positions.extend(row_cot_positions)
 
         cot_span_len = min(layout.cot_span_len, max(valid_end - cursor, 0))
         if cot_span_len > 0:
@@ -305,7 +484,9 @@ def _target_layout_masks(labels: torch.Tensor, layouts: list[TargetLayout]) -> d
         cot_suffix_len = min(layout.cot_suffix_len, max(valid_end - cot_suffix_start, 0))
         if cot_suffix_len > 0:
             format_token_mask[row_index, cot_suffix_start : cot_suffix_start + cot_suffix_len] = True
-        cot_content_positions.append(list(range(cursor, cursor + cot_content_len)))
+            row_text_topk_positions.extend(range(cot_suffix_start, cot_suffix_start + cot_suffix_len))
+            row_boundary_positions[0] = cot_suffix_start + cot_suffix_len - 1
+        cot_content_positions.append(row_cot_positions)
         cursor += cot_span_len
 
         traj_span_len = min(layout.traj_span_len, max(valid_end - cursor, 0))
@@ -314,6 +495,12 @@ def _target_layout_masks(labels: torch.Tensor, layouts: list[TargetLayout]) -> d
         traj_prefix_len = min(layout.traj_prefix_len, max(valid_end - cursor, 0))
         if traj_prefix_len > 0:
             format_token_mask[row_index, cursor : cursor + traj_prefix_len] = True
+            row_text_topk_positions.extend(range(cursor, cursor + traj_prefix_len))
+            traj_start_position = cursor + traj_prefix_len - 1
+            row_boundary_positions[1] = traj_start_position
+            row_boundary_positions[2] = traj_start_position
+        text_topk_positions.append(row_text_topk_positions)
+        boundary_hidden_positions.append(row_boundary_positions)
 
         traj_token_start = cursor + min(layout.traj_prefix_len, traj_span_len)
         traj_token_len = min(layout.traj_content_len, max(valid_end - traj_token_start, 0))
@@ -331,6 +518,8 @@ def _target_layout_masks(labels: torch.Tensor, layouts: list[TargetLayout]) -> d
         "traj_token_mask": traj_token_mask,
         "format_token_mask": format_token_mask,
         "cot_content_positions": cot_content_positions,
+        "text_topk_positions": text_topk_positions,
+        "boundary_hidden_positions": boundary_hidden_positions,
     }
 
 
@@ -394,8 +583,12 @@ def _pad_future_xyz_batch(future_items: list[np.ndarray]) -> tuple[torch.Tensor,
 def _teacher_signal_from_sample(sample: dict[str, Any], project_root: Path) -> dict[str, np.ndarray | int] | None:
     teacher_target = sample.get("teacher_target") or {}
     topk_path = teacher_target.get("topk_logits_path")
+    topk_ids_path = teacher_target.get("topk_ids_path") or teacher_target.get("teacher_text_topk_ids_path")
+    topk_logprobs_path = teacher_target.get("topk_logprobs_path") or teacher_target.get(
+        "teacher_text_topk_logprobs_path"
+    )
     pooled_hidden_path = teacher_target.get("pooled_hidden_path")
-    if not topk_path and not pooled_hidden_path:
+    if not topk_path and not (topk_ids_path and topk_logprobs_path) and not pooled_hidden_path:
         return None
 
     signal: dict[str, np.ndarray | int] = {}
@@ -403,14 +596,77 @@ def _teacher_signal_from_sample(sample: dict[str, Any], project_root: Path) -> d
         resolved_topk = _resolve_path(topk_path, project_root)
         if resolved_topk.exists():
             topk_npz = np.load(resolved_topk)
-            signal["topk_indices"] = topk_npz["topk_indices"]
-            signal["topk_logprobs"] = topk_npz["topk_logits"].astype(np.float32)
-            signal["target_token_count"] = int(np.asarray(topk_npz["target_token_count"]).reshape(-1)[0])
+            index_key = "topk_indices" if "topk_indices" in topk_npz else "topk_ids"
+            logprob_key = "topk_logprobs" if "topk_logprobs" in topk_npz else "topk_logits"
+            signal["topk_indices"] = topk_npz[index_key].astype(np.int64)
+            signal["topk_logprobs"] = topk_npz[logprob_key].astype(np.float32)
+            if "target_token_count" in topk_npz:
+                signal["target_token_count"] = int(np.asarray(topk_npz["target_token_count"]).reshape(-1)[0])
+            else:
+                signal["target_token_count"] = int(np.asarray(signal["topk_indices"]).shape[0])
+    if "topk_indices" not in signal and topk_ids_path and topk_logprobs_path:
+        resolved_ids = _resolve_path(topk_ids_path, project_root)
+        resolved_logprobs = _resolve_path(topk_logprobs_path, project_root)
+        if resolved_ids.exists() and resolved_logprobs.exists():
+            signal["topk_indices"] = np.load(resolved_ids).astype(np.int64)
+            signal["topk_logprobs"] = np.load(resolved_logprobs).astype(np.float32)
+            explicit_count = teacher_target.get("target_token_count") or teacher_target.get(
+                "teacher_text_topk_num_positions"
+            )
+            signal["target_token_count"] = (
+                int(explicit_count) if explicit_count not in (None, "") else int(signal["topk_indices"].shape[0])
+            )
     if pooled_hidden_path:
         resolved_hidden = _resolve_path(pooled_hidden_path, project_root)
         if resolved_hidden.exists():
             signal["pooled_hidden"] = np.load(resolved_hidden).astype(np.float32)
     return signal or None
+
+
+def _teacher_boundary_hidden_signal_from_sample(
+    sample: dict[str, Any],
+    project_root: Path,
+) -> dict[str, np.ndarray] | None:
+    """Load cached teacher boundary hidden states for CoT/action interface alignment."""
+    teacher_cache = sample.get("teacher_cache") or {}
+    raw_paths = dict(teacher_cache.get("boundary_hidden_paths") or {})
+    teacher_target = sample.get("teacher_target") or {}
+    for name in BOUNDARY_HIDDEN_NAMES:
+        raw_paths.setdefault(name, teacher_target.get(f"{name}_hidden_path"))
+        raw_paths.setdefault(name, teacher_cache.get(f"{name}_hidden_path"))
+
+    hidden_items: list[np.ndarray | None] = []
+    hidden_dim: int | None = None
+    mask = np.zeros((len(BOUNDARY_HIDDEN_NAMES),), dtype=bool)
+    for index, name in enumerate(BOUNDARY_HIDDEN_NAMES):
+        raw_path = raw_paths.get(name)
+        if raw_path in (None, ""):
+            hidden_items.append(None)
+            continue
+        try:
+            path = _resolve_path(raw_path, project_root)
+            if not path.exists():
+                hidden_items.append(None)
+                continue
+            hidden = np.load(path).astype(np.float32).reshape(-1)
+        except Exception:  # noqa: BLE001
+            hidden_items.append(None)
+            continue
+        if hidden_dim is None:
+            hidden_dim = int(hidden.shape[-1])
+        if int(hidden.shape[-1]) != hidden_dim:
+            hidden_items.append(None)
+            continue
+        hidden_items.append(hidden)
+        mask[index] = True
+
+    if hidden_dim is None or not mask.any():
+        return None
+    stacked = np.zeros((len(BOUNDARY_HIDDEN_NAMES), hidden_dim), dtype=np.float32)
+    for index, hidden in enumerate(hidden_items):
+        if hidden is not None:
+            stacked[index] = hidden
+    return {"hidden": stacked, "mask": mask}
 
 
 def _teacher_traj15_signal_from_sample(
@@ -419,7 +675,88 @@ def _teacher_traj15_signal_from_sample(
     teacher_traj_cache_dir: Path | None,
     teacher_traj_hidden_source: str = "hidden",
     teacher_traj_latent_suffix: str = "lat32",
+    project_root: Path | None = None,
 ) -> dict[str, np.ndarray | float] | None:
+    direct_target = sample.get("teacher_traj_target") or {}
+    if direct_target:
+        status = str(direct_target.get("status") or direct_target.get("inference_status") or "ready").strip().lower()
+        valid = bool(direct_target.get("valid", True))
+        if not valid or status not in {"", "ready", "ok"}:
+            return None
+
+        def _direct_path(raw_path: str | Path | None) -> Path | None:
+            if raw_path in (None, ""):
+                return None
+            remapped = remap_external_path(raw_path)
+            if remapped is None:
+                return None
+            path = Path(remapped)
+            if not path.is_absolute() and project_root is not None:
+                path = project_root / path
+            return path
+
+        signal: dict[str, np.ndarray | float] = {}
+        token_ids_path = _direct_path(
+            direct_target.get("token_ids_path")
+            or direct_target.get("teacher_future_token_ids_path")
+            or direct_target.get("tokens_path")
+        )
+        if token_ids_path is not None and token_ids_path.exists():
+            signal["token_ids"] = np.load(token_ids_path).astype(np.int32)
+        elif direct_target.get("token_ids") is not None:
+            signal["token_ids"] = np.asarray(direct_target.get("token_ids"), dtype=np.int32)
+
+        resolved_source = str(teacher_traj_hidden_source).strip().lower()
+        hidden_path_key = "latent_path" if resolved_source == "latent" else "hidden_path"
+        selected_hidden_path = _direct_path(
+            direct_target.get(hidden_path_key)
+            or direct_target.get("teacher_traj_hidden_path")
+            or direct_target.get("hidden_path")
+        )
+        loaded_hidden = None
+        if selected_hidden_path is not None and selected_hidden_path.exists():
+            loaded_hidden = np.load(selected_hidden_path).astype(np.float32)
+            signal["hidden"] = loaded_hidden
+            signal["hidden_source"] = resolved_source
+        raw_hidden_path = _direct_path(direct_target.get("hidden_raw_path") or direct_target.get("raw_hidden_path"))
+        if raw_hidden_path is not None and raw_hidden_path.exists():
+            signal["hidden_raw"] = np.load(raw_hidden_path).astype(np.float32)
+        elif loaded_hidden is not None and resolved_source != "latent":
+            signal["hidden_raw"] = loaded_hidden
+
+        topk_path = _direct_path(
+            direct_target.get("topk_logits_path")
+            or direct_target.get("topk_path")
+            or direct_target.get("teacher_traj_topk_ids_path")
+        )
+        loaded_topk = False
+        if topk_path is not None and topk_path.exists():
+            topk_npz = np.load(topk_path)
+            if hasattr(topk_npz, "files"):
+                index_key = "topk_indices" if "topk_indices" in topk_npz.files else "topk_ids"
+                logprob_key = "topk_logprobs" if "topk_logprobs" in topk_npz.files else "topk_logits"
+                signal["topk_indices"] = topk_npz[index_key].astype(np.int32)
+                signal["topk_logprobs"] = topk_npz[logprob_key].astype(np.float32)
+                if "target_token_ids" in topk_npz.files and "token_ids" not in signal:
+                    signal["token_ids"] = topk_npz["target_token_ids"].astype(np.int32)
+                loaded_topk = True
+        if not loaded_topk:
+            topk_ids_path = _direct_path(direct_target.get("topk_ids_path") or direct_target.get("topk_indices_path"))
+            topk_logprobs_path = _direct_path(
+                direct_target.get("topk_logprobs_path") or direct_target.get("topk_logits_array_path")
+            )
+            if topk_ids_path is not None and topk_logprobs_path is not None:
+                if topk_ids_path.exists() and topk_logprobs_path.exists():
+                    signal["topk_indices"] = np.load(topk_ids_path).astype(np.int32)
+                    signal["topk_logprobs"] = np.load(topk_logprobs_path).astype(np.float32)
+
+        if "teacher_traj_ade_m" in direct_target:
+            signal["teacher_traj_ade_m"] = float(direct_target.get("teacher_traj_ade_m") or 0.0)
+        if "teacher_traj_fde_m" in direct_target:
+            signal["teacher_traj_fde_m"] = float(direct_target.get("teacher_traj_fde_m") or 0.0)
+        signal["quality_multiplier"] = float(direct_target.get("quality_multiplier", 1.0) or 1.0)
+        return signal or None
+
     if teacher_traj_cache_dir is None:
         return None
     sample_id = str(sample.get("sample_id") or "").strip()
@@ -465,7 +802,7 @@ def _teacher_traj15_signal_from_sample(
 
 def _pad_teacher_signal_batch(
     signal_items: list[dict[str, np.ndarray | int] | None],
-    cot_content_positions: list[list[int]],
+    target_positions: list[list[int]],
 ) -> dict[str, torch.Tensor]:
     outputs: dict[str, torch.Tensor] = {}
     topk_ready = [item for item in signal_items if item and "topk_indices" in item and "topk_logprobs" in item]
@@ -474,7 +811,7 @@ def _pad_teacher_signal_batch(
         max_tokens = max(
             min(
                 int(item["target_token_count"]),
-                len(cot_content_positions[row_index]),
+                len(target_positions[row_index]),
             )
             for row_index, item in enumerate(signal_items)
             if item and "topk_indices" in item and "topk_logprobs" in item
@@ -486,14 +823,14 @@ def _pad_teacher_signal_batch(
         for row_index, item in enumerate(signal_items):
             if item is None or "topk_indices" not in item or "topk_logprobs" not in item:
                 continue
-            token_count = min(int(item["target_token_count"]), len(cot_content_positions[row_index]), max_tokens)
+            token_count = min(int(item["target_token_count"]), len(target_positions[row_index]), max_tokens)
             if token_count <= 0:
                 continue
             topk_indices[row_index, :token_count] = torch.from_numpy(item["topk_indices"][:token_count]).long()
             topk_logprobs[row_index, :token_count] = torch.from_numpy(item["topk_logprobs"][:token_count]).float()
             topk_mask[row_index, :token_count] = True
             topk_positions[row_index, :token_count] = torch.tensor(
-                cot_content_positions[row_index][:token_count],
+                target_positions[row_index][:token_count],
                 dtype=torch.long,
             )
         outputs.update(
@@ -518,6 +855,48 @@ def _pad_teacher_signal_batch(
         outputs["teacher_pooled_hidden"] = teacher_pooled_hidden
         outputs["teacher_pooled_hidden_mask"] = teacher_hidden_mask
 
+    return outputs
+
+
+def _pad_teacher_boundary_hidden_batch(
+    signal_items: list[dict[str, np.ndarray] | None],
+    boundary_positions: list[list[int]],
+) -> dict[str, torch.Tensor]:
+    """Pad teacher boundary hidden states and their student sequence positions."""
+    outputs: dict[str, torch.Tensor] = {}
+    hidden_ready = [item for item in signal_items if item is not None and "hidden" in item]
+    if not hidden_ready:
+        return outputs
+
+    hidden_dim = int(np.asarray(hidden_ready[0]["hidden"]).shape[-1])
+    teacher_hidden = torch.zeros((len(signal_items), len(BOUNDARY_HIDDEN_NAMES), hidden_dim), dtype=torch.float32)
+    teacher_mask = torch.zeros((len(signal_items), len(BOUNDARY_HIDDEN_NAMES)), dtype=torch.bool)
+    teacher_positions = torch.full((len(signal_items), len(BOUNDARY_HIDDEN_NAMES)), -1, dtype=torch.long)
+    available = torch.zeros((len(signal_items),), dtype=torch.bool)
+
+    for row_index, item in enumerate(signal_items):
+        if item is None or "hidden" not in item:
+            continue
+        hidden = np.asarray(item["hidden"], dtype=np.float32)
+        if hidden.ndim != 2 or int(hidden.shape[0]) != len(BOUNDARY_HIDDEN_NAMES) or int(hidden.shape[-1]) != hidden_dim:
+            continue
+        mask = np.asarray(item.get("mask", np.ones((len(BOUNDARY_HIDDEN_NAMES),), dtype=bool)), dtype=bool).reshape(-1)
+        if int(mask.shape[0]) != len(BOUNDARY_HIDDEN_NAMES):
+            continue
+        positions = list(boundary_positions[row_index]) if row_index < len(boundary_positions) else [-1, -1, -1]
+        if len(positions) != len(BOUNDARY_HIDDEN_NAMES):
+            positions = [-1, -1, -1]
+        teacher_hidden[row_index] = torch.from_numpy(hidden).float()
+        teacher_mask[row_index] = torch.from_numpy(mask)
+        teacher_positions[row_index] = torch.tensor(positions, dtype=torch.long)
+        available[row_index] = bool(mask.any())
+
+    if not bool(available.any()):
+        return outputs
+    outputs["teacher_text_boundary_hidden"] = teacher_hidden
+    outputs["teacher_text_boundary_hidden_mask"] = teacher_mask
+    outputs["teacher_text_boundary_hidden_positions"] = teacher_positions
+    outputs["teacher_text_boundary_hidden_available"] = available
     return outputs
 
 
@@ -603,6 +982,34 @@ class DistillationCollator:
     teacher_view_uses_teacher_traj: bool = False
     teacher_view_default_traj_weight: float = 0.0
     teacher_traj_topk_on_teacher_view: bool = False
+    image_prompt_style: str = "compact"
+    prompt_text_style: str = "numeric_history_question"
+    fuse_history_tokens: bool = False
+
+    def __post_init__(self) -> None:
+        style = str(self.image_prompt_style or "compact").strip().lower()
+        aliases = {
+            "plain": "compact",
+            "unlabeled": "compact",
+            "alpamayo_camera_labeled": "camera_labeled",
+            "official": "camera_labeled",
+        }
+        style = aliases.get(style, style)
+        if style not in {"compact", "camera_labeled"}:
+            raise ValueError(f"Unsupported image_prompt_style={self.image_prompt_style!r}")
+        self.image_prompt_style = style
+        prompt_style = str(self.prompt_text_style or "numeric_history_question").strip().lower()
+        prompt_aliases = {
+            "numeric": "numeric_history_question",
+            "numeric_history": "numeric_history_question",
+            "question": "numeric_history_question",
+            "official": "official_alpamayo",
+            "alpamayo": "official_alpamayo",
+        }
+        prompt_style = prompt_aliases.get(prompt_style, prompt_style)
+        if prompt_style not in {"numeric_history_question", "official_alpamayo"}:
+            raise ValueError(f"Unsupported prompt_text_style={self.prompt_text_style!r}")
+        self.prompt_text_style = prompt_style
 
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, Any]:
         prompt_messages: list[list[dict[str, Any]]] = []
@@ -625,6 +1032,7 @@ class DistillationCollator:
         action_aux_allowed: list[bool] = []
         action_aux_weight: list[float] = []
         hard_teacher_signal_items: list[dict[str, np.ndarray | int] | None] = []
+        teacher_boundary_hidden_signal_items: list[dict[str, np.ndarray] | None] = []
         hard_teacher_signal_weights: list[float] = []
         hard_teacher_quality_multiplier: list[float] = []
         teacher_traj_token_weight_items: list[np.ndarray | None] = []
@@ -649,16 +1057,18 @@ class DistillationCollator:
             gate = sample.get("gate") or {}
             teacher_target = sample.get("teacher_target") or {}
             teacher_signal = _teacher_signal_from_sample(sample, self.project_root)
+            teacher_boundary_hidden_signal = _teacher_boundary_hidden_signal_from_sample(sample, self.project_root)
             teacher_traj_signal = _teacher_traj15_signal_from_sample(
                 sample,
                 teacher_traj_cache_dir=self.teacher_traj_cache_dir,
                 teacher_traj_hidden_source=self.teacher_traj_hidden_source,
                 teacher_traj_latent_suffix=self.teacher_traj_latent_suffix,
+                project_root=self.project_root,
             )
             explicit_teacher_traj_weight = resolve_optional_loss_weight_value(weights, "teacher_traj_ce")
             teacher_traj_token_weight_items.append(_teacher_traj_token_kd_weights_from_sample(weights))
 
-            traj_token_ids = [int(token_id) for token_id in hard_target.get("traj_future_token_ids") or []]
+            traj_token_ids = load_traj_future_token_ids(hard_target, self.project_root)
             target_cot_text = hard_target.get("cot_text")
             target_provenance = "hard_target"
             if self.hard_view_uses_teacher_cot and not self.teacher_pair_target:
@@ -690,9 +1100,16 @@ class DistillationCollator:
             if self.prompt_mode == "traj_only":
                 prompt_text = build_traj_only_prompt(sample, self.project_root, ego_history_xyz=ego_history_xyz)
             else:
-                prompt_text = build_user_prompt(sample, self.project_root, ego_history_xyz=ego_history_xyz)
+                prompt_text = build_user_prompt(
+                    sample,
+                    self.project_root,
+                    ego_history_xyz=ego_history_xyz,
+                    prompt_text_style=self.prompt_text_style,
+                )
             ego_future_xyz = load_ego_future_xyz(sample, self.project_root)
             images = load_sample_images(sample, self.project_root)
+            camera_indices = resolve_camera_indices(sample, self.project_root, image_count=len(images))
+            num_frames_per_camera = max(len(images) // max(len(camera_indices), 1), 1)
             if self.target_mode == "traj_only":
                 hard_layout = _build_traj_only_target_layout(self.tokenizer, traj_token_ids)
                 assistant_prefix = "<|traj_future_start|>"
@@ -700,13 +1117,25 @@ class DistillationCollator:
                 hard_layout = _build_target_layout(self.tokenizer, target_cot_text, traj_token_ids)
                 assistant_prefix = "<|cot_start|>"
 
-            prompt_messages.append(build_messages(prompt_text, len(images), assistant_prefix=assistant_prefix))
+            prompt_messages.append(
+                build_messages(
+                    prompt_text,
+                    len(images),
+                    assistant_prefix=assistant_prefix,
+                    image_prompt_style=self.image_prompt_style,
+                    camera_indices=camera_indices,
+                    num_frames_per_camera=num_frames_per_camera,
+                )
+            )
             full_messages.append(
                 build_messages(
                     prompt_text,
                     len(images),
                     hard_layout.completion_text,
                     assistant_prefix=assistant_prefix,
+                    image_prompt_style=self.image_prompt_style,
+                    camera_indices=camera_indices,
+                    num_frames_per_camera=num_frames_per_camera,
                 )
             )
             image_batch.append(images)
@@ -753,6 +1182,9 @@ class DistillationCollator:
             hard_teacher_signal_items.append(
                 teacher_signal if (self.teacher_pair_target or self.hard_view_uses_teacher_cot) else None
             )
+            teacher_boundary_hidden_signal_items.append(
+                teacher_boundary_hidden_signal if (self.teacher_pair_target or self.hard_view_uses_teacher_cot) else None
+            )
             hard_teacher_signal_weights.append(
                 1.0 if (self.teacher_pair_target or self.hard_view_uses_teacher_cot) and teacher_signal is not None else 0.0
             )
@@ -771,8 +1203,25 @@ class DistillationCollator:
                 teacher_target.get("cot_text"),
                 teacher_layout_traj_ids,
             )
-            teacher_prompt_messages.append(build_messages(prompt_text, len(images)))
-            teacher_full_messages.append(build_messages(prompt_text, len(images), teacher_layout.completion_text))
+            teacher_prompt_messages.append(
+                build_messages(
+                    prompt_text,
+                    len(images),
+                    image_prompt_style=self.image_prompt_style,
+                    camera_indices=camera_indices,
+                    num_frames_per_camera=num_frames_per_camera,
+                )
+            )
+            teacher_full_messages.append(
+                build_messages(
+                    prompt_text,
+                    len(images),
+                    teacher_layout.completion_text,
+                    image_prompt_style=self.image_prompt_style,
+                    camera_indices=camera_indices,
+                    num_frames_per_camera=num_frames_per_camera,
+                )
+            )
             teacher_image_batch.append(images)
             teacher_layouts.append(teacher_layout)
             teacher_signal_items.append(teacher_signal)
@@ -806,6 +1255,17 @@ class DistillationCollator:
             self.max_length,
             continue_final_message=True,
         )
+        if self.fuse_history_tokens:
+            prompt_batch["input_ids"] = fuse_history_tokens_in_input_ids(
+                prompt_batch["input_ids"],
+                self.tokenizer,
+                ego_histories,
+            )
+            full_batch["input_ids"] = fuse_history_tokens_in_input_ids(
+                full_batch["input_ids"],
+                self.tokenizer,
+                ego_histories,
+            )
         labels = _labels_from_prompt_and_full(prompt_batch, full_batch)
         hard_masks = _target_layout_masks(labels, hard_layouts)
         ego_history_xyz, ego_history_mask = _pad_ego_history_batch(ego_histories)
@@ -830,6 +1290,7 @@ class DistillationCollator:
             "sample_ids": sample_ids,
             "splits": splits,
             "sample_provenance_flags": sample_provenance_flags,
+            "image_prompt_style": self.image_prompt_style,
             "teacher_vs_gt_consistency_level": teacher_vs_gt_consistency_level,
             "teacher_view_allowed": torch.tensor(teacher_view_allowed, dtype=torch.bool),
             "teacher_view_weight": torch.tensor(teacher_view_weight, dtype=torch.float32),
@@ -839,12 +1300,21 @@ class DistillationCollator:
             "teacher_pair_weight": torch.tensor(hard_teacher_signal_weights, dtype=torch.float32),
             "teacher_pair_quality_multiplier": torch.tensor(hard_teacher_quality_multiplier, dtype=torch.float32),
             "teacher_traj_topk_on_teacher_view": self.teacher_traj_topk_on_teacher_view,
+            "prompt_text_style": self.prompt_text_style,
+            "fuse_history_tokens": bool(self.fuse_history_tokens),
             "action_class_labels": torch.tensor(action_labels, dtype=torch.long),
             "hard_cot_weights": torch.tensor(hard_cot_weights, dtype=torch.float32),
             "traj_weights": torch.tensor(traj_weights, dtype=torch.float32),
         }
         if any(item is not None for item in hard_teacher_signal_items):
-            batch.update(_pad_teacher_signal_batch(hard_teacher_signal_items, hard_masks["cot_content_positions"]))
+            batch.update(_pad_teacher_signal_batch(hard_teacher_signal_items, hard_masks["text_topk_positions"]))
+        if any(item is not None for item in teacher_boundary_hidden_signal_items):
+            batch.update(
+                _pad_teacher_boundary_hidden_batch(
+                    teacher_boundary_hidden_signal_items,
+                    hard_masks["boundary_hidden_positions"],
+                )
+            )
         teacher_traj_available = torch.tensor(
             [item is not None for item in teacher_traj_signal_items],
             dtype=torch.bool,
@@ -1043,7 +1513,7 @@ class DistillationCollator:
                 "traj_weights": torch.tensor(teacher_traj_weights, dtype=torch.float32),
                 "teacher_quality_multiplier": torch.tensor(teacher_quality_multiplier, dtype=torch.float32),
             }
-            teacher_view_batch.update(_pad_teacher_signal_batch(teacher_signal_items, teacher_masks["cot_content_positions"]))
+            teacher_view_batch.update(_pad_teacher_signal_batch(teacher_signal_items, teacher_masks["text_topk_positions"]))
             if self.teacher_traj_topk_on_teacher_view:
                 teacher_view_batch.update(
                     _pad_teacher_traj_topk_batch(

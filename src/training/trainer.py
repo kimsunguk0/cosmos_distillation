@@ -19,6 +19,7 @@ from src.training.losses import (
     masked_token_accuracy,
     teacher_logit_kd_loss,
     token_hidden_covariance_loss,
+    token_hidden_positions_alignment_bridge_loss,
     trajectory_aux_regression_loss,
     trajectory_aux_guided_kd_loss,
     trajectory_aux_pseudo_ce_loss,
@@ -42,6 +43,7 @@ class TrainerConfig:
     epochs: float = 1.0
     max_length: int = 4096
     bf16: bool = True
+    gradient_checkpointing: bool = True
     learning_rate: float = 2e-5
     batch_size: int = 1
     max_steps: int | None = None
@@ -57,17 +59,18 @@ class ScheduledSamplingConfig:
 
 def move_batch_to_device(batch: dict[str, Any], device: torch.device) -> dict[str, Any]:
     """Move a nested batch dict onto the target device."""
+    non_blocking = device.type == "cuda"
     moved: dict[str, Any] = {}
     for key, value in batch.items():
         if isinstance(value, torch.Tensor):
-            moved[key] = value.to(device)
+            moved[key] = value.to(device, non_blocking=non_blocking)
         elif isinstance(value, dict):
             moved[key] = move_batch_to_device(value, device)
         elif isinstance(value, list):
             converted = []
             for item in value:
                 if isinstance(item, torch.Tensor):
-                    converted.append(item.to(device))
+                    converted.append(item.to(device, non_blocking=non_blocking))
                 elif isinstance(item, dict):
                     converted.append(move_batch_to_device(item, device))
                 else:
@@ -134,6 +137,9 @@ def _apply_scheduled_sampling(
             attention_mask=batch["attention_mask"],
             pixel_values=batch.get("pixel_values"),
             image_grid_thw=batch.get("image_grid_thw"),
+            return_hidden_states=False,
+            compute_meta_action=False,
+            compute_traj_aux=False,
         )
         shifted_logits = teacher_forced_outputs["logits"][:, :-1, vocab_start : vocab_start + vocab_size]
         predicted_tokens = shifted_logits.argmax(dim=-1).to(dtype=batch["input_ids"].dtype) + vocab_start
@@ -211,95 +217,141 @@ def run_train_step(
         active_traj_token_mask,
         scheduled_sampling_config,
     )
+    needs_hard_hidden = bool(
+        weights.feat_align > 0
+        or weights.teacher_traj_hidden_align > 0
+        or weights.teacher_boundary_hidden_align > 0
+    )
+    needs_meta_action = bool(weights.action_aux > 0)
+    needs_traj_aux = bool(
+        weights.traj_aux_reg > 0
+        or weights.traj_aux_xyz_reg > 0
+        or weights.traj_aux_final_reg > 0
+        or weights.traj_aux_guided_kd > 0
+        or weights.traj_aux_pseudo_ce > 0
+    )
     hard_outputs = model(
         input_ids=input_ids,
         attention_mask=batch["attention_mask"],
         pixel_values=batch.get("pixel_values"),
         image_grid_thw=batch.get("image_grid_thw"),
+        return_hidden_states=needs_hard_hidden,
+        compute_meta_action=needs_meta_action,
+        compute_traj_aux=needs_traj_aux,
     )
 
-    hard_cot_ce, _ = weighted_causal_ce(
-        hard_outputs["logits"],
-        batch["labels"],
-        batch["hard_cot_weights"],
-        batch["cot_span_mask"],
-    )
-    hard_traj_ce, _ = weighted_causal_ce(
-        hard_outputs["logits"],
-        batch["labels"],
-        batch["traj_weights"],
-        active_traj_token_mask,
-        batch.get("traj_token_label_weights"),
-    )
-    format_ce, _ = weighted_causal_ce(
-        hard_outputs["logits"],
-        batch["labels"],
-        batch["hard_cot_weights"],
-        batch["format_token_mask"],
-    )
-    action_aux = auxiliary_action_loss(
-        hard_outputs["meta_action_logits"],
-        batch["action_class_labels"],
-        batch["action_aux_weight"],
-    )
-    traj_aux_reg = trajectory_aux_regression_loss(
-        hard_outputs.get("traj_aux_values"),
-        batch["labels"],
-        active_traj_token_mask,
-        batch["traj_weights"],
-        traj_decode_config,
-        aux_config=traj_aux_interface_config,
-    )
-    traj_aux_xyz_reg, traj_aux_final_reg = decoded_traj_aux_anchor_losses(
-        hard_outputs.get("traj_aux_values"),
-        batch["labels"],
-        active_traj_token_mask,
-        batch.get("ego_history_xyz"),
-        batch.get("ego_history_mask"),
-        batch.get("ego_future_xyz"),
-        batch.get("ego_future_mask"),
-        traj_decode_config,
-        aux_config=traj_aux_interface_config,
-    )
-    traj_xyz_reg, traj_delta_reg, traj_final_reg = decoded_traj_geometry_losses(
-        hard_outputs["logits"],
-        batch["labels"],
-        active_traj_token_mask,
-        batch.get("ego_history_xyz"),
-        batch.get("ego_history_mask"),
-        batch.get("ego_future_xyz"),
-        batch.get("ego_future_mask"),
-        traj_decode_config,
-    )
-    traj_control_reg, traj_control_delta_reg = trajectory_control_regression_losses(
-        hard_outputs["logits"],
-        batch["labels"],
-        active_traj_token_mask,
-        batch["traj_weights"],
-        traj_decode_config,
-    )
-    traj_aux_guided_kd = trajectory_aux_guided_kd_loss(
-        hard_outputs["logits"],
-        hard_outputs.get("traj_aux_values"),
-        batch["labels"],
-        active_traj_token_mask,
-        batch["traj_weights"],
-        traj_decode_config,
-        aux_config=traj_aux_interface_config,
-    )
-    traj_aux_pseudo_ce = trajectory_aux_pseudo_ce_loss(
-        hard_outputs["logits"],
-        hard_outputs.get("traj_aux_values"),
-        batch["labels"],
-        active_traj_token_mask,
-        batch["traj_weights"],
-        traj_decode_config,
-        aux_config=traj_aux_interface_config,
-    )
-    hard_token_mask = batch["cot_span_mask"] | batch["traj_span_mask"]
-    hard_token_acc = masked_token_accuracy(hard_outputs["logits"], batch["labels"], hard_token_mask)
-    hard_cot_acc = masked_token_accuracy(hard_outputs["logits"], batch["labels"], batch["cot_span_mask"])
+    hard_cot_ce = _zero(device)
+    if weights.hard_cot_ce > 0:
+        hard_cot_ce, _ = weighted_causal_ce(
+            hard_outputs["logits"],
+            batch["labels"],
+            batch["hard_cot_weights"],
+            batch["cot_span_mask"],
+        )
+    hard_traj_ce = _zero(device)
+    if weights.traj_ce > 0:
+        hard_traj_ce, _ = weighted_causal_ce(
+            hard_outputs["logits"],
+            batch["labels"],
+            batch["traj_weights"],
+            active_traj_token_mask,
+            batch.get("traj_token_label_weights"),
+        )
+    format_ce = _zero(device)
+    if weights.format_ce > 0:
+        format_ce, _ = weighted_causal_ce(
+            hard_outputs["logits"],
+            batch["labels"],
+            batch["hard_cot_weights"],
+            batch["format_token_mask"],
+        )
+    action_aux = _zero(device)
+    if needs_meta_action:
+        action_aux = auxiliary_action_loss(
+            hard_outputs["meta_action_logits"],
+            batch["action_class_labels"],
+            batch["action_aux_weight"],
+        )
+    traj_aux_reg = _zero(device)
+    traj_aux_xyz_reg = _zero(device)
+    traj_aux_final_reg = _zero(device)
+    traj_aux_guided_kd = _zero(device)
+    traj_aux_pseudo_ce = _zero(device)
+    if needs_traj_aux:
+        if weights.traj_aux_reg > 0:
+            traj_aux_reg = trajectory_aux_regression_loss(
+                hard_outputs.get("traj_aux_values"),
+                batch["labels"],
+                active_traj_token_mask,
+                batch["traj_weights"],
+                traj_decode_config,
+                aux_config=traj_aux_interface_config,
+            )
+        if weights.traj_aux_xyz_reg > 0 or weights.traj_aux_final_reg > 0:
+            traj_aux_xyz_reg, traj_aux_final_reg = decoded_traj_aux_anchor_losses(
+                hard_outputs.get("traj_aux_values"),
+                batch["labels"],
+                active_traj_token_mask,
+                batch.get("ego_history_xyz"),
+                batch.get("ego_history_mask"),
+                batch.get("ego_future_xyz"),
+                batch.get("ego_future_mask"),
+                traj_decode_config,
+                aux_config=traj_aux_interface_config,
+            )
+        if weights.traj_aux_guided_kd > 0:
+            traj_aux_guided_kd = trajectory_aux_guided_kd_loss(
+                hard_outputs["logits"],
+                hard_outputs.get("traj_aux_values"),
+                batch["labels"],
+                active_traj_token_mask,
+                batch["traj_weights"],
+                traj_decode_config,
+                aux_config=traj_aux_interface_config,
+            )
+        if weights.traj_aux_pseudo_ce > 0:
+            traj_aux_pseudo_ce = trajectory_aux_pseudo_ce_loss(
+                hard_outputs["logits"],
+                hard_outputs.get("traj_aux_values"),
+                batch["labels"],
+                active_traj_token_mask,
+                batch["traj_weights"],
+                traj_decode_config,
+                aux_config=traj_aux_interface_config,
+            )
+    traj_xyz_reg = _zero(device)
+    traj_delta_reg = _zero(device)
+    traj_final_reg = _zero(device)
+    if weights.traj_xyz_reg > 0 or weights.traj_delta_reg > 0 or weights.traj_final_reg > 0:
+        traj_xyz_reg, traj_delta_reg, traj_final_reg = decoded_traj_geometry_losses(
+            hard_outputs["logits"],
+            batch["labels"],
+            active_traj_token_mask,
+            batch.get("ego_history_xyz"),
+            batch.get("ego_history_mask"),
+            batch.get("ego_future_xyz"),
+            batch.get("ego_future_mask"),
+            traj_decode_config,
+        )
+    traj_control_reg = _zero(device)
+    traj_control_delta_reg = _zero(device)
+    if weights.traj_control_reg > 0 or weights.traj_control_delta_reg > 0:
+        traj_control_reg, traj_control_delta_reg = trajectory_control_regression_losses(
+            hard_outputs["logits"],
+            batch["labels"],
+            active_traj_token_mask,
+            batch["traj_weights"],
+            traj_decode_config,
+        )
+    hard_token_acc = _zero(device)
+    hard_cot_acc = _zero(device)
     hard_traj_acc = masked_token_accuracy(hard_outputs["logits"], batch["labels"], active_traj_token_mask)
+    if weights.hard_cot_ce > 0:
+        hard_token_mask = batch["cot_span_mask"] | batch["traj_span_mask"]
+        hard_token_acc = masked_token_accuracy(hard_outputs["logits"], batch["labels"], hard_token_mask)
+        hard_cot_acc = masked_token_accuracy(hard_outputs["logits"], batch["labels"], batch["cot_span_mask"])
+    else:
+        hard_token_acc = hard_traj_acc
     traj_aux_tensor = hard_outputs.get("traj_aux_values")
     traj_aux_abs_max = float(traj_aux_tensor.detach().abs().max().cpu()) if traj_aux_tensor is not None else 0.0
 
@@ -308,6 +360,7 @@ def run_train_step(
     teacher_traj_ce = _zero(device)
     teacher_traj_topk_kd = _zero(device)
     teacher_traj_hidden_align = _zero(device)
+    teacher_boundary_hidden_align = _zero(device)
     teacher_traj_hidden_relation = _zero(device)
     teacher_traj_hidden_variance = _zero(device)
     teacher_traj_hidden_covariance = _zero(device)
@@ -336,6 +389,7 @@ def run_train_step(
             batch.get("teacher_topk_logprobs"),
             batch.get("teacher_topk_mask"),
             hard_teacher_pair_weights,
+            teacher_topk_positions=batch.get("teacher_topk_positions"),
         )
     if weights.feat_align > 0 and batch.get("teacher_pooled_hidden") is not None:
         feat_weights = hard_teacher_pair_weights
@@ -361,7 +415,11 @@ def run_train_step(
     teacher_traj_label_token_weights = batch.get("teacher_traj_label_token_weights")
     if teacher_traj_label_token_weights is None:
         teacher_traj_label_token_weights = batch.get("traj_token_label_weights")
-    if weights.teacher_traj_ce is not None and batch.get("teacher_traj_labels") is not None:
+    if (
+        weights.teacher_traj_ce is not None
+        and weights.teacher_traj_ce > 0
+        and batch.get("teacher_traj_labels") is not None
+    ):
         teacher_traj_ce, _ = weighted_causal_ce(
             hard_outputs["logits"],
             batch["teacher_traj_labels"],
@@ -521,6 +579,43 @@ def run_train_step(
                 batch.get("teacher_traj_hidden_mask"),
                 teacher_traj_sample_weights,
             )
+    if weights.teacher_boundary_hidden_align > 0 and batch.get("teacher_text_boundary_hidden") is not None:
+        hidden_bridge_cfg = dict(traj_hidden_bridge_config or {})
+        boundary_sample_weights = batch.get("teacher_text_boundary_hidden_available")
+        if boundary_sample_weights is not None:
+            boundary_sample_weights = boundary_sample_weights.float()
+        boundary_student_hidden = None
+        boundary_teacher_hidden = None
+        bridge_student_hidden = hard_outputs.get("traj_hidden_bridge_states")
+        if bridge_student_hidden is not None and hasattr(unwrapped_model, "project_teacher_traj_hidden"):
+            bridge_teacher_hidden = unwrapped_model.project_teacher_traj_hidden(
+                batch.get("teacher_text_boundary_hidden")
+            )
+            if bridge_teacher_hidden is not None:
+                boundary_student_hidden = bridge_student_hidden
+                boundary_teacher_hidden = bridge_teacher_hidden
+
+        if boundary_student_hidden is None:
+            direct_student_hidden = hard_outputs.get("traj_hidden_states", hard_outputs["hidden_states"])
+            direct_teacher_hidden = batch.get("teacher_text_boundary_hidden")
+            if (
+                direct_student_hidden is not None
+                and direct_teacher_hidden is not None
+                and int(direct_student_hidden.shape[-1]) == int(direct_teacher_hidden.shape[-1])
+            ):
+                boundary_student_hidden = direct_student_hidden
+                boundary_teacher_hidden = direct_teacher_hidden
+
+        if boundary_student_hidden is not None and boundary_teacher_hidden is not None:
+            teacher_boundary_hidden_align = token_hidden_positions_alignment_bridge_loss(
+                boundary_student_hidden,
+                boundary_teacher_hidden,
+                batch.get("teacher_text_boundary_hidden_positions"),
+                batch.get("teacher_text_boundary_hidden_mask"),
+                boundary_sample_weights,
+                cosine_weight=float(hidden_bridge_cfg.get("boundary_cosine_weight", hidden_bridge_cfg.get("cosine_weight", 0.8))),
+                mse_weight=float(hidden_bridge_cfg.get("boundary_mse_weight", hidden_bridge_cfg.get("mse_weight", 0.2))),
+            )
     del hard_outputs
 
     teacher_view = batch.get("teacher_view")
@@ -532,6 +627,9 @@ def run_train_step(
             attention_mask=teacher_view["attention_mask"],
             pixel_values=teacher_view.get("pixel_values"),
             image_grid_thw=teacher_view.get("image_grid_thw"),
+            return_hidden_states=weights.feat_align > 0,
+            compute_meta_action=False,
+            compute_traj_aux=False,
         )
         seq_weights = teacher_view["teacher_view_weight"] * teacher_view["teacher_quality_multiplier"]
         teacher_seq_ce, _ = weighted_causal_ce(
@@ -548,6 +646,7 @@ def run_train_step(
             teacher_view.get("teacher_topk_logprobs"),
             teacher_view.get("teacher_topk_mask"),
             teacher_logit_weights,
+            teacher_topk_positions=teacher_view.get("teacher_topk_positions"),
         )
         teacher_traj_ce, _ = weighted_causal_ce(
             teacher_outputs["logits"],
@@ -603,6 +702,7 @@ def run_train_step(
         + weights.feat_align * feat_align
         + weights.teacher_traj_topk_kd * teacher_traj_topk_kd
         + weights.teacher_traj_hidden_align * teacher_traj_hidden_align
+        + weights.teacher_boundary_hidden_align * teacher_boundary_hidden_align
         + weights.traj_xyz_reg * traj_xyz_reg
         + weights.traj_delta_reg * traj_delta_reg
         + weights.traj_final_reg * traj_final_reg
@@ -624,6 +724,7 @@ def run_train_step(
         "teacher_traj_ce": float(teacher_traj_ce.detach().cpu()),
         "teacher_traj_topk_kd": float(teacher_traj_topk_kd.detach().cpu()),
         "teacher_traj_hidden_align": float(teacher_traj_hidden_align.detach().cpu()),
+        "teacher_boundary_hidden_align": float(teacher_boundary_hidden_align.detach().cpu()),
         "teacher_traj_hidden_relation": float(teacher_traj_hidden_relation.detach().cpu()),
         "teacher_traj_hidden_variance": float(teacher_traj_hidden_variance.detach().cpu()),
         "teacher_traj_hidden_covariance": float(teacher_traj_hidden_covariance.detach().cpu()),

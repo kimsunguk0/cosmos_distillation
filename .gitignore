@@ -1,4 +1,5 @@
 .venv/
+.venv
 .vendor/
 __pycache__/
 *.pyc
@@ -11,9 +12,13 @@ data/processed/**
 data/teacher_cache/**
 data/corpus/**
 data/eval/**
+data/splits/**
 outputs/checkpoints/**
+outputs/exports/**
+outputs/reports/**
 outputs/debug/**
 outputs/logs/**
+logs/**
 
 !data/raw/.gitkeep
 !data/processed/.gitkeep
@@ -23,6 +28,7 @@ outputs/logs/**
 !data/teacher_cache/diagnostics/.gitkeep
 !data/corpus/.gitkeep
 !data/eval/.gitkeep
+!data/splits/.gitkeep
 !outputs/checkpoints/.gitkeep
 !outputs/reports/.gitkeep
 !outputs/debug/.gitkeep

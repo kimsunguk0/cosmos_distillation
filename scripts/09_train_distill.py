@@ -31,6 +31,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from src.data.schema_versions import active_versions
 from src.inference.checkpoint_eval import DecodeEvalConfig, evaluate_decode_subset, resolve_traj_tokenizer_config_path
 from src.model.checkpoint_io import detect_checkpoint_format, load_student_checkpoint, save_student_checkpoint
+from src.model.lm_head_adapter import enable_lm_head_token_rows, get_lm_head_token_row_count, get_output_lm_head
 from src.model.peft_setup import LoraConfigSpec, maybe_apply_lora
 from src.model.student_wrapper import (
     StudentWrapperConfig,
@@ -78,6 +79,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-train-samples", type=int, default=None)
     parser.add_argument("--learning-rate", type=float, default=None)
     parser.add_argument("--grad-clip-norm", type=float, default=1.0)
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=int(os.environ.get("COSMOS_DATALOADER_NUM_WORKERS", "0")),
+        help="DataLoader worker count. Use >0 to overlap image/token preprocessing with GPU work.",
+    )
+    parser.add_argument(
+        "--prefetch-factor",
+        type=int,
+        default=int(os.environ.get("COSMOS_DATALOADER_PREFETCH_FACTOR", "2")),
+        help="DataLoader prefetch factor when --num-workers > 0.",
+    )
+    parser.add_argument(
+        "--pin-memory",
+        action=argparse.BooleanOptionalAction,
+        default=os.environ.get("COSMOS_DATALOADER_PIN_MEMORY", "0") == "1",
+        help="Pin DataLoader tensors before device transfer.",
+    )
+    parser.add_argument(
+        "--persistent-workers",
+        action=argparse.BooleanOptionalAction,
+        default=os.environ.get("COSMOS_DATALOADER_PERSISTENT_WORKERS", "0") == "1",
+        help="Keep DataLoader workers alive between epochs when --num-workers > 0.",
+    )
     parser.add_argument(
         "--log-every-steps",
         type=int,
@@ -135,6 +160,35 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Inspect and batch the corpus without loading the student model.",
     )
+    parser.add_argument(
+        "--skip-asset-check",
+        action=argparse.BooleanOptionalAction,
+        default=os.environ.get("COSMOS_SKIP_ASSET_CHECK", "0") == "1",
+        help="Trust corpus paths and skip the startup stat pass over materialized assets.",
+    )
+    parser.add_argument(
+        "--skip-final-save",
+        action="store_true",
+        default=os.environ.get("COSMOS_SKIP_FINAL_SAVE", "0") == "1",
+        help="Run training without writing the final checkpoint. Useful for one-step smoke tests.",
+    )
+    parser.add_argument(
+        "--eval-only",
+        action="store_true",
+        help="Load the checkpoint and run one batched validation pass without training or saving.",
+    )
+    parser.add_argument(
+        "--max-val-samples",
+        type=int,
+        default=None,
+        help="Optional cap on validation records for eval-only/probe runs.",
+    )
+    parser.add_argument(
+        "--eval-log-every-batches",
+        type=int,
+        default=int(os.environ.get("COSMOS_EVAL_LOG_EVERY_BATCHES", "10")),
+        help="Print eval-only progress every N validation batches. Set <=0 to disable.",
+    )
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -172,7 +226,33 @@ def has_required_materialized_assets(record: dict) -> bool:
     if not all(_path_exists(path) for path in required_paths):
         return False
     image_paths = list(sample_input.get("image_paths") or [])
-    return bool(image_paths) and all(_path_exists(path) for path in image_paths)
+    if image_paths:
+        return all(_path_exists(path) for path in image_paths)
+    if sample_input.get("image_layout") == "materialized_4x4_png":
+        sample_root = remap_external_path(sample_input.get("materialized_sample_path"))
+        if sample_root is None:
+            return False
+        image_names = sample_input.get("image_names") or [
+            f"cam{camera_idx}_f{frame_idx}.png" for camera_idx in range(4) for frame_idx in range(4)
+        ]
+        image_dir = Path(sample_root) / "images"
+        return all((image_dir / str(name)).exists() for name in image_names)
+    return False
+
+
+def _record_traj_future_token_ids(record: dict) -> list[int]:
+    hard_target = record.get("hard_target") or {}
+    raw_token_ids = hard_target.get("traj_future_token_ids") or []
+    if raw_token_ids:
+        return [int(token_idx) for token_idx in raw_token_ids]
+    raw_path = hard_target.get("traj_future_token_ids_path")
+    resolved = remap_external_path(raw_path)
+    if resolved is None:
+        return []
+    try:
+        return [int(token_idx) for token_idx in np.load(Path(resolved), mmap_mode="r").reshape(-1).tolist()]
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def stage_weights_from_yaml(path: Path) -> tuple[TrainerConfig, DistillationLossWeights, dict[str, object]]:
@@ -202,6 +282,11 @@ def stage_weights_from_yaml(path: Path) -> tuple[TrainerConfig, DistillationLoss
                 "teacher_traj_hidden_align",
                 defaults.teacher_traj_hidden_align,
             ),
+            teacher_boundary_hidden_align=resolve_loss_weight_value(
+                weights_map,
+                "teacher_boundary_hidden_align",
+                defaults.teacher_boundary_hidden_align,
+            ),
             traj_xyz_reg=resolve_loss_weight_value(weights_map, "traj_xyz_reg", defaults.traj_xyz_reg),
             traj_delta_reg=resolve_loss_weight_value(weights_map, "traj_delta_reg", defaults.traj_delta_reg),
             traj_final_reg=resolve_loss_weight_value(weights_map, "traj_final_reg", defaults.traj_final_reg),
@@ -222,12 +307,14 @@ def stage_weights_from_yaml(path: Path) -> tuple[TrainerConfig, DistillationLoss
         epochs=float(config.get("epochs", 1.0)),
         max_length=int(config.get("max_length", 4096)),
         bf16=bool(config.get("bf16", True)),
+        gradient_checkpointing=bool(config.get("gradient_checkpointing", True)),
         batch_size=int(config.get("batch_size", 1)),
         learning_rate=float(config.get("learning_rate", 2e-5)),
     )
     loss_weights = _resolve_weights(weights)
     stage_options = {
         "data_view": dict(config.get("data_view") or {}),
+        "lora": dict(config.get("lora") or {}),
         "traj_token_reweighting": dict(config.get("traj_token_reweighting") or {}),
         "decode_eval": dict(config.get("decode_eval") or {}),
         "traj_decode_reg": dict(config.get("traj_decode_reg") or {}),
@@ -252,6 +339,7 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
     summary = {
         "freeze_all_but_traj_aux_head": False,
         "freeze_traj_aux_head": False,
+        "freeze_meta_action_head": False,
         "freeze_traj_hidden_projector": False,
         "freeze_all_parameters": False,
     }
@@ -288,6 +376,17 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
         for name, parameter in model.named_parameters():
             if should_unfreeze(name):
                 parameter.requires_grad = True
+
+        if bool(cfg.get("unfreeze_lm_head", False)):
+            root_model = unwrap_model(model)
+            backbone = getattr(root_model, "backbone", root_model)
+            try:
+                output_head = get_output_lm_head(backbone)
+            except Exception:  # noqa: BLE001
+                output_head = None
+            if output_head is not None:
+                for parameter in output_head.parameters():
+                    parameter.requires_grad = True
 
         if bool(cfg.get("unfreeze_traj_aux_head", False)):
             traj_aux_head = getattr(model, "traj_aux_head", None)
@@ -348,6 +447,7 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
             return {
                 "freeze_all_but_traj_aux_head": False,
                 "freeze_traj_aux_head": False,
+                "freeze_meta_action_head": False,
                 "freeze_all_parameters": True,
                 "trainable_modules": trainable_modules,
             }
@@ -359,6 +459,13 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
             for parameter in traj_aux_head.parameters():
                 parameter.requires_grad = False
             summary["freeze_traj_aux_head"] = True
+        if bool(cfg.get("freeze_meta_action_head", False)):
+            meta_action_head = getattr(model, "meta_action_head", None)
+            if meta_action_head is None:
+                raise RuntimeError("freeze_meta_action_head requires model.meta_action_head to exist.")
+            for parameter in meta_action_head.parameters():
+                parameter.requires_grad = False
+            summary["freeze_meta_action_head"] = True
         if bool(cfg.get("freeze_traj_hidden_projector", False)):
             traj_hidden_projector = getattr(model, "traj_hidden_projector", None)
             if traj_hidden_projector is None:
@@ -380,6 +487,7 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
     return {
         "freeze_all_but_traj_aux_head": True,
         "freeze_traj_aux_head": False,
+        "freeze_meta_action_head": False,
         "freeze_traj_hidden_projector": False,
         "trainable_modules": ["traj_aux_head"],
     }
@@ -388,32 +496,81 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
 def build_optimizer_param_groups(model, base_learning_rate: float, optimization_cfg: dict[str, object] | None):
     """Build simple per-module LR groups when a stage requests them."""
     cfg = dict(optimization_cfg or {})
-    projector_scale = float(cfg.get("traj_hidden_projector_lr_scale", 1.0) or 1.0)
     named_trainable = [(name, param) for name, param in model.named_parameters() if param.requires_grad]
     if not named_trainable:
         return [], {}
-    if abs(projector_scale - 1.0) < 1e-8:
-        return (
-            [{"params": [param for _, param in named_trainable], "lr": float(base_learning_rate)}],
-            {"default": len(named_trainable)},
-        )
+    lm_head_token_row_param_ids: set[int] = set()
+    lm_head_base_param_ids: set[int] = set()
+    root_model = unwrap_model(model)
+    backbone = getattr(root_model, "backbone", root_model)
+    try:
+        output_head = get_output_lm_head(backbone)
+    except Exception:  # noqa: BLE001
+        output_head = None
+    if output_head is not None:
+        for head_name, head_param in output_head.named_parameters(recurse=True):
+            if "trainable_tokens_delta" in head_name:
+                lm_head_token_row_param_ids.add(id(head_param))
+            else:
+                lm_head_base_param_ids.add(id(head_param))
+    token_row_scale = float(cfg.get("token_row_lr_scale", 1.0) or 1.0)
+    lm_head_token_row_scale = float(cfg.get("lm_head_token_row_lr_scale", token_row_scale) or token_row_scale)
+    language_full_scale = float(cfg.get("language_full_lr_scale", 1.0) or 1.0)
+    language_norm_scale = float(cfg.get("language_norm_lr_scale", language_full_scale) or language_full_scale)
+    token_embedding_scale = float(cfg.get("token_embedding_lr_scale", language_full_scale) or language_full_scale)
+    lm_head_scale = float(cfg.get("lm_head_lr_scale", language_full_scale) or language_full_scale)
+    multimodal_projector_scale = float(
+        cfg.get("multimodal_projector_lr_scale", 1.0) or 1.0
+    )
+    projector_scale = float(cfg.get("traj_hidden_projector_lr_scale", 1.0) or 1.0)
+    hidden_bridge_scale = float(cfg.get("traj_hidden_bridge_lr_scale", language_full_scale) or language_full_scale)
+    meta_action_head_scale = float(cfg.get("meta_action_head_lr_scale", 1.0) or 1.0)
+    traj_aux_head_scale = float(cfg.get("traj_aux_head_lr_scale", 1.0) or 1.0)
 
-    default_params = []
-    projector_params = []
-    for name, param in named_trainable:
+    def _group_name_and_scale(name: str, param: torch.nn.Parameter) -> tuple[str, float]:
+        if id(param) in lm_head_token_row_param_ids:
+            return "shared_embed_lm_head_token_rows", lm_head_token_row_scale
+        if id(param) in lm_head_base_param_ids and bool(cfg.get("unfreeze_lm_head", False)):
+            return "lm_head", lm_head_scale
+        if "embed_tokens.token_adapter.trainable_tokens_delta" in name:
+            return "token_rows", token_row_scale
+        if bool(getattr(param, "_distill_lm_head_token_rows", False)):
+            return "lm_head_token_rows", lm_head_token_row_scale
         if "traj_hidden_projector" in name:
-            projector_params.append(param)
-        else:
-            default_params.append(param)
+            return "traj_hidden_projector", projector_scale
+        if "traj_hidden_bridge_" in name:
+            return "traj_hidden_bridge", hidden_bridge_scale
+        if "meta_action_head" in name:
+            return "meta_action_head", meta_action_head_scale
+        if "traj_aux_head" in name:
+            return "traj_aux_head", traj_aux_head_scale
+        if "multi_modal_projector" in name or "visual.merger" in name:
+            return "multimodal_projector", multimodal_projector_scale
+        if ".language_model.layers." in name and "lora_" not in name:
+            return "language_full", language_full_scale
+        if "language_model.norm" in name and "lora_" not in name:
+            return "language_norm", language_norm_scale
+        if "language_model.embed_tokens" in name and "token_adapter" not in name and "lora_" not in name:
+            return "token_embeddings", token_embedding_scale
+        if "lm_head" in name and "token_adapter" not in name and "lora_" not in name:
+            return "lm_head", lm_head_scale
+        return "default", 1.0
+
+    grouped_params: dict[tuple[str, float], list[torch.nn.Parameter]] = {}
+    summary: dict[str, int] = {}
+    for name, param in named_trainable:
+        group_name, scale = _group_name_and_scale(name, param)
+        grouped_params.setdefault((group_name, scale), []).append(param)
+        summary[group_name] = summary.get(group_name, 0) + 1
 
     param_groups = []
-    summary: dict[str, int] = {}
-    if default_params:
-        param_groups.append({"params": default_params, "lr": float(base_learning_rate)})
-        summary["default"] = len(default_params)
-    if projector_params:
-        param_groups.append({"params": projector_params, "lr": float(base_learning_rate) * projector_scale})
-        summary["traj_hidden_projector"] = len(projector_params)
+    for (group_name, scale), params in sorted(grouped_params.items(), key=lambda item: (item[0][1], item[0][0])):
+        group = {"params": params, "lr": float(base_learning_rate) * float(scale)}
+        if group_name == "lm_head_token_rows":
+            group["weight_decay"] = 0.0
+        param_groups.append(group)
+        if abs(scale - 1.0) >= 1e-8:
+            summary[f"{group_name}_lr_scale"] = float(scale)
     return param_groups, summary
 
 
@@ -527,7 +684,7 @@ def build_traj_token_weight_map(
     power = float(cfg.get("power", 0.5))
     counts: Counter[int] = Counter()
     for record in records:
-        for token_idx in (record.get("hard_target") or {}).get("traj_future_token_ids") or []:
+        for token_idx in _record_traj_future_token_ids(record):
             counts[int(token_idx)] += 1
     if not counts:
         return None, {"enabled": True, "num_tokens": 0}
@@ -561,26 +718,51 @@ def infer_teacher_traj_hidden_size(
     *,
     source: str = "hidden",
     latent_suffix: str = "lat32",
+    records: list[dict] | None = None,
+    project_root: Path = PROJECT_ROOT,
 ) -> int | None:
     """Infer the teacher trajectory hidden width from the imported cache."""
-    if cache_dir is None:
-        return None
-    resolved_source = str(source).strip().lower()
-    if resolved_source == "latent":
-        hidden_dir = cache_dir / "latent"
-        pattern = f"*.teacher_traj15.{latent_suffix}.npy"
-    else:
-        hidden_dir = cache_dir / "hidden"
-        pattern = "*.npy"
-    if not hidden_dir.exists():
-        return None
-    for path in sorted(hidden_dir.glob(pattern)):
-        try:
-            hidden = np.load(path, mmap_mode="r")
-        except Exception:  # noqa: BLE001
+    if cache_dir is not None:
+        resolved_source = str(source).strip().lower()
+        if resolved_source == "latent":
+            hidden_dir = cache_dir / "latent"
+            pattern = f"*.teacher_traj15.{latent_suffix}.npy"
+        else:
+            hidden_dir = cache_dir / "hidden"
+            pattern = "*.npy"
+        if hidden_dir.exists():
+            for path in sorted(hidden_dir.glob(pattern)):
+                try:
+                    hidden = np.load(path, mmap_mode="r")
+                except Exception:  # noqa: BLE001
+                    continue
+                if hidden.ndim >= 2:
+                    return int(hidden.shape[-1])
+    for record in records or []:
+        signal = _teacher_traj15_signal_from_sample(
+            record,
+            teacher_traj_cache_dir=cache_dir,
+            teacher_traj_hidden_source=source,
+            teacher_traj_latent_suffix=latent_suffix,
+            project_root=project_root,
+        )
+        if signal is None or "hidden" not in signal:
             continue
+        hidden = np.asarray(signal["hidden"])
         if hidden.ndim >= 2:
             return int(hidden.shape[-1])
+    for record in records or []:
+        boundary_paths = ((record.get("teacher_cache") or {}).get("boundary_hidden_paths") or {})
+        for raw_path in boundary_paths.values():
+            resolved = remap_external_path(raw_path)
+            if resolved is None:
+                continue
+            try:
+                hidden = np.load(Path(resolved), mmap_mode="r")
+            except Exception:  # noqa: BLE001
+                continue
+            if hidden.ndim >= 1 and int(hidden.shape[-1]) > 0:
+                return int(hidden.shape[-1])
     return None
 
 
@@ -724,6 +906,9 @@ def decode_eval_config_from_yaml(config: dict[str, object] | None, *, fallback_s
         max_new_tokens=int(cfg.get("max_new_tokens", 160)),
         prompt_mode=str(cfg.get("prompt_mode", "joint")),
         target_mode=str(cfg.get("target_mode", "joint")),
+        image_prompt_style=str(cfg.get("image_prompt_style", "compact")),
+        prompt_text_style=str(cfg.get("prompt_text_style", "numeric_history_question")),
+        fuse_history_tokens=bool(cfg.get("fuse_history_tokens", False)),
         metric_name=str(cfg.get("metric_name", "anti_collapse_score")),
     )
 
@@ -776,6 +961,10 @@ def build_dataloader(
     rank: int,
     world_size: int,
     shuffle: bool,
+    num_workers: int = 0,
+    prefetch_factor: int = 2,
+    pin_memory: bool = False,
+    persistent_workers: bool = False,
 ) -> tuple[DataLoader, DistributedSampler | None]:
     sampler = None
     if world_size > 1:
@@ -786,13 +975,18 @@ def build_dataloader(
             shuffle=shuffle,
             drop_last=False,
         )
-    dataloader = DataLoader(
-        records,
-        batch_size=batch_size,
-        shuffle=(sampler is None and shuffle),
-        sampler=sampler,
-        collate_fn=collator,
-    )
+    dataloader_kwargs = {
+        "batch_size": batch_size,
+        "shuffle": (sampler is None and shuffle),
+        "sampler": sampler,
+        "collate_fn": collator,
+        "num_workers": max(int(num_workers), 0),
+        "pin_memory": bool(pin_memory),
+    }
+    if dataloader_kwargs["num_workers"] > 0:
+        dataloader_kwargs["prefetch_factor"] = max(int(prefetch_factor), 1)
+        dataloader_kwargs["persistent_workers"] = bool(persistent_workers)
+    dataloader = DataLoader(records, **dataloader_kwargs)
     return dataloader, sampler
 
 
@@ -809,12 +1003,15 @@ def evaluate_model(
     traj_aux_interface_config: TrajectoryAuxInterfaceConfig | None,
     traj_body_prefix_tokens: int | None = None,
     traj_hidden_bridge_config: dict[str, float] | None = None,
+    log_every_batches: int = 0,
 ) -> dict[str, float]:
     """Run a validation pass and return mean scalar metrics."""
     metric_sums: dict[str, float] = {}
     local_batches = 0
     model.eval()
-    for batch in dataloader:
+    total_batches = len(dataloader)
+    started_at = time.time()
+    for batch_index, batch in enumerate(dataloader, start=1):
         batch = move_batch_to_device(batch, device)
         autocast_context = (
             torch.autocast("cuda", dtype=torch.bfloat16)
@@ -834,6 +1031,20 @@ def evaluate_model(
         local_batches += 1
         for key, value in logs.items():
             metric_sums[key] = metric_sums.get(key, 0.0) + float(value)
+        if log_every_batches > 0 and (batch_index == 1 or batch_index % log_every_batches == 0 or batch_index == total_batches):
+            elapsed = max(time.time() - started_at, 1e-6)
+            print(
+                json.dumps(
+                    {
+                        "event": "eval_batch",
+                        "batch": batch_index,
+                        "num_batches": total_batches,
+                        "elapsed_sec": round(elapsed, 3),
+                        "batches_per_sec": round(batch_index / elapsed, 4),
+                    }
+                ),
+                flush=True,
+            )
 
     if world_size > 1:
         keys = sorted(metric_sums.keys())
@@ -895,10 +1106,16 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     all_records = load_jsonl(args.corpus_jsonl)
     all_train_records = [record for record in all_records if record.get("split") == "train"]
     all_val_records = [record for record in all_records if record.get("split") == "val"]
-    train_records = [record for record in all_train_records if has_required_materialized_assets(record)]
-    val_records = [record for record in all_val_records if has_required_materialized_assets(record)]
+    if args.skip_asset_check:
+        train_records = list(all_train_records)
+        val_records = list(all_val_records)
+    else:
+        train_records = [record for record in all_train_records if has_required_materialized_assets(record)]
+        val_records = [record for record in all_val_records if has_required_materialized_assets(record)]
     if args.max_train_samples is not None:
         train_records = train_records[: args.max_train_samples]
+    if args.max_val_samples is not None:
+        val_records = val_records[: args.max_val_samples]
     if not train_records:
         raise RuntimeError("No train records with required materialized assets were found.")
 
@@ -911,10 +1128,27 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     data_view_cfg = stage_options.get("data_view") or {}
     prompt_mode = str(data_view_cfg.get("prompt_mode", "joint"))
     target_mode = str(data_view_cfg.get("target_mode", "joint"))
+    image_prompt_style = str(data_view_cfg.get("image_prompt_style", "compact")).strip().lower()
+    prompt_text_style = str(data_view_cfg.get("prompt_text_style", "numeric_history_question")).strip().lower()
+    fuse_history_tokens = bool(data_view_cfg.get("fuse_history_tokens", False))
     if prompt_mode not in {"joint", "traj_only"}:
         raise ValueError(f"Unsupported data_view.prompt_mode={prompt_mode!r}")
     if target_mode not in {"joint", "traj_only"}:
         raise ValueError(f"Unsupported data_view.target_mode={target_mode!r}")
+    if image_prompt_style in {"plain", "unlabeled"}:
+        image_prompt_style = "compact"
+    elif image_prompt_style in {"alpamayo_camera_labeled", "official"}:
+        image_prompt_style = "camera_labeled"
+    if image_prompt_style not in {"compact", "camera_labeled"}:
+        raise ValueError(f"Unsupported data_view.image_prompt_style={image_prompt_style!r}")
+    if prompt_text_style in {"official", "alpamayo"}:
+        prompt_text_style = "official_alpamayo"
+    elif prompt_text_style in {"numeric", "numeric_history", "question"}:
+        prompt_text_style = "numeric_history_question"
+    if prompt_text_style not in {"numeric_history_question", "official_alpamayo"}:
+        raise ValueError(f"Unsupported data_view.prompt_text_style={prompt_text_style!r}")
+    if prompt_text_style == "official_alpamayo" and "fuse_history_tokens" not in data_view_cfg:
+        fuse_history_tokens = True
     enable_teacher_view = bool(data_view_cfg.get("enable_teacher_view", True))
     enable_action_aux = bool(data_view_cfg.get("enable_action_aux", True))
     teacher_pair_target = bool(data_view_cfg.get("teacher_pair_target", False))
@@ -932,18 +1166,22 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     teacher_traj_hidden_source = str(data_view_cfg.get("teacher_traj_hidden_source", "hidden")).strip().lower()
     teacher_traj_latent_suffix = str(data_view_cfg.get("teacher_traj_latent_suffix", "lat32")).strip()
     teacher_traj_hidden_size = None
-    if loss_weights.teacher_traj_hidden_align > 0:
+    if loss_weights.teacher_traj_hidden_align > 0 or loss_weights.teacher_boundary_hidden_align > 0:
         teacher_traj_hidden_size = infer_teacher_traj_hidden_size(
             teacher_traj_cache_dir,
             source=teacher_traj_hidden_source,
             latent_suffix=teacher_traj_latent_suffix,
+            records=train_records,
+            project_root=PROJECT_ROOT,
         )
         if teacher_traj_hidden_size is None:
             raise RuntimeError(
-                "teacher_traj_hidden_align is enabled but no teacher trajectory hidden cache dimension could be inferred."
+                "teacher hidden alignment is enabled but no teacher hidden cache dimension could be inferred."
             )
     traj_aux_interface_cfg = dict(stage_options.get("traj_aux_interface") or {})
     traj_hidden_bridge_cfg = dict(stage_options.get("traj_hidden_bridge") or {})
+    lora_cfg = dict(stage_options.get("lora") or {})
+    train_lm_head_token_rows = bool(lora_cfg.get("train_lm_head_token_rows", True))
     traj_aux_num_buckets = max(int(traj_aux_interface_cfg.get("num_buckets", 1) or 1), 1)
     traj_hidden_bridge_size = (
         int(traj_hidden_bridge_cfg.get("shared_size"))
@@ -963,13 +1201,19 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         max_length=trainer_cfg.max_length,
         torch_dtype=preferred_model_dtype(bf16=trainer_cfg.bf16),
         local_files_only=Path(student_model).expanduser().exists(),
+        attn_implementation=stage_options.get("attn_implementation"),
         traj_teacher_hidden_size=teacher_traj_hidden_size,
         traj_aux_num_buckets=traj_aux_num_buckets,
         traj_hidden_bridge_size=traj_hidden_bridge_size,
     )
     tokenizer = load_student_tokenizer(wrapper_cfg)
     processor = load_student_processor(wrapper_cfg, tokenizer=tokenizer)
-    lora_spec = LoraConfigSpec(trainable_token_indices=tuple(distill_trainable_token_ids(tokenizer)))
+    lora_spec = LoraConfigSpec(
+        r=int(lora_cfg.get("rank", 32) or 32),
+        alpha=int(lora_cfg.get("alpha", 64) or 64),
+        dropout=float(lora_cfg.get("dropout", 0.05) or 0.05),
+        trainable_token_indices=tuple(distill_trainable_token_ids(tokenizer)),
+    )
     scheduled_sampling_config, scheduled_sampling_summary = scheduled_sampling_config_from_yaml(
         stage_options.get("scheduled_sampling"),
         tokenizer,
@@ -1041,6 +1285,11 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             teacher_traj_ce=resolve_optional_loss_weight_value(interface_loss_weights_cfg, "teacher_traj_ce"),
             teacher_traj_topk_kd=resolve_loss_weight_value(interface_loss_weights_cfg, "teacher_traj_topk_kd", defaults.teacher_traj_topk_kd),
             teacher_traj_hidden_align=resolve_loss_weight_value(interface_loss_weights_cfg, "teacher_traj_hidden_align", defaults.teacher_traj_hidden_align),
+            teacher_boundary_hidden_align=resolve_loss_weight_value(
+                interface_loss_weights_cfg,
+                "teacher_boundary_hidden_align",
+                defaults.teacher_boundary_hidden_align,
+            ),
             traj_xyz_reg=resolve_loss_weight_value(interface_loss_weights_cfg, "traj_xyz_reg", defaults.traj_xyz_reg),
             traj_delta_reg=resolve_loss_weight_value(interface_loss_weights_cfg, "traj_delta_reg", defaults.traj_delta_reg),
             traj_final_reg=resolve_loss_weight_value(interface_loss_weights_cfg, "traj_final_reg", defaults.traj_final_reg),
@@ -1069,6 +1318,12 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         decode_eval_cfg.prompt_mode = prompt_mode
     if "target_mode" not in raw_decode_eval_cfg:
         decode_eval_cfg.target_mode = target_mode
+    if "image_prompt_style" not in raw_decode_eval_cfg:
+        decode_eval_cfg.image_prompt_style = image_prompt_style
+    if "prompt_text_style" not in raw_decode_eval_cfg:
+        decode_eval_cfg.prompt_text_style = prompt_text_style
+    if "fuse_history_tokens" not in raw_decode_eval_cfg:
+        decode_eval_cfg.fuse_history_tokens = fuse_history_tokens
     collator = DistillationCollator(
         tokenizer=tokenizer,
         processor=processor,
@@ -1088,7 +1343,11 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         teacher_view_uses_teacher_traj=teacher_view_uses_teacher_traj,
         teacher_view_default_traj_weight=teacher_view_default_traj_weight,
         teacher_traj_topk_on_teacher_view=teacher_traj_topk_on_teacher_view,
+        image_prompt_style=image_prompt_style,
+        prompt_text_style=prompt_text_style,
+        fuse_history_tokens=fuse_history_tokens,
     )
+    dataloader_pin_memory = bool(args.pin_memory and torch.cuda.is_available())
     train_dataloader, train_sampler = build_dataloader(
         train_records,
         batch_size=args.batch_size,
@@ -1096,6 +1355,10 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         rank=rank,
         world_size=world_size,
         shuffle=not args.data_only_dry_run,
+        num_workers=args.num_workers,
+        prefetch_factor=args.prefetch_factor,
+        pin_memory=dataloader_pin_memory,
+        persistent_workers=args.persistent_workers,
     )
     val_dataloader, val_sampler = build_dataloader(
         val_records,
@@ -1104,6 +1367,10 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         rank=rank,
         world_size=world_size,
         shuffle=False,
+        num_workers=args.num_workers,
+        prefetch_factor=args.prefetch_factor,
+        pin_memory=dataloader_pin_memory,
+        persistent_workers=args.persistent_workers,
     )
     steps_per_epoch = len(train_dataloader)
     resolved_max_steps = resolve_requested_steps(
@@ -1146,6 +1413,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "val_records": len(val_records),
             "val_records_with_materialized_assets": len(val_records),
             "all_val_records": len(all_val_records),
+            "skip_asset_check": bool(args.skip_asset_check),
             "teacher_ready_records": teacher_ready,
             "action_aux_ready_records": action_aux_ready,
             "val_teacher_ready_records": val_teacher_ready,
@@ -1161,6 +1429,9 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "student_model": student_model,
             "prompt_mode": prompt_mode,
             "target_mode": target_mode,
+            "image_prompt_style": image_prompt_style,
+            "prompt_text_style": prompt_text_style,
+            "fuse_history_tokens": fuse_history_tokens,
             "teacher_pair_target": teacher_pair_target,
             "hard_view_uses_teacher_cot": hard_view_uses_teacher_cot,
             "enable_teacher_view": enable_teacher_view,
@@ -1185,6 +1456,9 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                 "enabled": decode_eval_cfg.enabled,
                 "split": decode_eval_cfg.split,
                 "num_samples": decode_eval_cfg.num_samples,
+                "image_prompt_style": decode_eval_cfg.image_prompt_style,
+                "prompt_text_style": decode_eval_cfg.prompt_text_style,
+                "fuse_history_tokens": decode_eval_cfg.fuse_history_tokens,
             },
             "first_batch_shapes": {
                 "input_ids": list(first_batch["input_ids"].shape) if first_batch is not None else None,
@@ -1213,9 +1487,35 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                     and first_batch["teacher_view"].get("teacher_topk_indices") is not None
                     else None
                 ),
+                "hard_teacher_topk_indices": (
+                    list(first_batch["teacher_topk_indices"].shape)
+                    if first_batch is not None and first_batch.get("teacher_topk_indices") is not None
+                    else None
+                ),
+                "hard_teacher_topk_positions": (
+                    list(first_batch["teacher_topk_positions"].shape)
+                    if first_batch is not None and first_batch.get("teacher_topk_positions") is not None
+                    else None
+                ),
                 "teacher_traj_topk_indices": (
                     list(first_batch["teacher_traj_topk_indices"].shape)
                     if first_batch is not None and first_batch.get("teacher_traj_topk_indices") is not None
+                    else None
+                ),
+                "teacher_traj_hidden": (
+                    list(first_batch["teacher_traj_hidden"].shape)
+                    if first_batch is not None and first_batch.get("teacher_traj_hidden") is not None
+                    else None
+                ),
+                "teacher_text_boundary_hidden": (
+                    list(first_batch["teacher_text_boundary_hidden"].shape)
+                    if first_batch is not None and first_batch.get("teacher_text_boundary_hidden") is not None
+                    else None
+                ),
+                "teacher_text_boundary_hidden_positions": (
+                    list(first_batch["teacher_text_boundary_hidden_positions"].shape)
+                    if first_batch is not None
+                    and first_batch.get("teacher_text_boundary_hidden_positions") is not None
                     else None
                 ),
                 "teacher_traj_token_weights": (
@@ -1246,9 +1546,17 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     checkpoint_format = detect_checkpoint_format(init_checkpoint_dir) if init_checkpoint_dir is not None else None
     if checkpoint_format == "lora_adapter" and not use_lora:
         raise ValueError("Cannot load a LoRA adapter checkpoint when --disable-lora is set.")
-    if hasattr(model.backbone, "gradient_checkpointing_enable"):
+    if trainer_cfg.gradient_checkpointing and hasattr(model.backbone, "gradient_checkpointing_enable"):
         try:
-            model.backbone.gradient_checkpointing_enable()
+            model.backbone.gradient_checkpointing_enable({"use_reentrant": False})
+        except Exception:  # noqa: BLE001
+            try:
+                model.backbone.gradient_checkpointing_enable()
+            except Exception:  # noqa: BLE001
+                pass
+    elif not trainer_cfg.gradient_checkpointing and hasattr(model.backbone, "gradient_checkpointing_disable"):
+        try:
+            model.backbone.gradient_checkpointing_disable()
         except Exception:  # noqa: BLE001
             pass
     if use_lora and checkpoint_format != "lora_adapter":
@@ -1270,6 +1578,11 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             use_lora=use_lora,
             adapter_trainable=use_lora,
         )
+    if use_lora and train_lm_head_token_rows and get_lm_head_token_row_count(model.backbone) == 0:
+        enable_lm_head_token_rows(
+            model.backbone,
+            lora_spec.trainable_token_indices or (),
+        )
     if getattr(model, "traj_aux_num_buckets", 1) != traj_aux_num_buckets:
         model.configure_traj_aux_head(traj_aux_num_buckets)
     optimization_summary = apply_optimization_policy(model, optimization_cfg)
@@ -1284,6 +1597,61 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     model = model.to(device)
     if world_size > 1:
         model = DDP(model, device_ids=[rank], output_device=rank, static_graph=True)
+    if args.eval_only:
+        eval_started_at = time.time()
+        if val_sampler is not None:
+            val_sampler.set_epoch(0)
+        val_logs = evaluate_model(
+            model,
+            val_dataloader,
+            device=device,
+            bf16=trainer_cfg.bf16,
+            world_size=world_size,
+            loss_weights=loss_weights,
+            traj_decode_config=traj_decode_config,
+            traj_aux_interface_config=traj_aux_interface_runtime_config,
+            traj_body_prefix_tokens=traj_body_prefix_tokens,
+            traj_hidden_bridge_config=traj_hidden_bridge_cfg,
+            log_every_batches=args.eval_log_every_batches if args.eval_only else 0,
+        )
+        if is_rank_zero:
+            summary = {
+                "mode": "eval_only",
+                "student_model": student_model,
+                "checkpoint_dir": str(init_checkpoint_dir) if init_checkpoint_dir is not None else None,
+                "stage_name": trainer_cfg.stage_name,
+                "corpus_jsonl": str(args.corpus_jsonl),
+                "train_records": len(train_records),
+                "all_train_records": len(all_train_records),
+                "val_records": len(val_records),
+                "all_val_records": len(all_val_records),
+                "max_val_samples": args.max_val_samples,
+                "effective_batch_size": trainer_cfg.batch_size * max(world_size, 1),
+                "batch_size": args.batch_size,
+                "num_workers": args.num_workers,
+                "prefetch_factor": args.prefetch_factor if args.num_workers > 0 else None,
+                "pin_memory": dataloader_pin_memory,
+                "persistent_workers": bool(args.persistent_workers and args.num_workers > 0),
+                "eval_log_every_batches": args.eval_log_every_batches,
+                "gradient_checkpointing": trainer_cfg.gradient_checkpointing,
+                "bf16": trainer_cfg.bf16,
+                "loss_weights": export_loss_weights(loss_weights),
+                "data_view": {
+                    "prompt_mode": prompt_mode,
+                    "target_mode": target_mode,
+                    "teacher_pair_target": teacher_pair_target,
+                    "enable_teacher_view": enable_teacher_view,
+                    "enable_action_aux": enable_action_aux,
+                },
+                "logs": val_logs,
+                "elapsed_sec": round(time.time() - eval_started_at, 3),
+            }
+            args.summary_json.parent.mkdir(parents=True, exist_ok=True)
+            args.summary_json.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+            print(f"[eval-done] stage={trainer_cfg.stage_name} summary={args.summary_json}", flush=True)
+            print(json.dumps(summary, indent=2), flush=True)
+        _maybe_cleanup_distributed(world_size)
+        return
     optimizer_param_groups, optimizer_group_summary = build_optimizer_param_groups(
         model,
         trainer_cfg.learning_rate,
@@ -1303,6 +1671,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                 f"batch_per_gpu={args.batch_size} effective_batch={trainer_cfg.batch_size * max(world_size, 1)} "
                 f"devices={device_ids} use_lora={use_lora} "
                 f"trainable_token_rows={len(lora_spec.trainable_token_indices or ())} "
+                f"train_lm_head_token_rows={train_lm_head_token_rows} "
                 f"prompt_mode={prompt_mode} target_mode={target_mode} "
                 f"teacher_pair_target={teacher_pair_target} "
                 f"teacher_traj_hidden_size={teacher_traj_hidden_size} "
@@ -1336,18 +1705,24 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         and eval_every_steps is not None
     )
     train_config_payload_base = {
+        "init_checkpoint_dir": str(init_checkpoint_dir) if init_checkpoint_dir is not None else None,
         "args": {**vars(args), "student_model": student_model},
         "trainer_config": {
             "stage_name": trainer_cfg.stage_name,
             "epochs": trainer_cfg.epochs,
             "max_length": trainer_cfg.max_length,
             "bf16": trainer_cfg.bf16,
+            "gradient_checkpointing": trainer_cfg.gradient_checkpointing,
             "learning_rate": trainer_cfg.learning_rate,
             "batch_size": trainer_cfg.batch_size,
             "max_steps": resolved_max_steps,
             "steps_per_epoch": steps_per_epoch,
             "eval_every_steps": eval_every_steps,
             "save_every_steps": save_every_steps,
+            "num_workers": args.num_workers,
+            "prefetch_factor": args.prefetch_factor if args.num_workers > 0 else None,
+            "pin_memory": args.pin_memory and device.type == "cuda",
+            "persistent_workers": args.persistent_workers and args.num_workers > 0,
         },
         "parallelism": {
             "multi_gpu_mode": parallel_mode,
@@ -1356,10 +1731,22 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "device_ids": device_ids,
         },
         "optimizer_groups": optimizer_group_summary,
+        "lora": {
+            "enabled": use_lora,
+            "rank": int(lora_spec.r),
+            "alpha": int(lora_spec.alpha),
+            "dropout": float(lora_spec.dropout),
+            "trainable_token_rows": len(lora_spec.trainable_token_indices or ()),
+            "train_lm_head_token_rows": train_lm_head_token_rows,
+            "lm_head_trainable_token_rows": get_lm_head_token_row_count(model.backbone),
+        },
         "loss_weights": export_loss_weights(loss_weights),
         "data_view": {
             "prompt_mode": prompt_mode,
             "target_mode": target_mode,
+            "image_prompt_style": image_prompt_style,
+            "prompt_text_style": prompt_text_style,
+            "fuse_history_tokens": fuse_history_tokens,
             "teacher_pair_target": teacher_pair_target,
             "enable_teacher_view": enable_teacher_view,
             "enable_action_aux": enable_action_aux,
@@ -1382,6 +1769,9 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "max_new_tokens": decode_eval_cfg.max_new_tokens,
             "prompt_mode": decode_eval_cfg.prompt_mode,
             "target_mode": decode_eval_cfg.target_mode,
+            "image_prompt_style": decode_eval_cfg.image_prompt_style,
+            "prompt_text_style": decode_eval_cfg.prompt_text_style,
+            "fuse_history_tokens": decode_eval_cfg.fuse_history_tokens,
             "metric_name": decode_eval_cfg.metric_name,
         },
         "versions": active_versions(),
@@ -1698,7 +2088,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     }
     if world_size > 1:
         dist.barrier()
-    if is_rank_zero:
+    if is_rank_zero and not args.skip_final_save:
         checkpoint_dir = args.output_dir / "final"
         checkpoint_payload = save_training_checkpoint(
             checkpoint_dir,
@@ -1721,6 +2111,11 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         )
         summary["checkpoint_dir"] = str(checkpoint_dir)
         summary["checkpoint"] = checkpoint_payload
+    elif is_rank_zero:
+        summary["checkpoint_dir"] = None
+        summary["checkpoint"] = None
+        summary["skip_final_save"] = True
+    if is_rank_zero:
         args.summary_json.parent.mkdir(parents=True, exist_ok=True)
         args.summary_json.write_text(json.dumps(summary, indent=2), encoding="utf-8")
         print(f"[train-done] stage={trainer_cfg.stage_name} summary={args.summary_json}", flush=True)

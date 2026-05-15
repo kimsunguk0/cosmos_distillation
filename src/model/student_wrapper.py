@@ -36,6 +36,7 @@ class StudentWrapperConfig:
     special_tokens: tuple[str, ...] = field(default_factory=lambda: tuple(REQUIRED_SPECIAL_TOKENS))
     trust_remote_code: bool = True
     local_files_only: bool = False
+    attn_implementation: str | None = None
     traj_teacher_hidden_size: int | None = None
     traj_aux_num_buckets: int = 1
     traj_hidden_bridge_size: int | None = None
@@ -173,52 +174,66 @@ class DistillStudentModel(nn.Module):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
+        return_hidden_states: bool = True,
+        compute_meta_action: bool = True,
+        compute_traj_aux: bool = True,
         **kwargs: Any,
     ) -> dict[str, torch.Tensor | Any]:
+        need_hidden_states = bool(return_hidden_states or compute_meta_action or compute_traj_aux)
         outputs = self.backbone(
             input_ids=input_ids,
             attention_mask=attention_mask,
-            output_hidden_states=True,
+            output_hidden_states=need_hidden_states,
             return_dict=True,
             **kwargs,
         )
+        logits = getattr(outputs, "logits", None)
+        if logits is None and hasattr(outputs, "language_model_outputs"):
+            logits = getattr(outputs.language_model_outputs, "logits", None)
+        if logits is None:
+            raise ValueError("Student backbone did not return logits.")
+
+        result: dict[str, torch.Tensor | Any] = {
+            "backbone_outputs": outputs,
+            "logits": logits,
+        }
+        if not need_hidden_states:
+            return result
+
         hidden_states = getattr(outputs, "hidden_states", None)
         if hidden_states is None and hasattr(outputs, "language_model_outputs"):
             hidden_states = getattr(outputs.language_model_outputs, "hidden_states", None)
         if hidden_states is None:
             raise ValueError("Student backbone did not return hidden states.")
         hidden = hidden_states[-1]
-        logits = getattr(outputs, "logits", None)
-        if logits is None and hasattr(outputs, "language_model_outputs"):
-            logits = getattr(outputs.language_model_outputs, "logits", None)
-        if logits is None:
-            raise ValueError("Student backbone did not return logits.")
-        if attention_mask is None:
-            pooled = hidden.mean(dim=1)
-        else:
-            mask = attention_mask.unsqueeze(-1).to(hidden.dtype)
-            denom = mask.sum(dim=1).clamp(min=1.0)
-            pooled = (hidden * mask).sum(dim=1) / denom
-        traj_hidden = self.traj_hidden_projector(hidden) if self.traj_hidden_projector is not None else hidden
-        traj_hidden_bridge = (
-            self.traj_hidden_bridge_student(hidden)
-            if self.traj_hidden_bridge_student is not None
-            else None
-        )
-        meta_action_logits = self.meta_action_head(pooled)
-        if self.traj_aux_head is None:
-            raise ValueError("Trajectory auxiliary head is not configured.")
-        traj_aux_values = self.traj_aux_head(hidden)
-        return {
-            "backbone_outputs": outputs,
-            "logits": logits,
-            "hidden_states": hidden,
-            "traj_hidden_states": traj_hidden,
-            "traj_hidden_bridge_states": traj_hidden_bridge,
-            "pooled_hidden": pooled,
-            "meta_action_logits": meta_action_logits,
-            "traj_aux_values": traj_aux_values,
-        }
+        result["hidden_states"] = hidden
+
+        if return_hidden_states:
+            result["traj_hidden_states"] = (
+                self.traj_hidden_projector(hidden) if self.traj_hidden_projector is not None else hidden
+            )
+            result["traj_hidden_bridge_states"] = (
+                self.traj_hidden_bridge_student(hidden)
+                if self.traj_hidden_bridge_student is not None
+                else None
+            )
+
+        if compute_meta_action:
+            if attention_mask is None:
+                pooled = hidden.mean(dim=1)
+            else:
+                mask = attention_mask.unsqueeze(-1).to(hidden.dtype)
+                denom = mask.sum(dim=1).clamp(min=1.0)
+                pooled = (hidden * mask).sum(dim=1) / denom
+            result["pooled_hidden"] = pooled
+            result["meta_action_logits"] = self.meta_action_head(pooled)
+
+        if compute_traj_aux:
+            if self.traj_aux_head is None:
+                raise ValueError("Trajectory auxiliary head is not configured.")
+            result["traj_aux_values"] = self.traj_aux_head(hidden)
+
+        return result
 
     def resize_token_embeddings(self, *args: Any, **kwargs: Any) -> Any:
         """Delegate resize call to the backbone."""
@@ -280,11 +295,16 @@ def _hidden_size_from_config(config: Any) -> int:
 def build_student_model(config: StudentWrapperConfig, tokenizer) -> DistillStudentModel:
     """Load the student model and resize embeddings for special tokens."""
     model_cls, resolved_config = _resolve_backbone_loader(config)
+    load_kwargs: dict[str, Any] = {
+        "dtype": config.torch_dtype,
+        "trust_remote_code": config.trust_remote_code,
+        "local_files_only": _effective_local_files_only(config),
+    }
+    if config.attn_implementation:
+        load_kwargs["attn_implementation"] = config.attn_implementation
     backbone = model_cls.from_pretrained(
         config.student_model_name,
-        dtype=config.torch_dtype,
-        trust_remote_code=config.trust_remote_code,
-        local_files_only=_effective_local_files_only(config),
+        **load_kwargs,
     )
     backbone.resize_token_embeddings(len(tokenizer))
     hidden_size = _hidden_size_from_config(getattr(backbone, "config", resolved_config))

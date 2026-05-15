@@ -51,8 +51,14 @@ from src.training.collator import (  # noqa: E402
     load_ego_future_xyz,
     load_ego_history_xyz,
     load_sample_images,
+    load_traj_future_token_ids,
+    resolve_camera_indices,
 )
-from src.utils.runtime_paths import remap_external_path, resolve_student_model_path  # noqa: E402
+from src.utils.runtime_paths import (  # noqa: E402
+    DEFAULT_TEACHER_CACHE_ROOT,
+    remap_external_path,
+    resolve_student_model_path,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -73,16 +79,51 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--prompt-mode", choices=("joint", "traj_only"), default="joint")
     parser.add_argument("--target-mode", choices=("joint", "traj_only"), default="joint")
+    parser.add_argument(
+        "--image-prompt-style",
+        choices=("compact", "camera_labeled"),
+        default="compact",
+        help="Use official Alpamayo-style camera/frame text before image placeholders.",
+    )
+    parser.add_argument(
+        "--geometry-reference",
+        choices=("gt", "teacher"),
+        default="gt",
+        help="Reference trajectory for ADE/FDE; `teacher` decodes cached teacher trajectory tokens.",
+    )
+    parser.add_argument(
+        "--oracle-cot-prefix",
+        action="store_true",
+        help=(
+            "For target-mode=traj_only, prepend the cached teacher CoT through "
+            "`<|traj_future_start|>` so only the 128 trajectory body tokens are free-run."
+        ),
+    )
     parser.add_argument("--max-new-tokens", type=int, default=384)
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1,
+        help="Number of samples per free-run generate() call. Use 1 for the old sample-by-sample path.",
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--summary-json", type=Path, required=True)
     parser.add_argument("--skip-overlays", action="store_true")
-    parser.add_argument("--teacher-text-index", type=Path, default=Path("/data/teacher_cache/text/index.jsonl"))
+    parser.add_argument(
+        "--disable-failure-tags",
+        action="store_true",
+        help="Skip heuristic free-run geometry taxonomy tags such as long_horizon_divergence.",
+    )
+    parser.add_argument(
+        "--teacher-text-index",
+        type=Path,
+        default=DEFAULT_TEACHER_CACHE_ROOT / "text" / "index.jsonl",
+    )
     parser.add_argument(
         "--teacher-traj-manifest-dir",
         type=Path,
-        default=Path("/data/teacher_cache/traj15/manifest"),
+        default=DEFAULT_TEACHER_CACHE_ROOT / "traj15" / "manifest",
     )
     return parser.parse_args()
 
@@ -112,10 +153,15 @@ def _resolve_path(raw_path: str | Path | None) -> Path | None:
     return path if path.exists() else None
 
 
-def _extract_generated_text(tokenizer, prompt_ids: torch.Tensor, generated_ids: torch.Tensor) -> str:
+def _extract_generated_text(tokenizer, prompt_ids: torch.Tensor, generated_ids: torch.Tensor, row_index: int = 0) -> str:
     prompt_len = int(prompt_ids.shape[1])
-    new_ids = generated_ids[0, prompt_len:].tolist()
+    new_ids = generated_ids[row_index, prompt_len:].tolist()
     return tokenizer.decode(new_ids, skip_special_tokens=False)
+
+
+def _batched(items: list[dict[str, Any]], batch_size: int) -> list[list[dict[str, Any]]]:
+    width = max(int(batch_size), 1)
+    return [items[index : index + width] for index in range(0, len(items), width)]
 
 
 def _extract_generated_traj_tokens(text: str) -> list[int]:
@@ -209,6 +255,11 @@ def _load_model_and_processors(args: argparse.Namespace):
         local_files_only=True,
     )
     processor.tokenizer = tokenizer
+    tokenizer.padding_side = "left"
+    if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
+        tokenizer.pad_token = tokenizer.eos_token
+    if hasattr(processor, "tokenizer"):
+        processor.tokenizer.padding_side = "left"
 
     data_view = train_config.get("data_view") or {}
     device = torch.device(args.device if torch.cuda.is_available() and str(args.device).startswith("cuda") else "cpu")
@@ -284,18 +335,18 @@ def _direction_cosine(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(va, vb) / denom)
 
 
-def _path_metrics(student_xyz: np.ndarray | None, gt_xyz: np.ndarray) -> dict[str, float]:
-    if student_xyz is None or student_xyz.shape[0] == 0 or gt_xyz.shape[0] == 0:
+def _path_metrics(student_xyz: np.ndarray | None, reference_xyz: np.ndarray) -> dict[str, float]:
+    if student_xyz is None or student_xyz.shape[0] == 0 or reference_xyz.shape[0] == 0:
         return {}
-    n = min(int(student_xyz.shape[0]), int(gt_xyz.shape[0]))
+    n = min(int(student_xyz.shape[0]), int(reference_xyz.shape[0]))
     pred = student_xyz[:n]
-    gt = gt_xyz[:n]
-    ade, fde = _ade_fde(pred, gt)
+    reference = reference_xyz[:n]
+    ade, fde = _ade_fde(pred, reference)
     early_n = min(20, n)
     late_start = min(20, max(n - 1, 0))
-    early_ade, early_fde = _ade_fde(pred[:early_n], gt[:early_n])
-    late_ade, _ = _ade_fde(pred[late_start:n], gt[late_start:n])
-    gt_len = _path_len(gt)
+    early_ade, early_fde = _ade_fde(pred[:early_n], reference[:early_n])
+    late_ade, _ = _ade_fde(pred[late_start:n], reference[late_start:n])
+    reference_len = _path_len(reference)
     pred_len = _path_len(pred)
     return {
         "ade_m": ade,
@@ -303,17 +354,21 @@ def _path_metrics(student_xyz: np.ndarray | None, gt_xyz: np.ndarray) -> dict[st
         "early_ade_2s_m": early_ade,
         "early_fde_2s_m": early_fde,
         "late_ade_after_2s_m": late_ade,
-        "gt_path_length_m": gt_len,
+        "reference_path_length_m": reference_len,
+        "gt_path_length_m": reference_len,
         "student_path_length_m": pred_len,
-        "path_length_ratio": float(pred_len / max(gt_len, 1e-6)),
-        "gt_final_speed_mps": _final_speed(gt),
+        "path_length_ratio": float(pred_len / max(reference_len, 1e-6)),
+        "reference_final_speed_mps": _final_speed(reference),
+        "gt_final_speed_mps": _final_speed(reference),
         "student_final_speed_mps": _final_speed(pred),
-        "gt_final_x_m": float(gt[-1, 0]),
-        "gt_final_y_m": float(gt[-1, 1]),
+        "reference_final_x_m": float(reference[-1, 0]),
+        "reference_final_y_m": float(reference[-1, 1]),
+        "gt_final_x_m": float(reference[-1, 0]),
+        "gt_final_y_m": float(reference[-1, 1]),
         "student_final_x_m": float(pred[-1, 0]),
         "student_final_y_m": float(pred[-1, 1]),
-        "final_lateral_error_m": float(abs(pred[-1, 1] - gt[-1, 1])),
-        "direction_cosine": _direction_cosine(pred, gt),
+        "final_lateral_error_m": float(abs(pred[-1, 1] - reference[-1, 1])),
+        "direction_cosine": _direction_cosine(pred, reference),
     }
 
 
@@ -505,38 +560,94 @@ def main() -> int:
     token_match_values: list[float] = []
     invalid_counts: list[int] = []
 
-    for idx, sample in enumerate(selected, start=1):
-        sample_id = str(sample.get("sample_id") or f"sample_{idx:04d}")
-        history_xyz = load_ego_history_xyz(sample, PROJECT_ROOT)
-        history_rot = load_ego_history_rot(sample, PROJECT_ROOT)
-        try:
-            gt_future = load_ego_future_xyz(sample, PROJECT_ROOT)
-        except FileNotFoundError:
-            gt_future = np.zeros((0, 3), dtype=np.float32)
-        target_tokens = [int(token) for token in (sample.get("hard_target") or {}).get("traj_future_token_ids") or []]
+    for sample_batch in _batched(selected, args.batch_size):
+        prepared: list[dict[str, Any]] = []
+        texts: list[str] = []
+        image_batches: list[list[Any]] = []
+        target_token_count: int | None = None
 
-        prompt_text = (
-            build_traj_only_prompt(sample, PROJECT_ROOT, ego_history_xyz=history_xyz)
-            if args.prompt_mode == "traj_only"
-            else build_user_prompt(sample, PROJECT_ROOT, ego_history_xyz=history_xyz)
-        )
-        assistant_prefix = "<|traj_future_start|>" if args.target_mode == "traj_only" else "<|cot_start|>"
-        images = load_sample_images(sample, PROJECT_ROOT)
-        messages = build_messages(prompt_text, len(images), assistant_prefix=assistant_prefix)
-        text = processor.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=False,
-            continue_final_message=True,
-        )
-        batch = processor(text=[text], images=[images], return_tensors="pt", padding=True, truncation=True)
-        batch = {key: value.to(device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
-        prompt_lengths = batch["attention_mask"].sum(dim=1).tolist()
+        for sample in sample_batch:
+            idx = len(per_sample) + len(prepared) + 1
+            sample_id = str(sample.get("sample_id") or f"sample_{idx:04d}")
+            history_xyz = load_ego_history_xyz(sample, PROJECT_ROOT)
+            history_rot = load_ego_history_rot(sample, PROJECT_ROOT)
+            try:
+                gt_future = load_ego_future_xyz(sample, PROJECT_ROOT)
+            except FileNotFoundError:
+                gt_future = np.zeros((0, 3), dtype=np.float32)
+            target_tokens = load_traj_future_token_ids(sample.get("hard_target") or {}, PROJECT_ROOT)
+            if target_token_count is None:
+                target_token_count = len(target_tokens)
+            elif len(target_tokens) != target_token_count:
+                raise ValueError(
+                    f"Mixed trajectory target lengths in one free-run batch: "
+                    f"{target_token_count} and {len(target_tokens)}"
+                )
+
+            prompt_text = (
+                build_traj_only_prompt(sample, PROJECT_ROOT, ego_history_xyz=history_xyz)
+                if args.prompt_mode == "traj_only"
+                else build_user_prompt(sample, PROJECT_ROOT, ego_history_xyz=history_xyz)
+            )
+            if args.target_mode == "traj_only":
+                if args.oracle_cot_prefix:
+                    cot_text = str(
+                        (sample.get("teacher_target") or {}).get("cot_text")
+                        or (sample.get("hard_target") or {}).get("cot_text")
+                        or ""
+                    ).strip()
+                    assistant_prefix = f"<|cot_start|>{cot_text}<|cot_end|><|traj_future_start|>"
+                else:
+                    assistant_prefix = "<|traj_future_start|>"
+            else:
+                assistant_prefix = "<|cot_start|>"
+            images = load_sample_images(sample, PROJECT_ROOT)
+            camera_indices = resolve_camera_indices(sample, PROJECT_ROOT, image_count=len(images))
+            messages = build_messages(
+                prompt_text,
+                len(images),
+                assistant_prefix=assistant_prefix,
+                image_prompt_style=args.image_prompt_style,
+                camera_indices=camera_indices,
+            )
+            text = processor.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=False,
+                continue_final_message=True,
+            )
+            prepared.append(
+                {
+                    "idx": idx,
+                    "sample": sample,
+                    "sample_id": sample_id,
+                    "history_xyz": history_xyz,
+                    "history_rot": history_rot,
+                    "gt_future": gt_future,
+                    "target_tokens": target_tokens,
+                }
+            )
+            texts.append(text)
+            image_batches.append(images)
+
+        batch = processor(text=texts, images=image_batches, return_tensors="pt", padding=True, truncation=True)
+        model_dtype = next(model.backbone.parameters()).dtype
+        batch = {
+            key: (
+                value.to(device=device, dtype=model_dtype)
+                if isinstance(value, torch.Tensor) and torch.is_floating_point(value)
+                else value.to(device)
+                if isinstance(value, torch.Tensor)
+                else value
+            )
+            for key, value in batch.items()
+        }
+        prompt_lengths = [int(batch["input_ids"].shape[1])] * len(prepared)
         if args.target_mode == "traj_only":
             contract = TrajOnlyDecodingContract.from_tokenizer(
                 tokenizer,
                 prompt_lengths=prompt_lengths,
-                traj_token_count=len(target_tokens),
+                traj_token_count=int(target_token_count or 0),
             )
             logits_processor = LogitsProcessorList([TrajOnlyLogitsProcessor(contract)])
             stopping_criteria = StoppingCriteriaList([StopOnTrajOnlyEndCriteria(contract)])
@@ -544,7 +655,7 @@ def main() -> int:
             contract = TrajDecodingContract.from_tokenizer(
                 tokenizer,
                 prompt_lengths=prompt_lengths,
-                traj_token_count=len(target_tokens),
+                traj_token_count=int(target_token_count or 0),
             )
             logits_processor = LogitsProcessorList([TrajSpanLogitsProcessor(contract)])
             stopping_criteria = StoppingCriteriaList([StopOnTrajEndCriteria(contract)])
@@ -559,98 +670,118 @@ def main() -> int:
                 stopping_criteria=stopping_criteria,
             )
 
-        generated_text = _extract_generated_text(tokenizer, batch["input_ids"], generated)
-        generated_tokens = _extract_generated_traj_tokens(generated_text)
-        all_tokens.update(generated_tokens)
-        rep = _token_repetition_stats(generated_tokens)
-        unique_values.append(int(rep["unique"]))
-        max_run_values.append(int(rep["max_same_run"]))
-        invalid_count = sum(1 for token in generated_tokens if token < 0 or token >= 3000)
-        invalid_counts.append(invalid_count)
-        token_match = float(
-            sum(1 for left, right in zip(generated_tokens, target_tokens) if int(left) == int(right))
-            / max(len(target_tokens), 1)
-        )
-        token_match_values.append(token_match)
+        for row_index, item in enumerate(prepared):
+            idx = int(item["idx"])
+            sample = item["sample"]
+            sample_id = str(item["sample_id"])
+            history_xyz = item["history_xyz"]
+            history_rot = item["history_rot"]
+            gt_future = item["gt_future"]
+            target_tokens = item["target_tokens"]
 
-        student_xyz = (
-            decoder.decode(history_xyz, history_rot, generated_tokens)
-            if len(generated_tokens) == decoder.n_waypoints * 2
-            else None
-        )
-        geom = _path_metrics(student_xyz, gt_future)
-        if geom:
-            ade_values.append(geom["ade_m"])
-            fde_values.append(geom["fde_m"])
-
-        manifest = teacher_manifest.get(sample_id)
-        tags = _failure_tags(
-            sample=sample,
-            generated_tokens=generated_tokens,
-            path_metrics=geom,
-            teacher_manifest=manifest,
-        )
-        tag_counter.update(tags)
-        text_entry = teacher_text.get(sample_id) or {}
-        human_coc = text_entry.get("human_coc") or str((sample.get("hard_target") or {}).get("cot_text") or "")
-        teacher_cot = text_entry.get("teacher_long_cot") or str((sample.get("teacher_target") or {}).get("cot_text") or "")
-        student_cot = _extract_student_cot(generated_text)
-
-        svg_path = None
-        if not args.skip_overlays:
-            svg_path = args.output_dir / f"{args.split}_{idx:03d}_{sample_id}.svg"
-            title = (
-                f"{args.split} {idx}/{len(selected)} {sample_id[:18]} "
-                f"ADE={geom.get('ade_m', float('nan')):.2f} FDE={geom.get('fde_m', float('nan')):.2f}"
+            generated_text = _extract_generated_text(tokenizer, batch["input_ids"], generated, row_index=row_index)
+            generated_tokens = _extract_generated_traj_tokens(generated_text)
+            all_tokens.update(generated_tokens)
+            rep = _token_repetition_stats(generated_tokens)
+            unique_values.append(int(rep["unique"]))
+            max_run_values.append(int(rep["max_same_run"]))
+            invalid_count = sum(1 for token in generated_tokens if token < 0 or token >= 3000)
+            invalid_counts.append(invalid_count)
+            token_match = float(
+                sum(1 for left, right in zip(generated_tokens, target_tokens) if int(left) == int(right))
+                / max(len(target_tokens), 1)
             )
-            _write_overlay_svg(
-                svg_path,
-                title=title,
-                history=history_xyz,
-                gt=gt_future,
-                student=student_xyz,
-                student_cot=student_cot,
-                human_coc=human_coc,
-                teacher_cot=teacher_cot,
-                tags=tags,
-            )
+            token_match_values.append(token_match)
 
-        row = {
-            "sample_id": sample_id,
-            "generated_token_count": len(generated_tokens),
-            "target_token_count": len(target_tokens),
-            "generated_unique_token_count": int(rep["unique"]),
-            "generated_max_same_token_run": int(rep["max_same_run"]),
-            "generated_invalid_future_token_count_i3000_plus": int(invalid_count),
-            "generated_top_tokens": rep["top_tokens"],
-            "generated_traj_tokens": generated_tokens,
-            "target_traj_tokens": target_tokens,
-            "token_match_rate": token_match,
-            **geom,
-            "teacher_best_ade_m": (manifest or {}).get("best_candidate_ade_m"),
-            "teacher_best_fde_m": (manifest or {}).get("best_candidate_fde_m"),
-            "teacher_quality_bucket": (manifest or {}).get("quality_bucket"),
-            "failure_tags": tags,
-            "student_cot": student_cot,
-            "teacher_cot": teacher_cot,
-            "human_coc": human_coc,
-            "svg": str(svg_path) if svg_path is not None else None,
-        }
-        per_sample.append(row)
-        print(
-            json.dumps(
-                {
-                    "event": "sample_done",
-                    "index": idx,
-                    "num_samples": len(selected),
-                    "sample_id": sample_id,
-                    "ade_m": row.get("ade_m"),
-                    "fde_m": row.get("fde_m"),
-                    "tags": tags,
-                }
-            ),
-            flush=True,
-        )
+            student_xyz = (
+                decoder.decode(history_xyz, history_rot, generated_tokens)
+                if len(generated_tokens) == decoder.n_waypoints * 2
+                else None
+            )
+            teacher_xyz = (
+                decoder.decode(history_xyz, history_rot, target_tokens)
+                if len(target_tokens) == decoder.n_waypoints * 2
+                else np.zeros((0, 3), dtype=np.float32)
+            )
+            reference_xyz = teacher_xyz if args.geometry_reference == "teacher" else gt_future
+            geom = _path_metrics(student_xyz, reference_xyz)
+            if geom:
+                ade_values.append(geom["ade_m"])
+                fde_values.append(geom["fde_m"])
+
+            manifest = teacher_manifest.get(sample_id)
+            tags = (
+                []
+                if args.disable_failure_tags
+                else _failure_tags(
+                    sample=sample,
+                    generated_tokens=generated_tokens,
+                    path_metrics=geom,
+                    teacher_manifest=manifest,
+                )
+            )
+            tag_counter.update(tags)
+            text_entry = teacher_text.get(sample_id) or {}
+            human_coc = text_entry.get("human_coc") or str((sample.get("hard_target") or {}).get("cot_text") or "")
+            teacher_cot = text_entry.get("teacher_long_cot") or str((sample.get("teacher_target") or {}).get("cot_text") or "")
+            student_cot = _extract_student_cot(generated_text)
+
+            svg_path = None
+            if not args.skip_overlays:
+                svg_path = args.output_dir / f"{args.split}_{idx:03d}_{sample_id}.svg"
+                title = (
+                    f"{args.split} {idx}/{len(selected)} {sample_id[:18]} "
+                    f"ADE={geom.get('ade_m', float('nan')):.2f} FDE={geom.get('fde_m', float('nan')):.2f}"
+                )
+                _write_overlay_svg(
+                    svg_path,
+                    title=title,
+                    history=history_xyz,
+                    gt=gt_future,
+                    student=student_xyz,
+                    student_cot=student_cot,
+                    human_coc=human_coc,
+                    teacher_cot=teacher_cot,
+                    tags=tags,
+                )
+
+            row = {
+                "sample_id": sample_id,
+                "generated_token_count": len(generated_tokens),
+                "target_token_count": len(target_tokens),
+                "generated_unique_token_count": int(rep["unique"]),
+                "generated_max_same_token_run": int(rep["max_same_run"]),
+                "generated_invalid_future_token_count_i3000_plus": int(invalid_count),
+                "generated_top_tokens": rep["top_tokens"],
+                "generated_traj_tokens": generated_tokens,
+                "target_traj_tokens": target_tokens,
+                "token_match_rate": token_match,
+                **geom,
+                "teacher_best_ade_m": (manifest or {}).get("best_candidate_ade_m"),
+                "teacher_best_fde_m": (manifest or {}).get("best_candidate_fde_m"),
+                "teacher_quality_bucket": (manifest or {}).get("quality_bucket"),
+                "failure_tags": tags,
+                "student_cot": student_cot,
+                "teacher_cot": teacher_cot,
+                "human_coc": human_coc,
+                "svg": str(svg_path) if svg_path is not None else None,
+            }
+            per_sample.append(row)
+            print(
+                json.dumps(
+                    {
+                        "event": "sample_done",
+                        "index": idx,
+                        "num_samples": len(selected),
+                        "batch_size": len(prepared),
+                        "sample_id": sample_id,
+                        "ade_m": row.get("ade_m"),
+                        "fde_m": row.get("fde_m"),
+                        "tags": tags,
+                    }
+                ),
+                flush=True,
+            )
 
     def mean(values: list[float | int]) -> float | None:
         clean = [float(value) for value in values if math.isfinite(float(value))]
@@ -660,8 +791,11 @@ def main() -> int:
         "checkpoint_dir": str(args.checkpoint_dir),
         "split": args.split,
         "num_samples": len(per_sample),
+        "batch_size": int(args.batch_size),
         "prompt_mode": args.prompt_mode,
         "target_mode": args.target_mode,
+        "oracle_cot_prefix": bool(args.oracle_cot_prefix),
+        "geometry_reference": args.geometry_reference,
         "avg_ade_m": mean(ade_values),
         "avg_fde_m": mean(fde_values),
         "avg_unique_traj_ids": mean(unique_values),

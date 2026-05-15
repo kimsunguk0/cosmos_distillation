@@ -8,6 +8,14 @@ from typing import Any
 
 import torch
 
+from src.model.lm_head_adapter import (
+    attach_lm_head_token_adapter,
+    export_lm_head_token_rows_state,
+    get_lm_head_token_adapter,
+    get_lm_head_token_row_count,
+    load_lm_head_token_rows_state,
+)
+
 
 def _cpu_state_dict(module) -> dict[str, torch.Tensor]:
     return {key: value.detach().cpu() for key, value in module.state_dict().items()}
@@ -53,6 +61,14 @@ def _traj_hidden_bridge_student_path(checkpoint_dir: Path) -> Path:
 
 def _traj_hidden_bridge_teacher_path(checkpoint_dir: Path) -> Path:
     return checkpoint_dir / "traj_hidden_bridge_teacher.pt"
+
+
+def _lm_head_token_adapter_path(checkpoint_dir: Path) -> Path:
+    return checkpoint_dir / "lm_head_token_adapter.pt"
+
+
+def _lm_head_token_rows_path(checkpoint_dir: Path) -> Path:
+    return checkpoint_dir / "lm_head_token_rows.pt"
 
 
 def _legacy_state_path(checkpoint_dir: Path) -> Path:
@@ -113,6 +129,16 @@ def save_student_checkpoint(
             payload["traj_hidden_bridge_teacher"] = _traj_hidden_bridge_teacher_path(checkpoint_dir).name
             payload["traj_hidden_bridge_size"] = int(getattr(model, "traj_hidden_bridge_size", 0) or 0)
             payload["traj_teacher_hidden_size"] = int(getattr(model, "traj_teacher_hidden_size", 0) or 0)
+        lm_head_adapter = get_lm_head_token_adapter(model.backbone)
+        if lm_head_adapter is not None:
+            torch.save(_cpu_state_dict(lm_head_adapter), _lm_head_token_adapter_path(checkpoint_dir))
+            payload["lm_head_token_adapter"] = _lm_head_token_adapter_path(checkpoint_dir).name
+            payload["lm_head_trainable_token_rows"] = int(lm_head_adapter.token_indices.numel())
+        lm_head_rows_state = export_lm_head_token_rows_state(model.backbone)
+        if lm_head_rows_state is not None:
+            torch.save(_cast_float_state_dict(lm_head_rows_state, float_dtype=torch.bfloat16), _lm_head_token_rows_path(checkpoint_dir))
+            payload["lm_head_token_rows"] = _lm_head_token_rows_path(checkpoint_dir).name
+            payload["lm_head_trainable_token_rows"] = get_lm_head_token_row_count(model.backbone)
     else:
         state_dict = _cast_float_state_dict(model.state_dict(), float_dtype=full_state_dtype)
         torch.save(state_dict, _legacy_state_path(checkpoint_dir))
@@ -127,6 +153,12 @@ def save_student_checkpoint(
         if getattr(model, "traj_hidden_bridge_student", None) is not None:
             payload["traj_hidden_bridge_size"] = int(getattr(model, "traj_hidden_bridge_size", 0) or 0)
             payload["traj_teacher_hidden_size"] = int(getattr(model, "traj_teacher_hidden_size", 0) or 0)
+        lm_head_adapter = get_lm_head_token_adapter(model.backbone)
+        if lm_head_adapter is not None:
+            payload["lm_head_trainable_token_rows"] = int(lm_head_adapter.token_indices.numel())
+        lm_head_rows_state = export_lm_head_token_rows_state(model.backbone)
+        if lm_head_rows_state is not None:
+            payload["lm_head_trainable_token_rows"] = get_lm_head_token_row_count(model.backbone)
 
     _manifest_path(checkpoint_dir).write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return payload
@@ -222,6 +254,38 @@ def load_student_checkpoint(
                 raise ValueError("Checkpoint contains traj_hidden_bridge modules but the model is not configured for them.")
             model.traj_hidden_bridge_student.load_state_dict(student_bridge_state, strict=True)
             model.traj_hidden_bridge_teacher.load_state_dict(teacher_bridge_state, strict=True)
+        lm_head_adapter_path = _lm_head_token_adapter_path(checkpoint_dir)
+        if lm_head_adapter_path.exists():
+            try:
+                lm_head_adapter_state = torch.load(
+                    lm_head_adapter_path,
+                    map_location="cpu",
+                    weights_only=True,
+                )
+            except TypeError:
+                lm_head_adapter_state = torch.load(lm_head_adapter_path, map_location="cpu")
+            token_indices = lm_head_adapter_state.get("token_indices")
+            if not isinstance(token_indices, torch.Tensor):
+                raise ValueError("LM-head token adapter checkpoint is missing token_indices.")
+            lm_head_adapter = get_lm_head_token_adapter(model.backbone)
+            if lm_head_adapter is None:
+                lm_head_adapter = attach_lm_head_token_adapter(model.backbone, token_indices.tolist())
+            lm_head_adapter.load_state_dict(lm_head_adapter_state, strict=True)
+        lm_head_rows_path = _lm_head_token_rows_path(checkpoint_dir)
+        if lm_head_rows_path.exists():
+            try:
+                lm_head_rows_state = torch.load(
+                    lm_head_rows_path,
+                    map_location="cpu",
+                    weights_only=True,
+                )
+            except TypeError:
+                lm_head_rows_state = torch.load(lm_head_rows_path, map_location="cpu")
+            load_lm_head_token_rows_state(
+                model.backbone,
+                lm_head_rows_state,
+                trainable=adapter_trainable,
+            )
         return {
             "format": checkpoint_format,
             "missing": [],

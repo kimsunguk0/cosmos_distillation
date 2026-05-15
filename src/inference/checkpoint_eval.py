@@ -28,23 +28,50 @@ from src.training.collator import (
     build_messages,
     build_traj_only_prompt,
     build_user_prompt,
+    fuse_history_tokens_in_input_ids,
     load_ego_history_xyz,
     load_sample_images,
+    load_traj_future_token_ids,
+    resolve_camera_indices,
     resolve_sample_path,
 )
-from src.utils.runtime_paths import remap_external_path
-
-
-ALPAMAYO_SRC = Path("/workspace/alpamayo_repos/alpamayo1.5/src")
-ALPAMAYO_CONFIG_CANDIDATES = (
-    Path("/workspace/base_models_weights/Alpamayo-1.5-10B/config.json"),
-    Path("/workspace/base_models_weights/Alpamayo-R1-10B/config.json"),
+from src.utils.runtime_paths import (
+    remap_external_path,
+    resolve_alpamayo_model_path,
+    resolve_alpamayo_src_path,
 )
+
+
+def _alpamayo_src_candidates() -> tuple[Path, ...]:
+    candidates: list[Path] = []
+    resolved = resolve_alpamayo_src_path()
+    if resolved:
+        candidates.append(Path(resolved))
+    legacy = Path("/workspace/alpamayo_repos/alpamayo1.5/src")
+    if legacy not in candidates:
+        candidates.append(legacy)
+    return tuple(candidates)
+
+
+def _alpamayo_config_candidates() -> tuple[Path, ...]:
+    candidates: list[Path] = []
+    resolved = resolve_alpamayo_model_path()
+    if resolved:
+        candidates.append(Path(resolved) / "config.json")
+    for legacy in (
+        Path("/workspace/base_models_weights/Alpamayo-1.5-10B/config.json"),
+        Path("/workspace/base_models_weights/Alpamayo-R1-10B/config.json"),
+    ):
+        if legacy not in candidates:
+            candidates.append(legacy)
+    return tuple(candidates)
 
 
 def _ensure_alpamayo_imports() -> None:
-    if str(ALPAMAYO_SRC) not in sys.path and ALPAMAYO_SRC.exists():
-        sys.path.insert(0, str(ALPAMAYO_SRC))
+    for candidate in _alpamayo_src_candidates():
+        if candidate.exists() and str(candidate) not in sys.path:
+            sys.path.insert(0, str(candidate))
+            return
 
 
 def _decode_generated_text(tokenizer, input_ids: torch.Tensor, generated_ids: torch.Tensor) -> str:
@@ -78,6 +105,14 @@ def _jaccard(left: Sequence[int], right: Sequence[int]) -> float:
     if not union:
         return 1.0
     return float(len(left_set & right_set) / len(union))
+
+
+def _ade_fde(pred: np.ndarray, target: np.ndarray) -> tuple[float, float]:
+    n = min(int(pred.shape[0]), int(target.shape[0]))
+    if n <= 0:
+        return float("nan"), float("nan")
+    dist = np.linalg.norm(pred[:n, :2] - target[:n, :2], axis=-1)
+    return float(dist.mean()), float(dist[-1])
 
 
 def _resolve_existing_path(raw_path: str | Path | None) -> Path | None:
@@ -185,7 +220,7 @@ def resolve_traj_tokenizer_config_path(student_model: str | Path | None = None) 
         model_path = Path(student_model).expanduser()
         if model_path.is_dir():
             candidates.append(model_path / "config.json")
-    candidates.extend(ALPAMAYO_CONFIG_CANDIDATES)
+    candidates.extend(_alpamayo_config_candidates())
     for candidate in candidates:
         if candidate.exists():
             try:
@@ -205,6 +240,9 @@ class DecodeEvalConfig:
     max_new_tokens: int = 160
     prompt_mode: str = "joint"
     target_mode: str = "joint"
+    image_prompt_style: str = "compact"
+    prompt_text_style: str = "numeric_history_question"
+    fuse_history_tokens: bool = False
     metric_name: str = "anti_collapse_score"
 
 
@@ -253,18 +291,34 @@ def evaluate_decode_subset(
     unique_values: list[float] = []
     max_runs: list[float] = []
     jaccards: list[float] = []
+    ade_values: list[float] = []
+    fde_values: list[float] = []
     token_count_matches = 0
+    bad_geometry_count = 0
 
     for sample in selected:
         history_xyz = load_ego_history_xyz(sample, project_root)
         prompt_text = (
             build_traj_only_prompt(sample, project_root, ego_history_xyz=history_xyz)
             if config.prompt_mode == "traj_only"
-            else build_user_prompt(sample, project_root, ego_history_xyz=history_xyz)
+            else build_user_prompt(
+                sample,
+                project_root,
+                ego_history_xyz=history_xyz,
+                prompt_text_style=config.prompt_text_style,
+            )
         )
         assistant_prefix = "<|traj_future_start|>" if config.target_mode == "traj_only" else "<|cot_start|>"
         images = load_sample_images(sample, project_root)
-        messages = build_messages(prompt_text, len(images), assistant_prefix=assistant_prefix)
+        camera_indices = resolve_camera_indices(sample, project_root, image_count=len(images))
+        messages = build_messages(
+            prompt_text,
+            len(images),
+            assistant_prefix=assistant_prefix,
+            image_prompt_style=config.image_prompt_style,
+            camera_indices=camera_indices,
+            num_frames_per_camera=max(len(images) // max(len(camera_indices), 1), 1),
+        )
         text = processor.apply_chat_template(
             messages,
             tokenize=False,
@@ -278,8 +332,24 @@ def evaluate_decode_subset(
             padding=True,
             truncation=True,
         )
-        batch = {key: value.to(device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
-        target_traj = [int(token_id) for token_id in (sample.get("hard_target") or {}).get("traj_future_token_ids") or []]
+        if config.fuse_history_tokens:
+            batch["input_ids"] = fuse_history_tokens_in_input_ids(
+                batch["input_ids"],
+                tokenizer,
+                [history_xyz],
+            )
+        model_dtype = next(model.backbone.parameters()).dtype
+        batch = {
+            key: (
+                value.to(device=device, dtype=model_dtype)
+                if isinstance(value, torch.Tensor) and torch.is_floating_point(value)
+                else value.to(device)
+                if isinstance(value, torch.Tensor)
+                else value
+            )
+            for key, value in batch.items()
+        }
+        target_traj = load_traj_future_token_ids(sample.get("hard_target") or {}, project_root)
         prompt_lengths = batch["attention_mask"].sum(dim=1).tolist()
         if config.target_mode == "traj_only":
             contract = TrajOnlyDecodingContract.from_tokenizer(
@@ -315,16 +385,30 @@ def evaluate_decode_subset(
         token_count_matches += count_match
 
         predicted_motion = "unknown"
-        gt_motion = normalize_action_class((sample.get("derived") or {}).get("gt_motion_class"))
+        teacher_motion = "unknown"
         motion_match = None
+        sample_ade_m = None
+        sample_fde_m = None
         if decoder is not None:
             history_rot = load_ego_history_rot(sample, project_root)
             decoded_future_xyz = decoder.decode(history_xyz, history_rot, generated_traj)
-            if decoded_future_xyz is not None:
+            teacher_future_xyz = decoder.decode(history_xyz, history_rot, target_traj)
+            if teacher_future_xyz is not None:
+                teacher_motion = normalize_action_class(extract_path_semantics(teacher_future_xyz).action_class)
+            if decoded_future_xyz is not None and teacher_future_xyz is not None:
+                ade_m, fde_m = _ade_fde(decoded_future_xyz, teacher_future_xyz)
+                sample_ade_m = ade_m if math.isfinite(ade_m) else None
+                sample_fde_m = fde_m if math.isfinite(fde_m) else None
+                if math.isfinite(ade_m):
+                    ade_values.append(ade_m)
+                if math.isfinite(fde_m):
+                    fde_values.append(fde_m)
+                if (math.isfinite(ade_m) and ade_m >= 8.0) or (math.isfinite(fde_m) and fde_m >= 25.0):
+                    bad_geometry_count += 1
                 predicted_motion = normalize_action_class(extract_path_semantics(decoded_future_xyz).action_class)
-                if gt_motion != "unknown":
+                if teacher_motion != "unknown":
                     motion_total += 1
-                    motion_match = int(predicted_motion == gt_motion)
+                    motion_match = int(predicted_motion == teacher_motion)
                     motion_matches += motion_match
 
         unique_values.append(unique_count)
@@ -338,8 +422,12 @@ def evaluate_decode_subset(
                 "max_same_token_run": max_same_run,
                 "target_set_jaccard": jaccard,
                 "predicted_motion_class": predicted_motion,
-                "gt_motion_class": gt_motion,
+                "teacher_motion_class": teacher_motion,
                 "motion_match": motion_match,
+                "ade_m": sample_ade_m,
+                "fde_m": sample_fde_m,
+                "student_vs_teacher_discrete_ade_m": sample_ade_m,
+                "student_vs_teacher_discrete_fde_m": sample_fde_m,
             }
         )
 
@@ -348,6 +436,9 @@ def evaluate_decode_subset(
     avg_jaccard = float(sum(jaccards) / max(len(jaccards), 1))
     motion_agreement = float(motion_matches / motion_total) if motion_total > 0 else 0.0
     token_count_match_rate = float(token_count_matches / max(len(sample_metrics), 1))
+    avg_ade = float(sum(ade_values) / max(len(ade_values), 1)) if ade_values else None
+    avg_fde = float(sum(fde_values) / max(len(fde_values), 1)) if fde_values else None
+    bad_geometry_rate = float(bad_geometry_count / max(len(sample_metrics), 1))
 
     normalized_unique = min(avg_unique / 32.0, 1.0)
     repetition_penalty = 1.0 - min(avg_max_run / 128.0, 1.0)
@@ -357,17 +448,26 @@ def evaluate_decode_subset(
         + 0.25 * avg_jaccard
         + 0.20 * motion_agreement
     )
+    free_run_geometry_score = -float((avg_ade or 0.0) + 0.25 * (avg_fde or 0.0) + 5.0 * bad_geometry_rate)
 
     return {
         "enabled": True,
         "split": config.split,
         "num_samples": len(sample_metrics),
+        "geometry_reference": "teacher_discrete",
         "avg_unique_traj_ids": avg_unique,
         "avg_max_same_token_run": avg_max_run,
         "avg_target_set_jaccard": avg_jaccard,
+        "avg_ade_m": avg_ade,
+        "avg_fde_m": avg_fde,
+        "avg_student_vs_teacher_discrete_ade_m": avg_ade,
+        "avg_student_vs_teacher_discrete_fde_m": avg_fde,
+        "bad_geometry_rate": bad_geometry_rate,
         "token_count_match_rate": token_count_match_rate,
         "coarse_motion_agreement_rate": motion_agreement,
+        "teacher_motion_agreement_rate": motion_agreement,
         "anti_collapse_score": float(anti_collapse_score),
+        "free_run_geometry_score": free_run_geometry_score,
         "traj_tokenizer_config": str(decoder_config_path) if decoder_config_path is not None else None,
         "samples": sample_metrics,
     }

@@ -39,6 +39,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sample-index", type=int, default=0)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--max-new-tokens", type=int, default=64)
+    parser.add_argument("--warmup-runs", type=int, default=1)
+    parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument(
         "--teacher-model-path",
         type=Path,
@@ -49,6 +51,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("/workspace/alpamayo_repos/alpamayo1.5/src"),
     )
+    parser.add_argument("--teacher-runtime-support", type=Path, default=None)
     parser.add_argument(
         "--student-checkpoint-dir",
         type=Path,
@@ -58,6 +61,11 @@ def parse_args() -> argparse.Namespace:
         "--summary-json",
         type=Path,
         default=PROJECT_ROOT / "outputs" / "reports" / "prefill_generation_profile_v3_2.json",
+    )
+    parser.add_argument(
+        "--attn-implementation",
+        choices=("flash_attention_2", "sdpa", "eager"),
+        default="flash_attention_2",
     )
     return parser.parse_args()
 
@@ -155,6 +163,42 @@ def run_prefill_and_decode(
     return prefill_sec, decode_sec, generated
 
 
+def summarize_runs(runs: list[dict[str, float | int]]) -> dict[str, Any]:
+    def mean(key: str) -> float | None:
+        values = [float(run[key]) for run in runs if key in run]
+        return round(float(sum(values) / len(values)), 6) if values else None
+
+    def min_value(key: str) -> float | None:
+        values = [float(run[key]) for run in runs if key in run]
+        return round(float(min(values)), 6) if values else None
+
+    generated_tokens = int(runs[-1].get("generated_tokens", 0)) if runs else 0
+    decode_mean = mean("generation_sec")
+    return {
+        "runs": runs,
+        "mean": {
+            "vit_sec": mean("vit_sec"),
+            "text_only_prefill_sec": mean("text_only_prefill_sec"),
+            "prefill_sec": mean("prefill_sec"),
+            "generation_sec": decode_mean,
+            "total_vlm_no_action_expert_sec": mean("total_vlm_no_action_expert_sec"),
+            "generation_ms_per_token": (
+                round(float(decode_mean) / max(generated_tokens, 1) * 1000.0, 3)
+                if decode_mean is not None
+                else None
+            ),
+        },
+        "min": {
+            "vit_sec": min_value("vit_sec"),
+            "text_only_prefill_sec": min_value("text_only_prefill_sec"),
+            "prefill_sec": min_value("prefill_sec"),
+            "generation_sec": min_value("generation_sec"),
+            "total_vlm_no_action_expert_sec": min_value("total_vlm_no_action_expert_sec"),
+        },
+        "generated_tokens": generated_tokens,
+    }
+
+
 def run_text_only_prefill(hf_model: torch.nn.Module, tokenized_data: dict[str, torch.Tensor]) -> float:
     """Measure prefill time without visual tensors for a ViT-inclusive delta estimate."""
     forward_inputs = {
@@ -179,6 +223,25 @@ def canonical_frame_offsets(sample_dir: Path) -> list[float]:
 def teacher_image_frames(sample: dict[str, Any]) -> tuple[torch.Tensor, torch.Tensor]:
     sample_input = sample.get("input") or {}
     image_paths = list(sample_input.get("image_paths") or [])
+    materialized_sample_path = sample_input.get("materialized_sample_path") or sample_input.get("materialized_ref")
+    if materialized_sample_path and sample_input.get("image_layout") == "materialized_4x4_png":
+        sample_root = Path(remap_external_path(materialized_sample_path) or materialized_sample_path)
+        camera_indices = [int(value) for value in sample_input.get("camera_indices") or [0, 1, 2, 6]]
+        image_names = sample_input.get("image_names") or [
+            f"cam{camera_idx}_f{frame_idx}.png" for camera_idx in range(len(camera_indices)) for frame_idx in range(4)
+        ]
+        frames_by_camera = []
+        for camera_offset, _ in enumerate(camera_indices):
+            camera_frames = []
+            base = camera_offset * 4
+            for frame_offset in range(4):
+                image_name = str(image_names[base + frame_offset])
+                image = Image.open(sample_root / "images" / image_name).convert("RGB")
+                image_tensor = torch.from_numpy(np.array(image, copy=True)).permute(2, 0, 1).contiguous()
+                camera_frames.append(image_tensor)
+            frames_by_camera.append(torch.stack(camera_frames, dim=0))
+        return torch.stack(frames_by_camera, dim=0), torch.tensor(camera_indices, dtype=torch.int64)
+
     if image_paths:
         camera_indices = [int(value) for value in sample_input.get("camera_indices") or [0, 1, 2, 6]]
         num_frames = int(sample_input.get("num_frames_per_camera", 4))
@@ -260,12 +323,20 @@ def profile_teacher(sample: dict[str, Any], args: argparse.Namespace) -> dict[st
     print(json.dumps({"event": "teacher_load_start"}), flush=True)
     sync_cuda()
     started = time.perf_counter()
-    config = Alpamayo1_5Config.from_pretrained(str(args.teacher_model_path / "alpamayo_1.5_config.json"))
+    config_path = args.teacher_model_path / "alpamayo_1.5_config.json"
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    runtime_support = args.teacher_runtime_support
+    if runtime_support is None:
+        candidate = args.teacher_model_path / "runtime_support" / "Cosmos-Reason2-8B"
+        runtime_support = candidate if candidate.exists() else None
+    if runtime_support is not None:
+        payload["vlm_name_or_path"] = str(runtime_support)
+    payload["attn_implementation"] = args.attn_implementation
+    config = Alpamayo1_5Config(**payload)
     model = Alpamayo1_5.from_pretrained(
         str(args.teacher_model_path),
         config=config,
         dtype=torch.bfloat16,
-        attn_implementation="eager",
     ).to(args.device)
     model.eval()
     processor = helper.get_processor(model.tokenizer)
@@ -278,26 +349,28 @@ def profile_teacher(sample: dict[str, Any], args: argparse.Namespace) -> dict[st
     tokenized = to_device(tokenized, args.device)
     print(json.dumps({"event": "teacher_tokenize_done"}), flush=True)
     hf_model = model.vlm
-    print(json.dumps({"event": "teacher_prefill_decode_start"}), flush=True)
-    prefill_sec, generation_sec, generated_tokens = run_prefill_and_decode(
-        hf_model,
-        tokenized,
-        max_new_tokens=args.max_new_tokens,
-    )
-    text_only_prefill_sec = run_text_only_prefill(hf_model, tokenized)
-    vit_sec = max(prefill_sec - text_only_prefill_sec, 0.0)
-    print(
-        json.dumps(
-            {
-                "event": "teacher_prefill_decode_done",
-                "prefill_sec": prefill_sec,
-                "text_only_prefill_sec": text_only_prefill_sec,
-                "vit_sec_est": vit_sec,
-                "generation_sec": generation_sec,
-            }
-        ),
-        flush=True,
-    )
+    runs: list[dict[str, float | int]] = []
+    for repeat_idx in range(max(args.warmup_runs, 0) + max(args.repeats, 1)):
+        is_warmup = repeat_idx < max(args.warmup_runs, 0)
+        print(json.dumps({"event": "teacher_prefill_decode_start", "warmup": is_warmup}), flush=True)
+        prefill_sec, generation_sec, generated_tokens = run_prefill_and_decode(
+            hf_model,
+            tokenized,
+            max_new_tokens=args.max_new_tokens,
+        )
+        text_only_prefill_sec = run_text_only_prefill(hf_model, tokenized)
+        vit_sec = max(prefill_sec - text_only_prefill_sec, 0.0)
+        run = {
+            "vit_sec": vit_sec,
+            "text_only_prefill_sec": text_only_prefill_sec,
+            "prefill_sec": prefill_sec,
+            "generation_sec": generation_sec,
+            "total_vlm_no_action_expert_sec": round(prefill_sec + generation_sec, 6),
+            "generated_tokens": int(generated_tokens),
+        }
+        print(json.dumps({"event": "teacher_prefill_decode_done", "warmup": is_warmup, **run}), flush=True)
+        if not is_warmup:
+            runs.append(run)
 
     del model
     del processor
@@ -308,12 +381,7 @@ def profile_teacher(sample: dict[str, Any], args: argparse.Namespace) -> dict[st
     return {
         "model_name": "teacher_alpamayo15_vlm",
         "load_sec": load_sec,
-        "vit_sec": vit_sec,
-        "text_only_prefill_sec": text_only_prefill_sec,
-        "prefill_sec": prefill_sec,
-        "generation_sec": generation_sec,
-        "generated_tokens": generated_tokens,
-        "generation_ms_per_token": round((generation_sec / max(generated_tokens, 1)) * 1000.0, 3),
+        **summarize_runs(runs),
     }
 
 
@@ -373,26 +441,28 @@ def profile_student(sample: dict[str, Any], args: argparse.Namespace) -> dict[st
     print(json.dumps({"event": "student_tokenize_done"}), flush=True)
 
     hf_model = model.backbone
-    print(json.dumps({"event": "student_prefill_decode_start"}), flush=True)
-    prefill_sec, generation_sec, generated_tokens = run_prefill_and_decode(
-        hf_model,
-        tokenized,
-        max_new_tokens=args.max_new_tokens,
-    )
-    text_only_prefill_sec = run_text_only_prefill(hf_model, tokenized)
-    vit_sec = max(prefill_sec - text_only_prefill_sec, 0.0)
-    print(
-        json.dumps(
-            {
-                "event": "student_prefill_decode_done",
-                "prefill_sec": prefill_sec,
-                "text_only_prefill_sec": text_only_prefill_sec,
-                "vit_sec_est": vit_sec,
-                "generation_sec": generation_sec,
-            }
-        ),
-        flush=True,
-    )
+    runs: list[dict[str, float | int]] = []
+    for repeat_idx in range(max(args.warmup_runs, 0) + max(args.repeats, 1)):
+        is_warmup = repeat_idx < max(args.warmup_runs, 0)
+        print(json.dumps({"event": "student_prefill_decode_start", "warmup": is_warmup}), flush=True)
+        prefill_sec, generation_sec, generated_tokens = run_prefill_and_decode(
+            hf_model,
+            tokenized,
+            max_new_tokens=args.max_new_tokens,
+        )
+        text_only_prefill_sec = run_text_only_prefill(hf_model, tokenized)
+        vit_sec = max(prefill_sec - text_only_prefill_sec, 0.0)
+        run = {
+            "vit_sec": vit_sec,
+            "text_only_prefill_sec": text_only_prefill_sec,
+            "prefill_sec": prefill_sec,
+            "generation_sec": generation_sec,
+            "total_vlm_no_action_expert_sec": round(prefill_sec + generation_sec, 6),
+            "generated_tokens": int(generated_tokens),
+        }
+        print(json.dumps({"event": "student_prefill_decode_done", "warmup": is_warmup, **run}), flush=True)
+        if not is_warmup:
+            runs.append(run)
 
     del model
     del processor
@@ -404,12 +474,7 @@ def profile_student(sample: dict[str, Any], args: argparse.Namespace) -> dict[st
     return {
         "model_name": "student_cosmos_reason2b_lora",
         "load_sec": load_sec,
-        "vit_sec": vit_sec,
-        "text_only_prefill_sec": text_only_prefill_sec,
-        "prefill_sec": prefill_sec,
-        "generation_sec": generation_sec,
-        "generated_tokens": generated_tokens,
-        "generation_ms_per_token": round((generation_sec / max(generated_tokens, 1)) * 1000.0, 3),
+        **summarize_runs(runs),
     }
 
 
@@ -425,6 +490,9 @@ def main() -> None:
         "sample_id": sample["sample_id"],
         "split": sample.get("split"),
         "max_new_tokens": args.max_new_tokens,
+        "warmup_runs": args.warmup_runs,
+        "repeats": args.repeats,
+        "attn_implementation": args.attn_implementation,
         "teacher": teacher,
         "student": student,
     }

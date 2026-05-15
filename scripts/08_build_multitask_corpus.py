@@ -61,12 +61,19 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=PROJECT_ROOT / "outputs" / "reports" / "corpus_v3_2_summary.json",
     )
+    parser.add_argument(
+        "--allow-missing-teacher",
+        action="store_true",
+        help="Keep samples even when teacher text/cache entries are not available yet.",
+    )
     return parser.parse_args()
 
 
 def load_jsonl_by_key(path: Path, key: str = "sample_id") -> dict[str, dict]:
     """Load a JSONL file into a mapping keyed by the requested field."""
     result: dict[str, dict] = {}
+    if not path.exists():
+        return result
     with path.open("r", encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
@@ -133,11 +140,51 @@ def _remapped_signal_path(signal_target: dict, field_name: str) -> str | None:
     return remapped if Path(remapped).exists() else None
 
 
+def _fallback_manifest_from_materialized(materialized_root: Path) -> pd.DataFrame:
+    """Build a lightweight manifest from ready materialized samples."""
+    rows: list[dict[str, object]] = []
+    if not materialized_root.exists():
+        return pd.DataFrame(rows)
+    for sample_dir in sorted(path for path in materialized_root.iterdir() if path.is_dir()):
+        metadata_path = sample_dir / "metadata.json"
+        if not metadata_path.exists():
+            continue
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        ready = True
+        ready_path = sample_dir / "ready.json"
+        if ready_path.exists():
+            try:
+                ready = bool(json.loads(ready_path.read_text(encoding="utf-8")).get("ready", True))
+            except Exception:  # noqa: BLE001
+                ready = True
+        human_coc = str(metadata.get("human_coc") or "").strip()
+        if not ready or not human_coc:
+            continue
+        rows.append(
+            {
+                "sample_id": str(metadata.get("sample_id") or sample_dir.name),
+                "split": str(metadata.get("split") or "train"),
+                "human_coc": human_coc,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def load_manifest(path: Path, materialized_root: Path) -> tuple[pd.DataFrame, str]:
+    """Load the preferred event manifest, or fall back to materialized metadata."""
+    if path.exists():
+        return pd.read_parquet(path), "event_manifest"
+    return _fallback_manifest_from_materialized(materialized_root), "materialized_metadata_fallback"
+
+
 def main() -> None:
     args = parse_args()
     validate_task_type("reasoning_traj_multiview_v32")
 
-    manifest = pd.read_parquet(args.event_manifest)
+    manifest, manifest_source = load_manifest(args.event_manifest, args.materialized_root)
     teacher_index = load_jsonl_by_key(args.teacher_index_jsonl)
     gate_map = load_gate_map(args.semantic_gate_parquet)
 
@@ -145,6 +192,7 @@ def main() -> None:
     records_written = 0
     skipped_missing_materialized = 0
     skipped_missing_teacher = 0
+    retained_missing_teacher = 0
     skipped_missing_traj = 0
     teacher_view_allowed_count = 0
     teacher_topk_ready_count = 0
@@ -172,7 +220,10 @@ def main() -> None:
             teacher_record = teacher_index.get(sample_id)
             if teacher_record is None:
                 skipped_missing_teacher += 1
-                continue
+                if not args.allow_missing_teacher:
+                    continue
+                teacher_record = {}
+                retained_missing_teacher += 1
 
             gate = gate_map.get(sample_id, {})
             teacher_output = teacher_record.get("output", {})
@@ -288,11 +339,13 @@ def main() -> None:
             action_aux_allowed_count += int(action_aux_allowed)
 
     summary = {
+        "manifest_source": manifest_source,
         "event_manifest": str(args.event_manifest),
         "semantic_gate_parquet": str(args.semantic_gate_parquet),
         "teacher_index_jsonl": str(args.teacher_index_jsonl),
         "materialized_root": str(args.materialized_root),
         "output_jsonl": str(args.output_jsonl),
+        "allow_missing_teacher": bool(args.allow_missing_teacher),
         "records_written": records_written,
         "counts_by_split": counts_by_split,
         "teacher_view_allowed_count": teacher_view_allowed_count,
@@ -301,6 +354,7 @@ def main() -> None:
         "teacher_vs_gt_motion_counts": motion_gate_counts,
         "skipped_missing_materialized": skipped_missing_materialized,
         "skipped_missing_teacher": skipped_missing_teacher,
+        "retained_missing_teacher": retained_missing_teacher,
         "skipped_missing_traj": skipped_missing_traj,
     }
     args.summary_json.parent.mkdir(parents=True, exist_ok=True)

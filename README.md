@@ -1,183 +1,163 @@
-# Cosmos Distillation Status Report
+# Cosmos Distillation
 
-This README is the current high-level report for the trajectory-token collapse work.
-It is intentionally placed at the repository root so GitHub shows the current project state first.
+Current focus: Alpamayo 1.5 no-nav teacher-pair distillation into a Cosmos Reason2 2B student backbone.
 
-The original design README has been preserved as [DESIGN_README.md](./DESIGN_README.md).
-Older issue reports have been moved to [reports/closed_issues](./reports/closed_issues/).
+This README is a compact status board. The longer reasoning/history is in [NO_NAV_DISTILL_ISSUE_DECISION_LOG.md](./NO_NAV_DISTILL_ISSUE_DECISION_LOG.md).
 
-## Current Verdict
+## Current Status
 
-The original pure-LM trajectory body collapse is no longer the main blocker.
+As of 2026-05-15, the active branch is the official Alpamayo 4V input-contract run.
 
-With the Claude-derived recipe:
+The student input format now matches the public Alpamayo 4-camera contract:
 
-- all-layer LoRA enabled
-- 4016 custom token rows trainable through PEFT `trainable_token_indices`
-- GT trajectory token CE as the main objective
-- weak GT CoT loss
-- output-format loss kept small
-- teacher KD, teacher hidden distill, aux heads, and hybrid policy losses off
-- full 959-sample corpus and enough steps
+- camera labels are explicit text tokens
+- order is front-left, front, front-right, front-telephoto
+- 4 frames per camera, 16 image placeholders total
+- ego history is fused as Alpamayo-style trajectory-history tokens
+- prompt text is the official Alpamayo prompt
+- assistant prefix starts at `<|cot_start|>`
 
-the student emits full 128-token trajectory bodies on validation instead of collapsing to a single repeated token.
-
-The remaining problem is trajectory quality, not trajectory emission.
-
-## Latest Confirmed Result
-
-Full-corpus Phase 1 SFT was run for both reweighted and non-reweighted trajectory CE.
-
-| Run | Val Samples | ADE | FDE | Avg Unique Traj IDs | Avg Max Same-Token Run | Token Match |
-|---|---:|---:|---:|---:|---:|---:|
-| `reweight on` | 204 | 5.11 m | 14.47 m | 17.03 | 2.88 | 1.68% |
-| `reweight off` | 204 | 4.72 m | 13.76 m | 21.25 | 3.36 | 1.98% |
-
-Both runs generated 128/128 trajectory body tokens on all 204 validation samples.
-Neither run reproduced the old `<i1499>` single-token plateau.
-
-The important correction is that reweighting is not required for non-collapse under the full recipe. It may still be a useful training-shaping knob, but the `reweight off` ablation was actually better on ADE/FDE in this run.
-
-Main-repo artifacts for the current SFT branch:
-
-- `configs/train/stage_t1_sft_lora_reweight_off.yaml`
-- `scripts/24_continue_sft_reweight_off_10k.sh`
-- `outputs/checkpoints/stage_t1_sft_reweight_off_5k/final`
-- `outputs/reports/stage_t1_sft_reweight_off_5k_val204_overlays_summary.json`
-- `outputs/reports/stage_t1_sft_reweight_on_5k_val204_overlays_summary.json`
-
-## What We Were Trying To Solve
-
-The target was to distill Alpamayo-style VLM trajectory generation into a Cosmos-Reason2-2B student.
-
-The desired output contract is:
+Current active run:
 
 ```text
-<|cot_start|> ... <|cot_end|><|traj_future_start|><i...> x128 <|traj_future_end|>
+run_id:
+  no_nav_bp3_camera_labeled_official_200k_from_20kbest_20260514_092509
+
+config:
+  configs/train/stage_bp3_no_nav_camera_labeled_gc_decode_eval.yaml
+
+init checkpoint:
+  outputs/checkpoints/no_nav_camera_labeled_official_20k/
+
+active output:
+  outputs/checkpoints/no_nav_camera_labeled_official_200k/no_nav_bp3_camera_labeled_official_200k_from_20kbest_20260514_092509
+
+active log:
+  logs/no_nav_distill/no_nav_bp3_camera_labeled_official_200k_from_20kbest_20260514_092509.train.log
 ```
 
-Early training could learn some text and formatting, but trajectory body generation collapsed into repeated central-band tokens such as `<i1499>`.
-This happened even when GT trajectory token supervision was present.
-
-## What We Tried
-
-### Stage A Contract Repair
-
-We first found real mechanical issues:
-
-- prompt/full label masking was misaligned
-- newly added special/traj token rows were frozen under LoRA
-- boundary/format tokens were under-weighted
-
-Those were fixed in the Stage A contract work. The important file-level fix was adding `distill_trainable_token_ids()` and passing those ids into PEFT `trainable_token_indices`, so the custom trajectory/control token rows could move during LoRA training.
-
-### GT Trajectory CE And Geometry Regularization
-
-After the mechanical fixes, GT trajectory CE still collapsed in small multi-sample probes.
-
-Observed pattern:
-
-- 1 sample could be memorized
-- 4 samples already showed collapse
-- 16 samples collapsed almost completely
-
-We interpreted this as a central-band token prior problem. Geometry losses helped somewhat, but did not solve the collapse at train16/full scale.
-
-### Teacher Top-k, Hidden, Aux, And Hybrid Experiments
-
-We then tried several heavier approaches:
-
-- teacher trajectory top-k KD
-- teacher trajectory hidden projection
-- trajectory auxiliary heads
-- paired-interface and hybrid decode
-- prefix pseudo-CE absorption
-- hidden manifold recovery with frozen teacher latent targets
-- H1 readout row probes and listwise losses
-
-These experiments taught useful things:
-
-- hybrid decode can avoid single-token body collapse
-- student hidden has some weak trajectory signal
-- hidden geometry can be improved with frozen latent targets
-- row-space/readout can be moved diagnostically
-
-But they did not produce a clean pure-LM body solution before the Claude recipe was checked properly.
-
-## What We Missed
-
-The main mistake was not that hidden manifold mismatch was imaginary.
-It was that we escalated to hidden/readout complexity before locking down the simplest viable GT SFT baseline.
-
-In particular:
-
-- We had already identified trainable custom token rows in report 022, but later probes often reintroduced `freeze_all_parameters`, short runs, low LR, prefix-only objectives, teacher-pair targets, or aux/hybrid losses.
-- We over-interpreted `train4` runs with 8-20 steps as evidence that LM-only trajectory generation was fundamentally broken.
-- We treated "lm_head/embed opened but still plateau" as stronger evidence than it deserved, because those runs were short, mixed-objective, and not the clean full-data GT SFT recipe.
-- We spent too long trying to repair hidden manifolds before asking whether the token-row adapter path plus all-layer LoRA could simply learn the GT trajectory body with enough data and steps.
-- We treated trajectory token reweighting as probably essential, but the full `reweight off` ablation showed that enough clean SFT can break collapse without it.
-
-The corrected diagnosis is:
+Latest observed training progress:
 
 ```text
-The first-order collapse was mostly a recipe/training-path issue:
-custom token rows + all-layer LoRA + clean GT SFT + enough steps/data.
-
-Hidden/KD methods may still matter later for quality,
-but they were not the first bottleneck to solve.
+step:        about 6.7k / 12.5k
+epoch:       about 0.53 / 1.00
+train set:   200,000 samples
+val set:     2,048 samples
+decode eval: 64 val samples per eval
+batch:       16
 ```
 
-## Claude-Derived Resolution
+## Current Performance
 
-The useful Claude-side insight was to simplify the recipe instead of adding more machinery:
+All ADE/FDE below are student free-run trajectory vs teacher discrete decoded trajectory, using the run's decode-eval setting.
 
-- remove `optimization.freeze_all_parameters`
-- allow default LoRA to apply across the language stack
-- pass the 4016 custom token ids to PEFT `trainable_token_indices`
-- train with GT trajectory CE as the main loss
-- keep GT CoT weak
-- keep teacher KD and hidden distill off
-- use enough samples and enough steps
+### Official 20k Init
 
-This moved the project from:
+This is the completed official-input warmup run used as the current 200k init.
+
+| Step | Val Loss | CoT Acc | Traj Acc | ADE m | FDE m | Bad Rate | Unique IDs | Motion Agree | Token Count OK |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 312 | 1.5367 | 0.8800 | 0.4774 | 4.5438 | 12.3202 | 18.75% | 18.28 | 59.38% | 100% |
+| 624 | 1.5293 | 0.8829 | 0.4787 | 4.1751 | 11.7736 | 12.50% | 15.88 | 50.00% | 100% |
+| 936 | 1.5249 | 0.8835 | 0.4790 | 4.2226 | 11.9612 | 15.63% | 18.05 | 53.13% | 100% |
+| 1248 | 1.5230 | 0.8830 | 0.4797 | 4.0592 | 11.7664 | 12.50% | 12.78 | 45.31% | 100% |
+
+Best decode score:
 
 ```text
-"Why does the model only emit one repeated trajectory token?"
+step 1248: free_run_geometry_score = -7.6258
 ```
 
-to:
+### Official 200k Continuation
+
+This is the currently running main experiment.
+
+| Step | Val Loss | Decode Score | ADE m | FDE m | Bad Rate | Unique IDs | Motion Agree |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 3125 | 1.5041 | -6.6298 | 3.4699 | 10.7648 | 9.38% | 13.13 | 40.63% |
+| 6250 | 1.5006 | -6.0505 | 3.2152 | 10.0912 | 6.25% | 13.72 | 50.00% |
+
+Current interpretation:
+
+- 200k continuation is clearly better than the 20k init on free-run ADE/FDE.
+- Bad-geometry rate improved from 12.5% at the 20k best point to 6.25% at step 6250.
+- Teacher-forced train trajectory accuracy is still only around 0.45-0.55, so exact token prediction is not solved.
+- Free-run geometry is improving, which is the more important readiness signal.
+
+## Latest Training Metrics
+
+Recent training window around step 6.6k:
 
 ```text
-"How do we make the emitted 128-token trajectory geometrically better?"
+CoT token acc:    roughly 0.80 - 0.95
+Traj token acc:   roughly 0.42 - 0.56
+Total loss:       roughly 1.3 - 1.7
+Output format:    mostly stable
+Scheduled sample: off
 ```
 
-That is real progress.
+Important: these are teacher-forced training metrics. They are useful for diagnosis, but model selection should use free-run geometry and malformed-output checks.
 
-## Current Best Interpretation
+## Input Contract Check
 
-The student can now learn the pure-LM trajectory body contract.
+Run this before trusting a new training/eval result:
 
-However, the generated trajectories are still far from teacher/GT quality:
+```bash
+.venv/bin/python scripts/81_check_camera_prompt_contract.py \
+  --corpus-jsonl data/corpus/no_nav_teacher_pair_300chunks.jsonl \
+  --sample-index 0
+```
 
-- ADE is around 4.7-5.1 m
-- FDE is around 13.8-14.5 m
-- exact token match is still around 2%
+Expected:
 
-So the next phase should focus on improving trajectory geometry and teacher alignment, not on collapse debugging.
+```text
+image placeholders: 16
+camera labels:      Front left, Front, Front right, Front telephoto
+frame order:        0,1,2,3 per camera
+cam3 mapping:       original camera index 6 / front telephoto
+assistant prefix:   <|cot_start|>
+chat-template:      teacher helper and student collator match
+```
 
-## Recommended Next Steps
+## What To Watch Next
 
-1. Treat `reweight off` as the current main SFT candidate unless broader eval overturns it.
-2. Continue the clean GT SFT run longer, selecting by validation ADE/FDE rather than only final step.
-3. Reintroduce teacher trajectory top-k KD only after the SFT baseline is fixed.
-4. Keep GT trajectory CE active when adding KD, so teacher signals refine rather than replace the recovered LM contract.
-5. Add geometry regularization as a controlled ablation, not as the primary collapse fix.
-6. Defer hidden/KV manifold distillation until SFT + teacher top-k KD stops improving geometry.
+The next useful checkpoint/eval should answer:
 
-## Archive
+1. Does ADE/FDE keep dropping after step 6250?
+2. Does bad-geometry rate stay below 6.25% or improve?
+3. Does token diversity stay healthy without long repeated-token runs?
+4. Does `<traj_future_start>` appear reliably in free-run?
+5. Are curve/stop/turn buckets improving, not only straight driving?
+6. Does normal-image eval beat black/shuffled-image ablations?
+7. Is the backbone stable enough to start a student-compatible action/FM head smoke?
 
-The old numbered issue reports are archived under:
+## Key Files
 
-- [reports/closed_issues](./reports/closed_issues/)
+```text
+README:
+  README.md
 
-These reports are not deleted. They are closed as historical debugging context.
+full issue and decision log:
+  NO_NAV_DISTILL_ISSUE_DECISION_LOG.md
+
+active training config:
+  configs/train/stage_bp3_no_nav_camera_labeled_gc_decode_eval.yaml
+
+prompt contract test:
+  scripts/81_check_camera_prompt_contract.py
+
+training entrypoint:
+  scripts/09_train_distill.py
+
+decode / overlay eval:
+  scripts/25_decode_checkpoint_overlays.py
+
+checkpoint export:
+  scripts/27_export_student_weights_for_trt.py
+```
+
+## Notes
+
+- The current README intentionally avoids old experiment genealogy.
+- Older experiments remain useful for debugging, but current decisions should be based on the official-input run.
+- Generated logs, checkpoints, reports, and exports are git-ignored.

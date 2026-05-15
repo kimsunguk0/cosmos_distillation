@@ -25,6 +25,7 @@ class DistillationLossWeights:
     teacher_traj_ce: float | None = None
     teacher_traj_topk_kd: float = 0.0
     teacher_traj_hidden_align: float = 0.0
+    teacher_boundary_hidden_align: float = 0.0
     traj_xyz_reg: float = 0.0
     traj_delta_reg: float = 0.0
     traj_final_reg: float = 0.0
@@ -81,6 +82,12 @@ LOSS_WEIGHT_ALIASES: dict[str, tuple[str, ...]] = {
     "teacher_traj_ce": ("teacher_traj_loss",),
     "teacher_traj_topk_kd": ("teacher_traj_topk_kd_loss",),
     "teacher_traj_hidden_align": ("teacher_traj_hidden_align_loss",),
+    "teacher_boundary_hidden_align": (
+        "teacher_boundary_hidden_align_loss",
+        "teacher_text_boundary_hidden_align_loss",
+        "text_boundary_hidden_align_loss",
+        "boundary_hidden_align_loss",
+    ),
     "format_ce": ("output_format_loss", "structure_loss"),
     "action_aux": ("meta_action_loss", "action_aux_loss"),
     "feat_align": ("feature_align_loss",),
@@ -105,6 +112,7 @@ LOSS_WEIGHT_EXPORT_NAMES: dict[str, str] = {
     "teacher_traj_ce": "teacher_traj_loss",
     "teacher_traj_topk_kd": "teacher_traj_topk_kd_loss",
     "teacher_traj_hidden_align": "teacher_traj_hidden_align_loss",
+    "teacher_boundary_hidden_align": "teacher_text_boundary_hidden_align_loss",
     "format_ce": "output_format_loss",
     "action_aux": "meta_action_loss",
     "feat_align": "feature_align_loss",
@@ -129,6 +137,7 @@ METRIC_EXPORT_NAMES: dict[str, str] = {
     "teacher_traj_ce": "teacher_traj_loss",
     "teacher_traj_topk_kd": "teacher_traj_topk_kd_loss",
     "teacher_traj_hidden_align": "teacher_traj_hidden_align_loss",
+    "teacher_boundary_hidden_align": "teacher_text_boundary_hidden_align_loss",
     "traj_ce": "traj_loss",
     "format_ce": "output_format_loss",
     "action_aux": "meta_action_loss",
@@ -189,6 +198,7 @@ def export_loss_weights(weights: DistillationLossWeights) -> dict[str, float]:
         "feat_align": weights.feat_align,
         "teacher_traj_topk_kd": weights.teacher_traj_topk_kd,
         "teacher_traj_hidden_align": weights.teacher_traj_hidden_align,
+        "teacher_boundary_hidden_align": weights.teacher_boundary_hidden_align,
         "traj_xyz_reg": weights.traj_xyz_reg,
         "traj_delta_reg": weights.traj_delta_reg,
         "traj_final_reg": weights.traj_final_reg,
@@ -299,10 +309,18 @@ def masked_token_accuracy(
         valid_mask = valid_mask & token_mask[:, 1:].to(dtype=torch.bool, device=shift_labels.device)
     if not valid_mask.any():
         return _zero(logits.device)
-    preds = shift_logits.argmax(dim=-1)
-    correct = ((preds == shift_labels) & valid_mask).float().sum()
-    total = valid_mask.float().sum().clamp(min=1.0)
-    return correct / total
+    correct = torch.zeros((), dtype=torch.float32, device=logits.device)
+    total = torch.zeros((), dtype=torch.float32, device=logits.device)
+    for sample_index in range(shift_logits.shape[0]):
+        sample_mask = valid_mask[sample_index]
+        if not sample_mask.any():
+            continue
+        selected_logits = shift_logits[sample_index][sample_mask]
+        selected_labels = shift_labels[sample_index][sample_mask]
+        preds = selected_logits.argmax(dim=-1)
+        correct = correct + (preds == selected_labels).float().sum()
+        total = total + sample_mask.float().sum()
+    return correct / total.clamp(min=1.0)
 
 
 def auxiliary_action_loss(
@@ -324,8 +342,9 @@ def teacher_logit_kd_loss(
     sample_weights: torch.Tensor | None = None,
     temperature: float = 1.0,
     token_weights: torch.Tensor | None = None,
+    teacher_topk_positions: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    """KL distillation over sparse teacher top-k distributions on CoT token positions."""
+    """KL distillation over sparse teacher top-k distributions on labeled token positions."""
     if (
         cot_content_mask is None
         or teacher_topk_indices is None
@@ -340,12 +359,12 @@ def teacher_logit_kd_loss(
     gather_values = teacher_topk_logprobs.to(student_logits.device)
     sparse_mask = teacher_topk_mask.to(student_logits.device)
     token_weight_values = token_weights.to(student_logits.device) if token_weights is not None else None
+    position_values = teacher_topk_positions.to(student_logits.device) if teacher_topk_positions is not None else None
     vocab_size = shift_student.shape[-1]
 
     per_sample_losses = []
     per_sample_weights = []
     for sample_index in range(shift_student.shape[0]):
-        student_target_logits = shift_student[sample_index][span_mask[sample_index]]
         teacher_target_indices = gather_indices[sample_index][sparse_mask[sample_index]]
         teacher_target_values = gather_values[sample_index][sparse_mask[sample_index]]
         sample_token_weights = (
@@ -353,6 +372,19 @@ def teacher_logit_kd_loss(
             if token_weight_values is not None
             else None
         )
+        if position_values is not None:
+            raw_positions = position_values[sample_index][sparse_mask[sample_index]].long()
+            valid_positions = (raw_positions > 0) & (raw_positions <= shift_student.shape[1])
+            if not valid_positions.any():
+                continue
+            raw_positions = raw_positions[valid_positions] - 1
+            student_target_logits = shift_student[sample_index].index_select(0, raw_positions)
+            teacher_target_indices = teacher_target_indices[valid_positions]
+            teacher_target_values = teacher_target_values[valid_positions]
+            if sample_token_weights is not None:
+                sample_token_weights = sample_token_weights[valid_positions]
+        else:
+            student_target_logits = shift_student[sample_index][span_mask[sample_index]]
         aligned_tokens = min(student_target_logits.shape[0], teacher_target_indices.shape[0])
         if aligned_tokens <= 0:
             continue
@@ -504,6 +536,53 @@ def token_hidden_alignment_bridge_loss(
             continue
         student_target_hidden = student_target_hidden[:aligned_tokens]
         teacher_target_hidden = teacher_target_hidden[:aligned_tokens]
+        if student_target_hidden.shape[-1] != teacher_target_hidden.shape[-1]:
+            continue
+        cosine_loss = 1.0 - F.cosine_similarity(student_target_hidden, teacher_target_hidden, dim=-1)
+        mse_loss = F.mse_loss(student_target_hidden, teacher_target_hidden, reduction="none").mean(dim=-1)
+        per_sample_losses.append((cosine_weight * cosine_loss + mse_weight * mse_loss).mean())
+        if sample_weights is None:
+            per_sample_weights.append(torch.tensor(1.0, device=student_hidden.device))
+        else:
+            per_sample_weights.append(sample_weights[sample_index].to(student_hidden.device))
+
+    if not per_sample_losses:
+        return _zero(student_hidden.device)
+
+    losses = torch.stack(per_sample_losses)
+    weights = None if sample_weights is None else torch.stack(per_sample_weights)
+    return _apply_sample_weights(losses, weights)
+
+
+def token_hidden_positions_alignment_bridge_loss(
+    student_hidden: torch.Tensor,
+    teacher_hidden: torch.Tensor | None,
+    student_positions: torch.Tensor | None,
+    teacher_token_mask: torch.Tensor | None = None,
+    sample_weights: torch.Tensor | None = None,
+    *,
+    cosine_weight: float = 0.8,
+    mse_weight: float = 0.2,
+) -> torch.Tensor:
+    """Align hidden states gathered from explicit sequence positions."""
+    if teacher_hidden is None or student_positions is None:
+        return _zero(student_hidden.device)
+
+    teacher_hidden = teacher_hidden.to(device=student_hidden.device, dtype=student_hidden.dtype)
+    student_positions = student_positions.to(device=student_hidden.device, dtype=torch.long)
+    valid_mask = (student_positions >= 0) & (student_positions < student_hidden.shape[1])
+    if teacher_token_mask is not None:
+        valid_mask = valid_mask & teacher_token_mask.to(device=student_hidden.device, dtype=torch.bool)
+
+    per_sample_losses = []
+    per_sample_weights = []
+    for sample_index in range(student_hidden.shape[0]):
+        sample_mask = valid_mask[sample_index]
+        if not sample_mask.any():
+            continue
+        sample_positions = student_positions[sample_index][sample_mask]
+        student_target_hidden = student_hidden[sample_index].index_select(0, sample_positions)
+        teacher_target_hidden = teacher_hidden[sample_index][sample_mask]
         if student_target_hidden.shape[-1] != teacher_target_hidden.shape[-1]:
             continue
         cosine_loss = 1.0 - F.cosine_similarity(student_target_hidden, teacher_target_hidden, dim=-1)
