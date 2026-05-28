@@ -32,6 +32,7 @@ from src.data.schema_versions import active_versions
 from src.inference.checkpoint_eval import DecodeEvalConfig, evaluate_decode_subset, resolve_traj_tokenizer_config_path
 from src.model.checkpoint_io import detect_checkpoint_format, load_student_checkpoint, save_student_checkpoint
 from src.model.lm_head_adapter import enable_lm_head_token_rows, get_lm_head_token_row_count, get_output_lm_head
+from src.model.flex_scene_encoder import FlexSceneConfig
 from src.model.peft_setup import LoraConfigSpec, maybe_apply_lora
 from src.model.student_wrapper import (
     StudentWrapperConfig,
@@ -300,6 +301,11 @@ def stage_weights_from_yaml(path: Path) -> tuple[TrainerConfig, DistillationLoss
             traj_aux_final_reg=resolve_loss_weight_value(weights_map, "traj_aux_final_reg", defaults.traj_aux_final_reg),
             traj_aux_guided_kd=resolve_loss_weight_value(weights_map, "traj_aux_guided_kd", defaults.traj_aux_guided_kd),
             traj_aux_pseudo_ce=resolve_loss_weight_value(weights_map, "traj_aux_pseudo_ce", defaults.traj_aux_pseudo_ce),
+            boundary_action_xyz=resolve_loss_weight_value(
+                weights_map,
+                "boundary_action_xyz",
+                defaults.boundary_action_xyz,
+            ),
         )
 
     trainer_config = TrainerConfig(
@@ -324,6 +330,8 @@ def stage_weights_from_yaml(path: Path) -> tuple[TrainerConfig, DistillationLoss
         "curriculum": dict(config.get("curriculum") or {}),
         "interface_loss_weights": dict(config.get("interface_loss_weights") or {}),
         "scheduled_sampling": dict(config.get("scheduled_sampling") or {}),
+        "flex": dict(config.get("flex") or {}),
+        "gradient_checkpointing_use_reentrant": bool(config.get("gradient_checkpointing_use_reentrant", False)),
     }
     return trainer_config, loss_weights, stage_options
 
@@ -340,6 +348,7 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
         "freeze_all_but_traj_aux_head": False,
         "freeze_traj_aux_head": False,
         "freeze_meta_action_head": False,
+        "freeze_boundary_action_head": False,
         "freeze_traj_hidden_projector": False,
         "freeze_all_parameters": False,
     }
@@ -350,15 +359,16 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
         layer_ids = {int(value) for value in explicit_layers}
     layer_from = cfg.get("language_layers_from")
     layer_from = int(layer_from) if layer_from not in (None, "", False) else None
+    unfreeze_lora_only = bool(cfg.get("unfreeze_lora_only", False))
 
     def should_unfreeze(name: str) -> bool:
         layer_match = re.search(r"language_model\.layers\.(\d+)\.", name)
         if layer_match is not None:
             layer_index = int(layer_match.group(1))
             if layer_index in layer_ids:
-                return True
+                return (not unfreeze_lora_only) or ("lora_" in name)
             if layer_from is not None and layer_index >= layer_from:
-                return True
+                return (not unfreeze_lora_only) or ("lora_" in name)
         if bool(cfg.get("unfreeze_language_norm", False)) and "language_model.norm" in name:
             return True
         if bool(cfg.get("unfreeze_token_embeddings", False)) and "language_model.embed_tokens" in name:
@@ -368,6 +378,8 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
         if bool(cfg.get("unfreeze_multimodal_projector", False)) and (
             "multi_modal_projector" in name or "visual.merger" in name
         ):
+            return True
+        if bool(cfg.get("unfreeze_flex_scene_encoder", False)) and "flex_scene_encoder" in name:
             return True
         return False
 
@@ -402,6 +414,13 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
             for parameter in meta_action_head.parameters():
                 parameter.requires_grad = True
             trainable_modules.append("meta_action_head")
+        if bool(cfg.get("unfreeze_boundary_action_head", False)):
+            boundary_action_head = getattr(model, "boundary_action_head", None)
+            if boundary_action_head is None:
+                raise RuntimeError("unfreeze_boundary_action_head requires model.boundary_action_head to exist.")
+            for parameter in boundary_action_head.parameters():
+                parameter.requires_grad = True
+            trainable_modules.append("boundary_action_head")
         if bool(cfg.get("unfreeze_traj_hidden_projector", False)):
             traj_hidden_projector = getattr(model, "traj_hidden_projector", None)
             if traj_hidden_projector is None:
@@ -423,11 +442,20 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
             for parameter in traj_hidden_bridge_teacher.parameters():
                 parameter.requires_grad = True
             trainable_modules.append("traj_hidden_bridge")
+        if bool(cfg.get("unfreeze_flex_scene_encoder", False)):
+            flex_scene_encoder = getattr(model, "flex_scene_encoder", None)
+            if flex_scene_encoder is None:
+                raise RuntimeError("unfreeze_flex_scene_encoder requires model.flex_scene_encoder to exist.")
+            for parameter in flex_scene_encoder.parameters():
+                parameter.requires_grad = True
+            trainable_modules.append("flex_scene_encoder")
 
         for layer_index in sorted(layer_ids):
             trainable_modules.append(f"language_layers.{layer_index}")
         if layer_from is not None:
             trainable_modules.append(f"language_layers_from.{layer_from}")
+        if unfreeze_lora_only:
+            trainable_modules.append("unfreeze_lora_only")
         if bool(cfg.get("unfreeze_language_norm", False)):
             trainable_modules.append("language_norm")
         if bool(cfg.get("unfreeze_token_embeddings", False)):
@@ -448,7 +476,9 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
                 "freeze_all_but_traj_aux_head": False,
                 "freeze_traj_aux_head": False,
                 "freeze_meta_action_head": False,
+                "freeze_boundary_action_head": False,
                 "freeze_all_parameters": True,
+                "unfreeze_lora_only": unfreeze_lora_only,
                 "trainable_modules": trainable_modules,
             }
         trainable_modules = apply_explicit_unfreeze_rules()
@@ -466,6 +496,13 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
             for parameter in meta_action_head.parameters():
                 parameter.requires_grad = False
             summary["freeze_meta_action_head"] = True
+        if bool(cfg.get("freeze_boundary_action_head", False)):
+            boundary_action_head = getattr(model, "boundary_action_head", None)
+            if boundary_action_head is None:
+                raise RuntimeError("freeze_boundary_action_head requires model.boundary_action_head to exist.")
+            for parameter in boundary_action_head.parameters():
+                parameter.requires_grad = False
+            summary["freeze_boundary_action_head"] = True
         if bool(cfg.get("freeze_traj_hidden_projector", False)):
             traj_hidden_projector = getattr(model, "traj_hidden_projector", None)
             if traj_hidden_projector is None:
@@ -488,6 +525,7 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
         "freeze_all_but_traj_aux_head": True,
         "freeze_traj_aux_head": False,
         "freeze_meta_action_head": False,
+        "freeze_boundary_action_head": False,
         "freeze_traj_hidden_projector": False,
         "trainable_modules": ["traj_aux_head"],
     }
@@ -516,6 +554,7 @@ def build_optimizer_param_groups(model, base_learning_rate: float, optimization_
     token_row_scale = float(cfg.get("token_row_lr_scale", 1.0) or 1.0)
     lm_head_token_row_scale = float(cfg.get("lm_head_token_row_lr_scale", token_row_scale) or token_row_scale)
     language_full_scale = float(cfg.get("language_full_lr_scale", 1.0) or 1.0)
+    language_lora_scale = float(cfg.get("language_lora_lr_scale", language_full_scale) or language_full_scale)
     language_norm_scale = float(cfg.get("language_norm_lr_scale", language_full_scale) or language_full_scale)
     token_embedding_scale = float(cfg.get("token_embedding_lr_scale", language_full_scale) or language_full_scale)
     lm_head_scale = float(cfg.get("lm_head_lr_scale", language_full_scale) or language_full_scale)
@@ -526,6 +565,8 @@ def build_optimizer_param_groups(model, base_learning_rate: float, optimization_
     hidden_bridge_scale = float(cfg.get("traj_hidden_bridge_lr_scale", language_full_scale) or language_full_scale)
     meta_action_head_scale = float(cfg.get("meta_action_head_lr_scale", 1.0) or 1.0)
     traj_aux_head_scale = float(cfg.get("traj_aux_head_lr_scale", 1.0) or 1.0)
+    boundary_action_head_scale = float(cfg.get("boundary_action_head_lr_scale", 1.0) or 1.0)
+    flex_scene_scale = float(cfg.get("flex_scene_lr_scale", 1.0) or 1.0)
 
     def _group_name_and_scale(name: str, param: torch.nn.Parameter) -> tuple[str, float]:
         if id(param) in lm_head_token_row_param_ids:
@@ -544,8 +585,14 @@ def build_optimizer_param_groups(model, base_learning_rate: float, optimization_
             return "meta_action_head", meta_action_head_scale
         if "traj_aux_head" in name:
             return "traj_aux_head", traj_aux_head_scale
+        if "boundary_action_head" in name:
+            return "boundary_action_head", boundary_action_head_scale
+        if "flex_scene_encoder" in name:
+            return "flex_scene_encoder", flex_scene_scale
         if "multi_modal_projector" in name or "visual.merger" in name:
             return "multimodal_projector", multimodal_projector_scale
+        if ".language_model.layers." in name and "lora_" in name:
+            return "language_lora", language_lora_scale
         if ".language_model.layers." in name and "lora_" not in name:
             return "language_full", language_full_scale
         if "language_model.norm" in name and "lora_" not in name:
@@ -917,6 +964,23 @@ def scheduled_sampling_config_from_yaml(config: dict[str, object] | None, tokeni
     cfg = dict(config or {})
     enabled = bool(cfg.get("enabled", False))
     probability = float(cfg.get("p", cfg.get("probability", 0.0)) or 0.0)
+    probability_start_raw = cfg.get("p_start", cfg.get("probability_start", None))
+    probability_start = None if probability_start_raw is None else float(probability_start_raw)
+    ramp_steps = int(cfg.get("ramp_steps", cfg.get("p_ramp_steps", 0)) or 0)
+    mode = str(cfg.get("mode", cfg.get("sampling_mode", "token")) or "token").strip().lower()
+    if mode in {"generated", "generated-prefix", "sample-prefix"}:
+        mode = "generated_prefix"
+    prefix_tokens = int(cfg.get("prefix_tokens", cfg.get("generated_prefix_tokens", 0)) or 0)
+    autoregressive_prefix = bool(
+        cfg.get("autoregressive_prefix", cfg.get("ar_prefix", cfg.get("true_autoregressive", False)))
+    )
+    generated_prefix_topk_kd_scale = float(
+        cfg.get(
+            "generated_prefix_topk_kd_scale",
+            cfg.get("scheduled_topk_kd_scale", cfg.get("topk_kd_scale_on_generated_prefix", 1.0)),
+        )
+        or 0.0
+    )
     vocab_spec = str(cfg.get("replacement_vocab", "<i0>~<i2999>")).strip()
 
     traj_start = tokenizer.convert_tokens_to_ids("<i0>")
@@ -932,6 +996,12 @@ def scheduled_sampling_config_from_yaml(config: dict[str, object] | None, tokeni
         return None, {
             "enabled": False,
             "p": probability,
+            "p_start": probability_start,
+            "ramp_steps": ramp_steps,
+            "mode": mode,
+            "prefix_tokens": prefix_tokens,
+            "autoregressive_prefix": autoregressive_prefix,
+            "generated_prefix_topk_kd_scale": generated_prefix_topk_kd_scale,
             "replacement_vocab": vocab_spec,
             "replacement_vocab_size": replacement_vocab_size,
         }
@@ -941,12 +1011,24 @@ def scheduled_sampling_config_from_yaml(config: dict[str, object] | None, tokeni
     config_obj = ScheduledSamplingConfig(
         enabled=True,
         probability=probability,
+        probability_start=probability_start,
+        ramp_steps=ramp_steps,
         traj_token_start_id=int(traj_start),
         replacement_vocab_size=int(replacement_vocab_size),
+        mode=mode,
+        prefix_tokens=prefix_tokens,
+        autoregressive_prefix=autoregressive_prefix,
+        generated_prefix_topk_kd_scale=generated_prefix_topk_kd_scale,
     )
     return config_obj, {
         "enabled": True,
         "p": probability,
+        "p_start": probability_start,
+        "ramp_steps": ramp_steps,
+        "mode": mode,
+        "prefix_tokens": prefix_tokens,
+        "autoregressive_prefix": autoregressive_prefix,
+        "generated_prefix_topk_kd_scale": generated_prefix_topk_kd_scale,
         "replacement_vocab": vocab_spec,
         "traj_token_start_id": int(traj_start),
         "replacement_vocab_size": int(replacement_vocab_size),
@@ -1190,6 +1272,22 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     )
     optimization_cfg = dict(stage_options.get("optimization") or {})
     curriculum_cfg = dict(stage_options.get("curriculum") or {})
+    flex_cfg = dict(stage_options.get("flex") or {})
+    flex_scene_config = None
+    if bool(flex_cfg.get("enabled", False)):
+        flex_scene_config = FlexSceneConfig(
+            enabled=True,
+            tokens_per_image=int(flex_cfg.get("tokens_per_image", 32) or 32),
+            expected_images_per_sample=int(flex_cfg.get("expected_images_per_sample", 16) or 16),
+            input_hidden_size=int(flex_cfg.get("input_hidden_size", 2048) or 2048),
+            hidden_size=int(flex_cfg.get("hidden_size", 1024) or 1024),
+            num_layers=int(flex_cfg.get("num_layers", 2) or 2),
+            num_heads=int(flex_cfg.get("num_heads", 8) or 8),
+            mlp_ratio=float(flex_cfg.get("mlp_ratio", 4.0) or 4.0),
+            dropout=float(flex_cfg.get("dropout", 0.0) or 0.0),
+            use_camera_time_embeddings=bool(flex_cfg.get("use_camera_time_embeddings", False)),
+            max_camera_types=int(flex_cfg.get("max_camera_types", 16) or 16),
+        )
     traj_body_prefix_tokens = (
         int(curriculum_cfg.get("traj_body_prefix_tokens"))
         if curriculum_cfg.get("traj_body_prefix_tokens") not in (None, "", 0)
@@ -1205,6 +1303,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         traj_teacher_hidden_size=teacher_traj_hidden_size,
         traj_aux_num_buckets=traj_aux_num_buckets,
         traj_hidden_bridge_size=traj_hidden_bridge_size,
+        flex_scene=flex_scene_config,
     )
     tokenizer = load_student_tokenizer(wrapper_cfg)
     processor = load_student_processor(wrapper_cfg, tokenizer=tokenizer)
@@ -1303,6 +1402,11 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             traj_aux_final_reg=resolve_loss_weight_value(interface_loss_weights_cfg, "traj_aux_final_reg", defaults.traj_aux_final_reg),
             traj_aux_guided_kd=resolve_loss_weight_value(interface_loss_weights_cfg, "traj_aux_guided_kd", defaults.traj_aux_guided_kd),
             traj_aux_pseudo_ce=resolve_loss_weight_value(interface_loss_weights_cfg, "traj_aux_pseudo_ce", defaults.traj_aux_pseudo_ce),
+            boundary_action_xyz=resolve_loss_weight_value(
+                interface_loss_weights_cfg,
+                "boundary_action_xyz",
+                defaults.boundary_action_xyz,
+            ),
         )
     traj_token_weight_map, traj_token_reweight_summary = build_traj_token_weight_map(
         train_records,
@@ -1447,6 +1551,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "traj_aux_interface": traj_aux_interface_summary,
             "traj_hidden_bridge": traj_hidden_bridge_cfg,
             "optimization": optimization_cfg,
+            "flex": flex_cfg,
             "curriculum": curriculum_cfg,
             "traj_body_prefix_tokens": traj_body_prefix_tokens,
             "interface_loss_weights": export_loss_weights(interface_loss_weights) if interface_loss_weights is not None else None,
@@ -1518,6 +1623,16 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                     and first_batch.get("teacher_text_boundary_hidden_positions") is not None
                     else None
                 ),
+                "teacher_action_traj_xyz": (
+                    list(first_batch["teacher_action_traj_xyz"].shape)
+                    if first_batch is not None and first_batch.get("teacher_action_traj_xyz") is not None
+                    else None
+                ),
+                "teacher_action_traj_available": (
+                    list(first_batch["teacher_action_traj_available"].shape)
+                    if first_batch is not None and first_batch.get("teacher_action_traj_available") is not None
+                    else None
+                ),
                 "teacher_traj_token_weights": (
                     list(first_batch["teacher_traj_token_weights"].shape)
                     if first_batch is not None and first_batch.get("teacher_traj_token_weights") is not None
@@ -1547,8 +1662,9 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     if checkpoint_format == "lora_adapter" and not use_lora:
         raise ValueError("Cannot load a LoRA adapter checkpoint when --disable-lora is set.")
     if trainer_cfg.gradient_checkpointing and hasattr(model.backbone, "gradient_checkpointing_enable"):
+        gc_use_reentrant = bool(stage_options.get("gradient_checkpointing_use_reentrant", False))
         try:
-            model.backbone.gradient_checkpointing_enable({"use_reentrant": False})
+            model.backbone.gradient_checkpointing_enable({"use_reentrant": gc_use_reentrant})
         except Exception:  # noqa: BLE001
             try:
                 model.backbone.gradient_checkpointing_enable()
@@ -1676,6 +1792,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                 f"teacher_pair_target={teacher_pair_target} "
                 f"teacher_traj_hidden_size={teacher_traj_hidden_size} "
                 f"scheduled_sampling={scheduled_sampling_summary} "
+                f"flex={flex_cfg} "
                 f"traj_aux_num_buckets={traj_aux_num_buckets} "
                 f"freeze_aux_only={bool(optimization_cfg.get('freeze_all_but_traj_aux_head', False))} "
                 f"interface_every_n={curriculum_cfg.get('interface_every_n_steps')} "
@@ -1760,6 +1877,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "interface_loss_weights": export_loss_weights(interface_loss_weights) if interface_loss_weights is not None else None,
         },
         "scheduled_sampling": scheduled_sampling_summary,
+        "flex": flex_cfg,
         "traj_token_reweighting": traj_token_reweight_summary,
         "traj_decode": traj_decode_summary,
         "decode_eval": {
@@ -1811,6 +1929,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                         traj_body_prefix_tokens=traj_body_prefix_tokens,
                         traj_hidden_bridge_config=traj_hidden_bridge_cfg,
                         scheduled_sampling_config=scheduled_sampling_config,
+                        global_step=next_step,
                     )
                 loss.backward()
                 grad_norm = torch.nn.utils.clip_grad_norm_(trainable_params, args.grad_clip_norm)
@@ -1842,10 +1961,12 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                         gt_traj_raw = float(logs.get("traj_loss") or 0.0)
                         teacher_traj_ce_raw = float(logs.get("teacher_traj_loss") or 0.0)
                         teacher_traj_kd_raw = float(logs.get("teacher_traj_topk_kd_loss") or 0.0)
+                        teacher_traj_kd_scale = float(logs.get("teacher_traj_topk_kd_scale") or 1.0)
                         format_raw = float(logs.get("output_format_loss") or 0.0)
                         ss_rate = float(logs.get("scheduled_sampling_rate") or 0.0)
                         ss_replaced = float(logs.get("scheduled_sampling_replaced") or 0.0)
                         ss_candidates = float(logs.get("scheduled_sampling_candidates") or 0.0)
+                        ss_probability = float(logs.get("scheduled_sampling_probability") or 0.0)
                         gt_cot_weighted = float(active_loss_weights.hard_cot_ce) * gt_cot_raw
                         teacher_text_kd_weighted = float(active_loss_weights.teacher_logit_kd) * teacher_text_kd_raw
                         gt_traj_weighted = float(active_loss_weights.traj_ce) * gt_traj_raw
@@ -1873,7 +1994,8 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                                 f"acc(cot/traj)="
                                 f"{_format_metric(logs.get('gt_cot_token_acc'))}/"
                                 f"{_format_metric(logs.get('traj_token_acc'))} "
-                                f"ss={ss_replaced:.0f}/{ss_candidates:.0f}@{ss_rate:.3f} "
+                                f"ss={ss_replaced:.0f}/{ss_candidates:.0f}@{ss_rate:.3f}/p{ss_probability:.3f} "
+                                f"traj_kd_scale={teacher_traj_kd_scale:.3f} "
                                 f"grad={_format_metric(grad_norm_value)}"
                             ),
                             flush=True,

@@ -21,6 +21,7 @@ from typing import Any
 
 import numpy as np
 import torch
+from PIL import Image
 from transformers import LogitsProcessorList, StoppingCriteriaList
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +30,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.inference.checkpoint_eval import (  # noqa: E402
     TrajectoryTokenDecoder,
+    _infer_visual_float_dtype,
+    _manual_flex_generate,
     load_ego_history_rot,
     resolve_traj_tokenizer_config_path,
 )
@@ -48,12 +51,15 @@ from src.training.collator import (  # noqa: E402
     build_messages,
     build_traj_only_prompt,
     build_user_prompt,
+    fuse_history_tokens_in_input_ids,
     load_ego_future_xyz,
     load_ego_history_xyz,
     load_sample_images,
     load_traj_future_token_ids,
+    resolve_image_relative_timestamps,
     resolve_camera_indices,
 )
+from src.training.flex_batch import compress_batch_for_flex  # noqa: E402
 from src.utils.runtime_paths import (  # noqa: E402
     DEFAULT_TEACHER_CACHE_ROOT,
     remap_external_path,
@@ -86,6 +92,17 @@ def parse_args() -> argparse.Namespace:
         help="Use official Alpamayo-style camera/frame text before image placeholders.",
     )
     parser.add_argument(
+        "--prompt-text-style",
+        choices=("numeric_history_question", "official_alpamayo"),
+        default="numeric_history_question",
+        help="Instruction/history prompt style. Use official_alpamayo for the Alpamayo 1.5 input contract.",
+    )
+    parser.add_argument(
+        "--fuse-history-tokens",
+        action="store_true",
+        help="Replace <|traj_history|> placeholders with encoded Alpamayo history delta token ids.",
+    )
+    parser.add_argument(
         "--geometry-reference",
         choices=("gt", "teacher"),
         default="gt",
@@ -97,6 +114,15 @@ def parse_args() -> argparse.Namespace:
         help=(
             "For target-mode=traj_only, prepend the cached teacher CoT through "
             "`<|traj_future_start|>` so only the 128 trajectory body tokens are free-run."
+        ),
+    )
+    parser.add_argument(
+        "--image-ablation",
+        choices=("normal", "black", "gray", "noise", "camera_shuffle"),
+        default="normal",
+        help=(
+            "Perturb input images while keeping text/ego unchanged. "
+            "camera_shuffle reverses the camera groups within each sample."
         ),
     )
     parser.add_argument("--max-new-tokens", type=int, default=384)
@@ -181,6 +207,30 @@ def _extract_student_cot(text: str) -> str:
         end = len(text)
     cot = re.sub(r"<\|[^|]+\|>", "", text[start:end])
     return " ".join(cot.split())
+
+
+def _apply_image_ablation(images: list[Any], mode: str, *, sample_id: str) -> list[Any]:
+    if mode == "normal":
+        return images
+    if mode in {"black", "gray"}:
+        color = (0, 0, 0) if mode == "black" else (127, 127, 127)
+        return [Image.new("RGB", image.size, color) for image in images]
+    if mode == "noise":
+        out: list[Any] = []
+        seed = abs(hash(sample_id)) % (2**32)
+        rng = np.random.default_rng(seed)
+        for image_index, image in enumerate(images):
+            local = np.random.default_rng(seed + image_index * 1009)
+            arr = local.integers(0, 256, size=(image.size[1], image.size[0], 3), dtype=np.uint8)
+            out.append(Image.fromarray(arr, mode="RGB"))
+        return out
+    if mode == "camera_shuffle":
+        # Materialized order is camera-major: cam0 f0..f3, cam1 f0..f3, ...
+        # Reverse camera groups while preserving frame order inside each camera.
+        frame_count = 4 if len(images) % 4 == 0 else 1
+        groups = [images[index : index + frame_count] for index in range(0, len(images), frame_count)]
+        return [image for group in reversed(groups) for image in group]
+    raise ValueError(f"Unsupported image_ablation={mode!r}")
 
 
 def _max_same_token_run(token_ids: list[int]) -> int:
@@ -587,7 +637,12 @@ def main() -> int:
             prompt_text = (
                 build_traj_only_prompt(sample, PROJECT_ROOT, ego_history_xyz=history_xyz)
                 if args.prompt_mode == "traj_only"
-                else build_user_prompt(sample, PROJECT_ROOT, ego_history_xyz=history_xyz)
+                else build_user_prompt(
+                    sample,
+                    PROJECT_ROOT,
+                    ego_history_xyz=history_xyz,
+                    prompt_text_style=args.prompt_text_style,
+                )
             )
             if args.target_mode == "traj_only":
                 if args.oracle_cot_prefix:
@@ -601,14 +656,20 @@ def main() -> int:
                     assistant_prefix = "<|traj_future_start|>"
             else:
                 assistant_prefix = "<|cot_start|>"
-            images = load_sample_images(sample, PROJECT_ROOT)
+            images = _apply_image_ablation(
+                load_sample_images(sample, PROJECT_ROOT),
+                args.image_ablation,
+                sample_id=sample_id,
+            )
             camera_indices = resolve_camera_indices(sample, PROJECT_ROOT, image_count=len(images))
+            frames_per_camera = max(len(images) // max(len(camera_indices), 1), 1)
             messages = build_messages(
                 prompt_text,
                 len(images),
                 assistant_prefix=assistant_prefix,
                 image_prompt_style=args.image_prompt_style,
                 camera_indices=camera_indices,
+                num_frames_per_camera=frames_per_camera,
             )
             text = processor.apply_chat_template(
                 messages,
@@ -625,13 +686,61 @@ def main() -> int:
                     "history_rot": history_rot,
                     "gt_future": gt_future,
                     "target_tokens": target_tokens,
+                    "camera_indices": camera_indices,
+                    "frames_per_camera": frames_per_camera,
                 }
             )
             texts.append(text)
             image_batches.append(images)
 
         batch = processor(text=texts, images=image_batches, return_tensors="pt", padding=True, truncation=True)
-        model_dtype = next(model.backbone.parameters()).dtype
+        if args.fuse_history_tokens:
+            batch["input_ids"] = fuse_history_tokens_in_input_ids(
+                batch["input_ids"],
+                tokenizer,
+                [item["history_xyz"] for item in prepared],
+            )
+        flex_enabled = bool(hasattr(model, "flex_enabled") and model.flex_enabled())
+        if flex_enabled:
+            max_cameras = max(len(item["camera_indices"]) for item in prepared)
+            max_frames = max(int(item["frames_per_camera"]) for item in prepared)
+            camera_indices_tensor = torch.zeros((len(prepared), max_cameras), dtype=torch.long)
+            relative_timestamps_tensor = torch.zeros((len(prepared), max_cameras, max_frames), dtype=torch.float32)
+            camera_counts = torch.zeros((len(prepared),), dtype=torch.long)
+            frames_per_camera_tensor = torch.zeros((len(prepared),), dtype=torch.long)
+            for row_index, item in enumerate(prepared):
+                sample = item["sample"]
+                row_camera_indices = [int(value) for value in item["camera_indices"]]
+                row_frames = int(item["frames_per_camera"])
+                row_relative_times = resolve_image_relative_timestamps(
+                    sample,
+                    PROJECT_ROOT,
+                    camera_count=len(row_camera_indices),
+                    frames_per_camera=row_frames,
+                )
+                camera_count = len(row_camera_indices)
+                camera_indices_tensor[row_index, :camera_count] = torch.tensor(row_camera_indices, dtype=torch.long)
+                camera_counts[row_index] = camera_count
+                frames_per_camera_tensor[row_index] = row_frames
+                for camera_offset, row_times in enumerate(row_relative_times[:camera_count]):
+                    count = min(len(row_times), max_frames)
+                    if count > 0:
+                        relative_timestamps_tensor[row_index, camera_offset, :count] = torch.tensor(
+                            row_times[:count],
+                            dtype=torch.float32,
+                        )
+            batch["camera_indices"] = camera_indices_tensor
+            batch["relative_timestamps"] = relative_timestamps_tensor
+            batch["camera_counts"] = camera_counts
+            batch["frames_per_camera"] = frames_per_camera_tensor
+            flex_cfg = getattr(model, "flex_scene_config")
+            batch = compress_batch_for_flex(
+                batch,
+                image_token_id=int(getattr(model, "image_token_id")),
+                tokens_per_image=int(getattr(flex_cfg, "tokens_per_image")),
+                pad_token_id=int(getattr(tokenizer, "pad_token_id", 0) or 0),
+            )
+        model_dtype = _infer_visual_float_dtype(model)
         batch = {
             key: (
                 value.to(device=device, dtype=model_dtype)
@@ -642,6 +751,9 @@ def main() -> int:
             )
             for key, value in batch.items()
         }
+        # `generate` appends new tokens after the padded input length.  The
+        # tokenizer for this model right-pads, so using per-row attention-mask
+        # lengths would make pad tokens look like generated tokens.
         prompt_lengths = [int(batch["input_ids"].shape[1])] * len(prepared)
         if args.target_mode == "traj_only":
             contract = TrajOnlyDecodingContract.from_tokenizer(
@@ -661,14 +773,23 @@ def main() -> int:
             stopping_criteria = StoppingCriteriaList([StopOnTrajEndCriteria(contract)])
 
         with torch.inference_mode():
-            generated = model.backbone.generate(
-                **batch,
-                max_new_tokens=args.max_new_tokens,
-                do_sample=False,
-                use_cache=True,
-                logits_processor=logits_processor,
-                stopping_criteria=stopping_criteria,
-            )
+            if flex_enabled:
+                generated = _manual_flex_generate(
+                    model,
+                    batch,
+                    max_new_tokens=args.max_new_tokens,
+                    logits_processor=logits_processor,
+                    stopping_criteria=stopping_criteria,
+                )
+            else:
+                generated = model.backbone.generate(
+                    **batch,
+                    max_new_tokens=args.max_new_tokens,
+                    do_sample=False,
+                    use_cache=True,
+                    logits_processor=logits_processor,
+                    stopping_criteria=stopping_criteria,
+                )
 
         for row_index, item in enumerate(prepared):
             idx = int(item["idx"])
@@ -794,6 +915,10 @@ def main() -> int:
         "batch_size": int(args.batch_size),
         "prompt_mode": args.prompt_mode,
         "target_mode": args.target_mode,
+        "image_prompt_style": args.image_prompt_style,
+        "image_ablation": args.image_ablation,
+        "prompt_text_style": args.prompt_text_style,
+        "fuse_history_tokens": bool(args.fuse_history_tokens),
         "oracle_cot_prefix": bool(args.oracle_cot_prefix),
         "geometry_reference": args.geometry_reference,
         "avg_ade_m": mean(ade_values),

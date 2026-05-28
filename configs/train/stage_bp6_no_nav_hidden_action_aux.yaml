@@ -1,0 +1,93 @@
+stage_name: stage_a
+epochs: 1.0
+batch_size: 1
+max_length: 4096
+bf16: true
+gradient_checkpointing: false
+learning_rate: 3.0e-5
+
+# BP6: official-contract backbone continuation with a direct planning-interface
+# auxiliary. This keeps token/hidden supervision, but also teaches the
+# CoT/action boundary hidden state to read out the teacher action-expert path.
+
+lora:
+  rank: 64
+  alpha: 128
+  dropout: 0.05
+  train_lm_head_token_rows: true
+
+data_view:
+  prompt_mode: joint
+  target_mode: joint
+  image_prompt_style: camera_labeled
+  prompt_text_style: official_alpamayo
+  fuse_history_tokens: true
+  teacher_pair_target: false
+  hard_view_uses_teacher_cot: true
+  enable_teacher_view: false
+  enable_action_aux: false
+  teacher_traj_hidden_source: hidden
+
+loss_weights:
+  gt_cot_loss: 0.08
+  teacher_cot_loss: 0.0
+  teacher_topk_kd_loss: 0.06
+  traj_loss: 0.35
+  teacher_traj_loss: 0.0
+  teacher_traj_topk_kd_loss: 0.18
+  teacher_traj_hidden_align_loss: 0.12
+  teacher_text_boundary_hidden_align_loss: 0.08
+  boundary_action_xyz_loss: 0.25
+  output_format_loss: 0.15
+  meta_action_loss: 0.0
+  feature_align_loss: 0.0
+  traj_aux_loss: 0.0
+  traj_aux_xyz_loss: 0.0
+  traj_aux_final_loss: 0.0
+  traj_aux_guided_kd_loss: 0.0
+  traj_aux_pseudo_ce_loss: 0.0
+  traj_xyz_loss: 0.0
+  traj_delta_loss: 0.0
+  traj_final_loss: 0.0
+
+traj_hidden_bridge:
+  shared_size: 512
+  cosine_weight: 0.85
+  mse_weight: 0.15
+  boundary_cosine_weight: 0.85
+  boundary_mse_weight: 0.15
+  relation_weight: 0.03
+  temporal_weight: 0.04
+  temporal_second_weight: 0.5
+  latent_spectrum_weight: 0.01
+  boundary_action_short_horizon_steps: 16
+  boundary_action_short_horizon_weight: 2.0
+  boundary_action_final_weight: 0.25
+
+scheduled_sampling:
+  enabled: false
+  p: 0.0
+  replacement_vocab: "<i0>~<i2999>"
+
+optimization:
+  unfreeze_boundary_action_head: true
+  boundary_action_head_lr_scale: 2.0
+  unfreeze_traj_hidden_bridge: true
+  traj_hidden_bridge_lr_scale: 1.0
+  unfreeze_multimodal_projector: true
+  multimodal_projector_lr_scale: 0.25
+
+traj_token_reweighting:
+  enabled: false
+
+decode_eval:
+  enabled: true
+  split: val
+  num_samples: 64
+  max_new_tokens: 256
+  prompt_mode: joint
+  target_mode: joint
+  image_prompt_style: camera_labeled
+  prompt_text_style: official_alpamayo
+  fuse_history_tokens: true
+  metric_name: free_run_geometry_score

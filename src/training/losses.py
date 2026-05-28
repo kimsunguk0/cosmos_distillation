@@ -35,6 +35,7 @@ class DistillationLossWeights:
     traj_aux_final_reg: float = 0.0
     traj_aux_guided_kd: float = 0.0
     traj_aux_pseudo_ce: float = 0.0
+    boundary_action_xyz: float = 0.0
 
 
 @dataclass(slots=True)
@@ -100,6 +101,11 @@ LOSS_WEIGHT_ALIASES: dict[str, tuple[str, ...]] = {
     "traj_aux_final_reg": ("traj_aux_final_loss", "traj_aux_gt_final_loss"),
     "traj_aux_guided_kd": ("traj_aux_guided_kd_loss", "traj_aux_prior_kd_loss"),
     "traj_aux_pseudo_ce": ("traj_aux_pseudo_ce_loss", "traj_aux_token_ce_loss"),
+    "boundary_action_xyz": (
+        "boundary_action_xyz_loss",
+        "hidden_action_xyz_loss",
+        "teacher_action_xyz_loss",
+    ),
 }
 
 
@@ -125,6 +131,7 @@ LOSS_WEIGHT_EXPORT_NAMES: dict[str, str] = {
     "traj_aux_final_reg": "traj_aux_final_loss",
     "traj_aux_guided_kd": "traj_aux_guided_kd_loss",
     "traj_aux_pseudo_ce": "traj_aux_pseudo_ce_loss",
+    "boundary_action_xyz": "boundary_action_xyz_loss",
 }
 
 
@@ -151,6 +158,7 @@ METRIC_EXPORT_NAMES: dict[str, str] = {
     "traj_aux_final_reg": "traj_aux_final_loss",
     "traj_aux_guided_kd": "traj_aux_guided_kd_loss",
     "traj_aux_pseudo_ce": "traj_aux_pseudo_ce_loss",
+    "boundary_action_xyz": "boundary_action_xyz_loss",
     "hard_token_acc": "response_token_acc",
     "hard_cot_acc": "gt_cot_token_acc",
     "hard_traj_acc": "traj_token_acc",
@@ -208,6 +216,7 @@ def export_loss_weights(weights: DistillationLossWeights) -> dict[str, float]:
         "traj_aux_final_reg": weights.traj_aux_final_reg,
         "traj_aux_guided_kd": weights.traj_aux_guided_kd,
         "traj_aux_pseudo_ce": weights.traj_aux_pseudo_ce,
+        "boundary_action_xyz": weights.boundary_action_xyz,
     }
     exported = {LOSS_WEIGHT_EXPORT_NAMES[key]: float(value) for key, value in values.items()}
     if weights.teacher_traj_ce is not None:
@@ -1453,6 +1462,60 @@ def decoded_traj_aux_anchor_losses(
     return xyz_loss, final_loss
 
 
+def boundary_action_xyz_loss(
+    pred_xyz: torch.Tensor | None,
+    teacher_xyz: torch.Tensor | None,
+    teacher_mask: torch.Tensor | None = None,
+    sample_weights: torch.Tensor | None = None,
+    *,
+    short_horizon_steps: int = 16,
+    short_horizon_weight: float = 2.0,
+    final_weight: float = 0.25,
+) -> torch.Tensor:
+    """Supervise a boundary-hidden readout against teacher action-expert trajectory."""
+    if pred_xyz is None:
+        device = teacher_xyz.device if isinstance(teacher_xyz, torch.Tensor) else torch.device("cpu")
+        return _zero(device)
+    if teacher_xyz is None:
+        return _zero(pred_xyz.device)
+
+    pred_xyz = pred_xyz.float()
+    teacher_xyz = teacher_xyz.to(device=pred_xyz.device, dtype=pred_xyz.dtype)
+    max_steps = min(int(pred_xyz.shape[1]), int(teacher_xyz.shape[1]))
+    if max_steps <= 0:
+        return _zero(pred_xyz.device)
+    pred_xy = pred_xyz[:, :max_steps, :2]
+    teacher_xy = teacher_xyz[:, :max_steps, :2]
+    per_step = F.smooth_l1_loss(pred_xy, teacher_xy, reduction="none").mean(dim=-1)
+    if teacher_mask is not None:
+        valid = teacher_mask[:, :max_steps].to(device=pred_xyz.device, dtype=torch.bool)
+    else:
+        valid = torch.ones_like(per_step, dtype=torch.bool)
+    if not bool(valid.any().item()):
+        return _zero(pred_xyz.device)
+
+    step_weights = torch.ones((max_steps,), device=pred_xyz.device, dtype=pred_xyz.dtype)
+    prefix = min(max(int(short_horizon_steps), 0), max_steps)
+    if prefix > 0:
+        step_weights[:prefix] = max(float(short_horizon_weight), 1.0)
+    weighted = per_step * step_weights.unsqueeze(0)
+    per_sample = (weighted * valid.to(dtype=pred_xyz.dtype)).sum(dim=1) / (
+        step_weights.unsqueeze(0) * valid.to(dtype=pred_xyz.dtype)
+    ).sum(dim=1).clamp(min=1e-6)
+
+    if final_weight > 0:
+        final_indices = valid.long().sum(dim=1).clamp(min=1, max=max_steps) - 1
+        batch_indices = torch.arange(pred_xyz.shape[0], device=pred_xyz.device)
+        final_error = F.smooth_l1_loss(
+            pred_xy[batch_indices, final_indices],
+            teacher_xy[batch_indices, final_indices],
+            reduction="none",
+        ).mean(dim=-1)
+        per_sample = per_sample + float(final_weight) * final_error
+
+    return _apply_sample_weights(per_sample, sample_weights)
+
+
 def _decode_expected_future_xyz(
     controls: torch.Tensor,
     history_xyz: torch.Tensor,
@@ -1622,3 +1685,71 @@ def trajectory_control_regression_losses(
     control = _apply_sample_weights(torch.stack(control_losses), weights)
     delta = _apply_sample_weights(torch.stack(delta_losses), weights)
     return control, delta
+
+
+# ---------------------------------------------------------------------------
+# KV cache distillation loss
+# ---------------------------------------------------------------------------
+
+def kv_cache_distillation_loss(
+    student_kvs: list[tuple[torch.Tensor, torch.Tensor]],
+    teacher_kvs: list[tuple[torch.Tensor, torch.Tensor]],
+    layer_mapping: list[tuple[int, int]],
+    huber_delta: float = 1.0,
+    gram_weight: float = 0.0,
+    rms_eps: float = 1e-6,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """KV cache distillation loss between student and teacher transformer layers.
+
+    Args:
+        student_kvs: List of (K, V) tensors per student layer (indexed 0..27).
+                     Each K/V has shape [batch, kv_heads, seq_len, head_dim].
+        teacher_kvs: List of (K, V) tensors per teacher layer (indexed 0..35).
+        layer_mapping: List of (student_layer_idx, teacher_layer_idx) pairs.
+        huber_delta: Beta parameter for smooth_l1_loss (Huber loss).
+        gram_weight: Weight for the optional K-gram loss term. 0.0 disables it.
+        rms_eps: Epsilon for RMSNorm-style normalisation.
+
+    Returns:
+        (total_loss, stats_dict) where stats_dict contains per-component floats.
+    """
+
+    def _rms_norm(x: torch.Tensor, eps: float) -> torch.Tensor:
+        return x / (x.pow(2).mean(dim=-1, keepdim=True).sqrt() + eps)
+
+    device = student_kvs[0][0].device if student_kvs else torch.device("cpu")
+    total = torch.zeros((), device=device)
+    stats: dict[str, float] = {}
+
+    n = len(layer_mapping)
+    for mapping_idx, (s_idx, t_idx) in enumerate(layer_mapping):
+        layer_weight = float(mapping_idx + 1) / float(n)
+
+        s_K, s_V = student_kvs[s_idx]
+        t_K, t_V = teacher_kvs[t_idx]
+
+        # RMSNorm-style normalisation
+        s_K_n = _rms_norm(s_K, rms_eps)
+        s_V_n = _rms_norm(s_V, rms_eps)
+        t_K_n = _rms_norm(t_K.detach(), rms_eps)
+        t_V_n = _rms_norm(t_V.detach(), rms_eps)
+
+        k_loss = F.smooth_l1_loss(s_K_n, t_K_n, beta=huber_delta)
+        v_loss = F.smooth_l1_loss(s_V_n, t_V_n, beta=huber_delta)
+
+        layer_loss = layer_weight * (k_loss + v_loss)
+        stats[f"kv_layer{s_idx}_k"] = float(k_loss.detach().cpu())
+        stats[f"kv_layer{s_idx}_v"] = float(v_loss.detach().cpu())
+
+        if gram_weight > 0.0:
+            # Gram matrix on K: [batch, heads, seq, head_dim] -> [batch, heads, seq, seq]
+            gram_s = (s_K_n @ s_K_n.transpose(-1, -2)) / float(s_K_n.shape[-1])
+            gram_t = (t_K_n @ t_K_n.transpose(-1, -2)) / float(t_K_n.shape[-1])
+            gram_loss = F.smooth_l1_loss(gram_s, gram_t.detach(), beta=huber_delta)
+            layer_loss = layer_loss + layer_weight * gram_weight * gram_loss
+            stats[f"kv_layer{s_idx}_gram"] = float(gram_loss.detach().cpu())
+
+        total = total + layer_loss
+
+    stats["kv_total"] = float(total.detach().cpu())
+    return total, stats

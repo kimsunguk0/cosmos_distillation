@@ -34,6 +34,7 @@ from src.training.collator import (  # noqa: E402
     load_ego_history_xyz,
     load_traj_future_token_ids,
 )
+from src.training.flex_batch import compress_batch_for_flex  # noqa: E402
 from src.utils.runtime_paths import resolve_student_model_path  # noqa: E402
 
 def load_decode_module():
@@ -194,6 +195,14 @@ def main() -> int:
 
     for batch_rows in batched(rows, args.batch_size):
         batch = collator(batch_rows)
+        if hasattr(model, "flex_enabled") and model.flex_enabled():
+            flex_cfg = getattr(model, "flex_scene_config")
+            batch = compress_batch_for_flex(
+                batch,
+                image_token_id=int(getattr(model, "image_token_id")),
+                tokens_per_image=int(getattr(flex_cfg, "tokens_per_image")),
+                pad_token_id=int(getattr(tokenizer, "pad_token_id", 0) or 0),
+            )
         moved = {}
         model_dtype = next(model.backbone.parameters()).dtype
         for key, value in batch.items():
@@ -212,7 +221,14 @@ def main() -> int:
             "compute_meta_action": False,
             "compute_traj_aux": False,
         }
-        for optional_key in ("pixel_values", "image_grid_thw"):
+        for optional_key in (
+            "pixel_values",
+            "image_grid_thw",
+            "camera_indices",
+            "relative_timestamps",
+            "camera_counts",
+            "frames_per_camera",
+        ):
             if optional_key in moved:
                 forward_kwargs[optional_key] = moved[optional_key]
         with torch.inference_mode():

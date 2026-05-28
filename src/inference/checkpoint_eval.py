@@ -6,7 +6,9 @@ import json
 import math
 import re
 import sys
+from collections import Counter
 from dataclasses import dataclass
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -33,8 +35,10 @@ from src.training.collator import (
     load_sample_images,
     load_traj_future_token_ids,
     resolve_camera_indices,
+    resolve_image_relative_timestamps,
     resolve_sample_path,
 )
+from src.training.flex_batch import compress_batch_for_flex
 from src.utils.runtime_paths import (
     remap_external_path,
     resolve_alpamayo_model_path,
@@ -80,8 +84,165 @@ def _decode_generated_text(tokenizer, input_ids: torch.Tensor, generated_ids: to
     return tokenizer.decode(new_tokens, skip_special_tokens=False).strip()
 
 
+def _model_logits_and_past(output: Any) -> tuple[torch.Tensor, Any]:
+    if isinstance(output, dict):
+        logits = output["logits"]
+        backbone_outputs = output.get("backbone_outputs")
+        return logits, getattr(backbone_outputs, "past_key_values", None)
+    return output.logits, getattr(output, "past_key_values", None)
+
+
+def _past_seq_len(past_key_values: Any) -> int | None:
+    if past_key_values is None:
+        return None
+    if hasattr(past_key_values, "get_seq_length"):
+        return int(past_key_values.get_seq_length())
+    try:
+        return int(past_key_values[0][0].shape[-2])
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _manual_flex_generate(
+    model,
+    batch: dict[str, Any],
+    *,
+    max_new_tokens: int,
+    logits_processor: LogitsProcessorList | None,
+    stopping_criteria: StoppingCriteriaList | None,
+) -> torch.Tensor:
+    """Greedy generation for the FLEX wrapper.
+
+    HF `generate()` calls the wrapped VLM directly and therefore bypasses the
+    compressed prompt embeddings.  This path runs the FLEX prefill through the
+    wrapper once, then decodes one token at a time from the returned language
+    cache.
+    """
+    generated = batch["input_ids"].clone()
+    attention_mask = batch["attention_mask"].clone()
+    prefill_keys = (
+        "input_ids",
+        "attention_mask",
+        "pixel_values",
+        "image_grid_thw",
+        "camera_indices",
+        "relative_timestamps",
+        "camera_counts",
+        "frames_per_camera",
+    )
+    prefill_kwargs = {key: batch[key] for key in prefill_keys if key in batch}
+    prefill_kwargs.update(
+        {
+            "return_hidden_states": False,
+            "compute_meta_action": False,
+            "compute_traj_aux": False,
+            "use_cache": True,
+        }
+    )
+    output = model(**prefill_kwargs)
+    logits, past_key_values = _model_logits_and_past(output)
+
+    for _ in range(max(int(max_new_tokens), 0)):
+        scores = logits[:, -1, :]
+        if logits_processor is not None:
+            scores = logits_processor(generated, scores)
+        next_token = scores.argmax(dim=-1, keepdim=True)
+        generated = torch.cat([generated, next_token], dim=1)
+        attention_mask = torch.cat(
+            [attention_mask, torch.ones_like(next_token, dtype=attention_mask.dtype)],
+            dim=1,
+        )
+        if stopping_criteria is not None:
+            should_stop = stopping_criteria(generated, scores)
+            if isinstance(should_stop, torch.Tensor):
+                should_stop = bool(torch.all(should_stop).item())
+            if bool(should_stop):
+                break
+
+        decode_kwargs: dict[str, Any] = {
+            "input_ids": next_token,
+            "attention_mask": attention_mask,
+            "past_key_values": past_key_values,
+            "return_hidden_states": False,
+            "compute_meta_action": False,
+            "compute_traj_aux": False,
+            "use_cache": True,
+        }
+        past_seq_len = _past_seq_len(past_key_values)
+        if past_seq_len is not None:
+            decode_kwargs["cache_position"] = torch.arange(
+                past_seq_len,
+                past_seq_len + int(next_token.shape[1]),
+                device=next_token.device,
+                dtype=torch.long,
+            )
+        output = model(**decode_kwargs)
+        logits, past_key_values = _model_logits_and_past(output)
+    return generated
+
+
+def _infer_visual_float_dtype(model) -> torch.dtype:
+    """Infer the dtype expected by the visual encoder.
+
+    PEFT adapters and token-row wrappers often keep trainable parameters in
+    fp32 even when the frozen VLM backbone is bf16.  Using the first model
+    parameter dtype therefore casts `pixel_values` to fp32 and can break Qwen3-VL
+    visual layer norms.  Prefer visual parameters, then any non-fp32 floating
+    parameter, and only then fall back to the first floating parameter.
+    """
+    backbone = getattr(model, "backbone", model)
+    for attr_path in (
+        ("base_model", "model", "model", "visual"),
+        ("base_model", "model", "visual"),
+        ("model", "model", "visual"),
+        ("model", "visual"),
+        ("visual",),
+        ("vision_model",),
+    ):
+        module = backbone
+        for attr in attr_path:
+            module = getattr(module, attr, None)
+            if module is None:
+                break
+        if module is None:
+            continue
+        for parameter in module.parameters():
+            if torch.is_floating_point(parameter):
+                return parameter.dtype
+    first_float_dtype: torch.dtype | None = None
+    first_non_fp32_dtype: torch.dtype | None = None
+    for name, parameter in backbone.named_parameters():
+        if not torch.is_floating_point(parameter):
+            continue
+        dtype = parameter.dtype
+        if first_float_dtype is None:
+            first_float_dtype = dtype
+        if dtype != torch.float32 and first_non_fp32_dtype is None:
+            first_non_fp32_dtype = dtype
+        if "visual" in name or ".vision" in name or "vision_model" in name:
+            return dtype
+    if first_non_fp32_dtype is not None:
+        return first_non_fp32_dtype
+    if first_float_dtype is not None:
+        return first_float_dtype
+    return torch.float32
+
+
 def extract_generated_traj_tokens(generated_text: str) -> list[int]:
     return [int(match) for match in re.findall(r"<i(\d+)>", generated_text)]
+
+
+def extract_generated_cot_text(generated_text: str) -> str:
+    text = str(generated_text or "")
+    if "<|cot_end|>" in text:
+        text = text.split("<|cot_end|>", 1)[0]
+    if "<|traj_future_start|>" in text:
+        text = text.split("<|traj_future_start|>", 1)[0]
+    if "<|cot_start|>" in text:
+        text = text.split("<|cot_start|>", 1)[-1]
+    text = re.sub(r"<i\d+>", "", text)
+    text = text.replace("<|traj_future_end|>", "").strip()
+    return text
 
 
 def _max_same_token_run(token_ids: Sequence[int]) -> int:
@@ -311,13 +472,14 @@ def evaluate_decode_subset(
         assistant_prefix = "<|traj_future_start|>" if config.target_mode == "traj_only" else "<|cot_start|>"
         images = load_sample_images(sample, project_root)
         camera_indices = resolve_camera_indices(sample, project_root, image_count=len(images))
+        frames_per_camera = max(len(images) // max(len(camera_indices), 1), 1)
         messages = build_messages(
             prompt_text,
             len(images),
             assistant_prefix=assistant_prefix,
             image_prompt_style=config.image_prompt_style,
             camera_indices=camera_indices,
-            num_frames_per_camera=max(len(images) // max(len(camera_indices), 1), 1),
+            num_frames_per_camera=frames_per_camera,
         )
         text = processor.apply_chat_template(
             messages,
@@ -338,10 +500,29 @@ def evaluate_decode_subset(
                 tokenizer,
                 [history_xyz],
             )
-        model_dtype = next(model.backbone.parameters()).dtype
+        flex_enabled = bool(hasattr(model, "flex_enabled") and model.flex_enabled())
+        if flex_enabled:
+            relative_timestamps = resolve_image_relative_timestamps(
+                sample,
+                project_root,
+                camera_count=len(camera_indices),
+                frames_per_camera=frames_per_camera,
+            )
+            batch["camera_indices"] = torch.tensor([camera_indices], dtype=torch.long)
+            batch["relative_timestamps"] = torch.tensor([relative_timestamps], dtype=torch.float32)
+            batch["camera_counts"] = torch.tensor([len(camera_indices)], dtype=torch.long)
+            batch["frames_per_camera"] = torch.tensor([frames_per_camera], dtype=torch.long)
+            flex_cfg = getattr(model, "flex_scene_config")
+            batch = compress_batch_for_flex(
+                batch,
+                image_token_id=int(getattr(model, "image_token_id")),
+                tokens_per_image=int(getattr(flex_cfg, "tokens_per_image")),
+                pad_token_id=int(getattr(tokenizer, "pad_token_id", 0) or 0),
+            )
+        visual_dtype = _infer_visual_float_dtype(model)
         batch = {
             key: (
-                value.to(device=device, dtype=model_dtype)
+                value.to(device=device, dtype=visual_dtype)
                 if isinstance(value, torch.Tensor) and torch.is_floating_point(value)
                 else value.to(device)
                 if isinstance(value, torch.Tensor)
@@ -350,7 +531,10 @@ def evaluate_decode_subset(
             for key, value in batch.items()
         }
         target_traj = load_traj_future_token_ids(sample.get("hard_target") or {}, project_root)
-        prompt_lengths = batch["attention_mask"].sum(dim=1).tolist()
+        # `generate` appends after the padded input length.  This tokenizer
+        # right-pads, so row-wise attention lengths would include pad tokens in
+        # the generated span for shorter prompts.
+        prompt_lengths = [int(batch["input_ids"].shape[1])]
         if config.target_mode == "traj_only":
             contract = TrajOnlyDecodingContract.from_tokenizer(
                 tokenizer,
@@ -368,16 +552,35 @@ def evaluate_decode_subset(
             logits_processor = LogitsProcessorList([TrajSpanLogitsProcessor(contract)])
             stopping_criteria = StoppingCriteriaList([StopOnTrajEndCriteria(contract)])
 
-        generated = model.backbone.generate(
-            **batch,
-            max_new_tokens=config.max_new_tokens,
-            do_sample=False,
-            use_cache=True,
-            logits_processor=logits_processor,
-            stopping_criteria=stopping_criteria,
+        autocast_context = (
+            torch.autocast("cuda", dtype=visual_dtype)
+            if device.type == "cuda" and visual_dtype in {torch.bfloat16, torch.float16}
+            else nullcontext()
         )
+        with autocast_context:
+            if flex_enabled:
+                generated = _manual_flex_generate(
+                    model,
+                    batch,
+                    max_new_tokens=config.max_new_tokens,
+                    logits_processor=logits_processor,
+                    stopping_criteria=stopping_criteria,
+                )
+            else:
+                generated = model.backbone.generate(
+                    **batch,
+                    max_new_tokens=config.max_new_tokens,
+                    do_sample=False,
+                    use_cache=True,
+                    logits_processor=logits_processor,
+                    stopping_criteria=stopping_criteria,
+                )
         generated_text = _decode_generated_text(tokenizer, batch["input_ids"], generated)
         generated_traj = extract_generated_traj_tokens(generated_text)
+        generated_top_tokens = [
+            {"token": int(token), "count": int(count), "mass": float(count / max(len(generated_traj), 1))}
+            for token, count in Counter(int(value) for value in generated_traj).most_common(10)
+        ]
         unique_count = float(len(set(generated_traj)))
         max_same_run = float(_max_same_token_run(generated_traj))
         jaccard = _jaccard(generated_traj, target_traj)
@@ -418,8 +621,13 @@ def evaluate_decode_subset(
             {
                 "sample_id": sample.get("sample_id"),
                 "generated_traj_token_count": len(generated_traj),
+                "generated_traj_tokens": [int(value) for value in generated_traj],
+                "target_traj_tokens": [int(value) for value in target_traj],
                 "unique_traj_ids": unique_count,
                 "max_same_token_run": max_same_run,
+                "generated_unique_token_count": unique_count,
+                "generated_max_same_token_run": max_same_run,
+                "generated_top_tokens": generated_top_tokens,
                 "target_set_jaccard": jaccard,
                 "predicted_motion_class": predicted_motion,
                 "teacher_motion_class": teacher_motion,
@@ -428,6 +636,8 @@ def evaluate_decode_subset(
                 "fde_m": sample_fde_m,
                 "student_vs_teacher_discrete_ade_m": sample_ade_m,
                 "student_vs_teacher_discrete_fde_m": sample_fde_m,
+                "student_cot": extract_generated_cot_text(generated_text),
+                "teacher_cot": str((sample.get("teacher_target") or {}).get("cot_text") or ""),
             }
         )
 

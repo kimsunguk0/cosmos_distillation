@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import copy
 import gc
+import hashlib
 import json
 import random
 import sys
@@ -32,7 +33,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
-from transformers import LogitsProcessorList, StoppingCriteriaList
+from transformers import AutoModel, LogitsProcessorList, StoppingCriteriaList
 
 
 SUKIM_ROOT = Path("/home/pm97/workspace/sukim")
@@ -43,6 +44,7 @@ for path in (SUKIM_ROOT, DISTILL_ROOT, VIS_ROOT, ALPAMAYO_SRC):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
+from alpamayo1_5 import helper  # noqa: E402
 from alpamayo1_5.models.alpamayo1_5 import ExpertLogitsProcessor  # noqa: E402
 from alpamayo1_5.models.token_utils import StopAfterEOS, replace_padding_after_eos, to_special_token  # noqa: E402
 from distillation.dataset_prep.scripts.batch_infer_nonhuman_no_nav import (  # noqa: E402
@@ -162,6 +164,38 @@ class AE28Bundle(nn.Module):
         self.kv_mixer = kv_mixer
 
 
+def reset_module_parameters(module: nn.Module) -> None:
+    """Reset parameters recursively where modules expose reset_parameters()."""
+    for child in module.modules():
+        reset = getattr(child, "reset_parameters", None)
+        if callable(reset):
+            reset()
+
+
+def build_scratch_expert(
+    *,
+    teacher_expert: nn.Module,
+    num_layers: int,
+    dtype: torch.dtype,
+    device: str,
+    attn_implementation: str,
+) -> nn.Module:
+    new_config = copy.deepcopy(teacher_expert.config)
+    new_config.num_hidden_layers = int(num_layers)
+    if hasattr(new_config, "layer_types") and getattr(new_config, "layer_types") is not None:
+        new_config.layer_types = list(getattr(new_config, "layer_types"))[: int(num_layers)]
+    if hasattr(new_config, "_attn_implementation"):
+        new_config._attn_implementation = attn_implementation
+    if hasattr(new_config, "attn_implementation"):
+        new_config.attn_implementation = attn_implementation
+    expert = AutoModel.from_config(new_config)
+    if hasattr(expert, "embed_tokens"):
+        del expert.embed_tokens
+    expert = expert.to(device=device, dtype=dtype).train()
+    force_attention(expert, attn_implementation)
+    return expert
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--corpus-jsonl", type=Path, default=DEFAULT_CORPUS)
@@ -185,6 +219,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--vram-cap-gb", type=float, default=70.0)
     parser.add_argument("--compressed-layers", type=int, default=28)
     parser.add_argument("--mapping", choices=("linspace_round", "first_n"), default="linspace_round")
+    parser.add_argument(
+        "--ae-init-mode",
+        choices=("teacher_compressed", "scratch_expert", "scratch_all"),
+        default="teacher_compressed",
+        help=(
+            "teacher_compressed copies selected teacher expert layers/projections; "
+            "scratch_expert random-initializes the expert but copies action projections; "
+            "scratch_all random-initializes expert/action projections."
+        ),
+    )
     parser.add_argument("--max-new-tokens", type=int, default=192)
     parser.add_argument("--io-workers", type=int, default=16)
     parser.add_argument("--seed", type=int, default=97)
@@ -194,13 +238,42 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-initial-eval", action="store_true")
     parser.add_argument(
         "--stage1-mode",
-        choices=("endpoint", "teacher_velocity", "teacher_velocity_kv_mixer"),
+        choices=("endpoint", "official_fm", "teacher_velocity", "teacher_velocity_kv_mixer"),
         default="endpoint",
+    )
+    parser.add_argument(
+        "--prefix-mode",
+        choices=("generated", "teacher_forced"),
+        default="generated",
+        help=(
+            "generated matches the older diagnostic path that samples CoT to "
+            "<|traj_future_start|>. teacher_forced builds the KV from cached "
+            "teacher CoT + <|traj_future_start|>, matching Alpamayo base Stage-2."
+        ),
     )
     parser.add_argument("--teacher-velocity-weight", type=float, default=1.0)
     parser.add_argument("--endpoint-aux-weight", type=float, default=0.05)
     parser.add_argument("--kv-mixer-lr", type=float, default=1e-3)
     parser.add_argument("--kv-mixer-init-alpha", type=float, default=0.02)
+    parser.add_argument(
+        "--train-noise-mode",
+        choices=("random", "fixed_by_sample"),
+        default="random",
+        help="Use fresh flow-matching noise every step, or deterministic noise keyed by sample id.",
+    )
+    parser.add_argument(
+        "--train-timestep-sampler",
+        choices=("uniform", "beta"),
+        default="uniform",
+        help="Flow-matching training timestep sampler. beta matches the public Alpamayo base recipe.",
+    )
+    parser.add_argument(
+        "--eval-velocity-grid",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="During eval, also report velocity MSE on the same deterministic noise/t grid.",
+    )
+    parser.add_argument("--fixed-grid-salt", default="stage1_fixed_grid_v1")
     return parser.parse_args()
 
 
@@ -315,6 +388,24 @@ def raw_teacher_pred(raw_json: Path) -> tuple[np.ndarray, np.ndarray]:
     return xyz, rot
 
 
+def nested_text(value: Any) -> str:
+    current = value
+    while isinstance(current, list) and current:
+        current = current[0]
+    return str(current).strip() if isinstance(current, str) else ""
+
+
+def raw_teacher_cot(raw_json: Path) -> str:
+    payload = json.loads(raw_json.read_text(encoding="utf-8"))
+    result = (payload.get("results") or [None])[0]
+    if not isinstance(result, dict):
+        raise ValueError(f"Missing results[0] in {raw_json}")
+    cot = nested_text((result.get("extra") or {}).get("cot"))
+    if not cot:
+        raise ValueError(f"Missing teacher CoT in {raw_json}")
+    return cot
+
+
 def make_bundle(
     *,
     model: Any,
@@ -324,16 +415,34 @@ def make_bundle(
     attn_implementation: str,
     use_kv_mixer: bool = False,
     kv_mixer_init_alpha: float = 0.02,
+    ae_init_mode: str = "teacher_compressed",
 ) -> AE28Bundle:
-    expert = build_28layer_expert(
-        teacher_expert=model.expert,
-        selected_old_indices=selected_old_indices,
-        dtype=dtype,
-        device=device,
-        attn_implementation=attn_implementation,
-    )
+    if ae_init_mode == "teacher_compressed":
+        expert = build_28layer_expert(
+            teacher_expert=model.expert,
+            selected_old_indices=selected_old_indices,
+            dtype=dtype,
+            device=device,
+            attn_implementation=attn_implementation,
+        )
+    elif ae_init_mode in {"scratch_expert", "scratch_all"}:
+        expert = build_scratch_expert(
+            teacher_expert=model.expert,
+            num_layers=len(selected_old_indices),
+            dtype=dtype,
+            device=device,
+            attn_implementation=attn_implementation,
+        )
+    else:
+        raise ValueError(f"Unsupported ae_init_mode: {ae_init_mode}")
     action_in_proj = copy.deepcopy(model.action_in_proj).to(device=device, dtype=dtype).train()
     action_out_proj = copy.deepcopy(model.action_out_proj).to(device=device, dtype=dtype).train()
+    if ae_init_mode == "scratch_all":
+        reset_module_parameters(action_in_proj)
+        reset_module_parameters(action_out_proj)
+    for module in (expert, action_in_proj, action_out_proj):
+        for param in module.parameters():
+            param.requires_grad_(True)
     kv_mixer = None
     if use_kv_mixer:
         kv_mixer = KVLayerMixer(
@@ -370,7 +479,8 @@ def repeat_context(context: dict[str, Any], repeats: int) -> dict[str, Any]:
         return context
     repeated = dict(context)
     repeated["position_ids"] = context["position_ids"].repeat_interleave(int(repeats), dim=1)
-    repeated["attention_mask"] = context["attention_mask"].repeat_interleave(int(repeats), dim=0)
+    if context.get("attention_mask") is not None:
+        repeated["attention_mask"] = context["attention_mask"].repeat_interleave(int(repeats), dim=0)
     if "offset" in context:
         repeated["offset"] = context["offset"].repeat_interleave(int(repeats), dim=0)
     return repeated
@@ -386,7 +496,42 @@ def build_batch(
 ) -> dict[str, Any]:
     sample_dirs = [Path(item["sample_dir"]) for item in batch_items]
     samples = load_materialized_samples(sample_dirs, int(args.io_workers))
-    model_inputs = build_model_inputs_batch(processor=processor, samples=samples, device=args.device)
+    if str(args.prefix_mode) == "teacher_forced":
+        messages_batch = []
+        for item, sample in zip(batch_items, samples, strict=True):
+            nav_text = sample.get("nav_text")
+            if nav_text is not None and not str(nav_text).strip():
+                nav_text = None
+            messages = helper.create_message(
+                frames=sample["image_frames"].flatten(0, 1),
+                camera_indices=sample["camera_indices"],
+                nav_text=nav_text,
+            )
+            cot = raw_teacher_cot(Path(item["raw_json"]))
+            messages[-1]["content"][0]["text"] = f"<|cot_start|>{cot}<|cot_end|><|traj_future_start|>"
+            messages_batch.append(messages)
+        tokenized = processor.apply_chat_template(
+            messages_batch,
+            tokenize=True,
+            add_generation_prompt=False,
+            continue_final_message=True,
+            return_dict=True,
+            return_tensors="pt",
+            padding=True,
+        )
+        attention_mask = tokenized.get("attention_mask")
+        if attention_mask is not None and bool(torch.all(attention_mask == 1).item()):
+            tokenized.pop("attention_mask", None)
+        model_inputs = helper.to_device(
+            {
+                "tokenized_data": tokenized,
+                "ego_history_xyz": torch.cat([sample["ego_history_xyz"] for sample in samples], dim=0),
+                "ego_history_rot": torch.cat([sample["ego_history_rot"] for sample in samples], dim=0),
+            },
+            args.device,
+        )
+    else:
+        model_inputs = build_model_inputs_batch(processor=processor, samples=samples, device=args.device)
 
     target_xyz_np: list[np.ndarray] = []
     target_rot_np: list[np.ndarray] = []
@@ -414,55 +559,81 @@ def build_batch(
         },
     )
 
-    generation_config = copy.deepcopy(model.vlm.generation_config)
-    generation_config.do_sample = False
-    generation_config.num_return_sequences = 1
-    generation_config.num_beams = 1
-    generation_config.top_p = 1.0
-    generation_config.top_k = None
-    generation_config.temperature = 1.0
-    generation_config.max_new_tokens = int(args.max_new_tokens)
-    generation_config.output_logits = False
-    generation_config.output_scores = False
-    generation_config.output_hidden_states = False
-    generation_config.return_dict_in_generate = True
-    generation_config.pad_token_id = model.tokenizer.pad_token_id
-
     eos_token_id = model.tokenizer.convert_tokens_to_ids(to_special_token("traj_future_start"))
-    stopping_criteria = StoppingCriteriaList([StopAfterEOS(eos_token_id=int(eos_token_id))])
-    logits_processor = LogitsProcessorList(
-        [
-            ExpertLogitsProcessor(
-                traj_token_offset=int(model.config.traj_token_start_idx),
-                traj_vocab_size=int(model.config.traj_vocab_size),
-            )
-        ]
-    )
 
     dtype = next(model.parameters()).dtype
     sync_cuda()
     started = time.perf_counter()
-    # Use no_grad instead of inference_mode because learned KV mixing needs the
-    # generated cache tensors to participate in autograd as constants.
-    with torch.no_grad(), torch.autocast(
-        "cuda",
-        dtype=dtype,
-        enabled=str(args.device).startswith("cuda") and torch.cuda.is_available(),
-    ):
-        outputs = model.vlm.generate(
-            input_ids=fused_input_ids,
-            generation_config=generation_config,
-            stopping_criteria=stopping_criteria,
-            logits_processor=logits_processor,
-            **tokenized_data,
+    if str(args.prefix_mode) == "teacher_forced":
+        with torch.no_grad(), torch.autocast(
+            "cuda",
+            dtype=dtype,
+            enabled=str(args.device).startswith("cuda") and torch.cuda.is_available(),
+        ):
+            try:
+                outputs = model.vlm(
+                    input_ids=fused_input_ids,
+                    use_cache=True,
+                    return_dict=True,
+                    logits_to_keep=1,
+                    **tokenized_data,
+                )
+            except TypeError:
+                outputs = model.vlm(
+                    input_ids=fused_input_ids,
+                    use_cache=True,
+                    return_dict=True,
+                    **tokenized_data,
+                )
+        sync_cuda()
+        outputs.rope_deltas = getattr(outputs, "rope_deltas", None)
+        if outputs.rope_deltas is None:
+            outputs.rope_deltas = model.vlm.model.rope_deltas
+        outputs.sequences = fused_input_ids
+    else:
+        generation_config = copy.deepcopy(model.vlm.generation_config)
+        generation_config.do_sample = False
+        generation_config.num_return_sequences = 1
+        generation_config.num_beams = 1
+        generation_config.top_p = 1.0
+        generation_config.top_k = None
+        generation_config.temperature = 1.0
+        generation_config.max_new_tokens = int(args.max_new_tokens)
+        generation_config.output_logits = False
+        generation_config.output_scores = False
+        generation_config.output_hidden_states = False
+        generation_config.return_dict_in_generate = True
+        generation_config.pad_token_id = model.tokenizer.pad_token_id
+        stopping_criteria = StoppingCriteriaList([StopAfterEOS(eos_token_id=int(eos_token_id))])
+        logits_processor = LogitsProcessorList(
+            [
+                ExpertLogitsProcessor(
+                    traj_token_offset=int(model.config.traj_token_start_idx),
+                    traj_vocab_size=int(model.config.traj_vocab_size),
+                )
+            ]
         )
-    sync_cuda()
-    outputs.rope_deltas = model.vlm.model.rope_deltas
-    outputs.sequences = replace_padding_after_eos(
-        token_ids=outputs.sequences.clone(),
-        eos_token_id=int(eos_token_id),
-        pad_token_id=model.tokenizer.pad_token_id,
-    )
+        # Use no_grad instead of inference_mode because learned KV mixing needs the
+        # generated cache tensors to participate in autograd as constants.
+        with torch.no_grad(), torch.autocast(
+            "cuda",
+            dtype=dtype,
+            enabled=str(args.device).startswith("cuda") and torch.cuda.is_available(),
+        ):
+            outputs = model.vlm.generate(
+                input_ids=fused_input_ids,
+                generation_config=generation_config,
+                stopping_criteria=stopping_criteria,
+                logits_processor=logits_processor,
+                **tokenized_data,
+            )
+        sync_cuda()
+        outputs.rope_deltas = model.vlm.model.rope_deltas
+        outputs.sequences = replace_padding_after_eos(
+            token_ids=outputs.sequences.clone(),
+            eos_token_id=int(eos_token_id),
+            pad_token_id=model.tokenizer.pad_token_id,
+        )
     if args.stage1_mode in {"teacher_velocity", "teacher_velocity_kv_mixer"}:
         cache = outputs.past_key_values
     else:
@@ -476,6 +647,15 @@ def build_batch(
         prefix_mask=tokenized_data.get("attention_mask"),
         device=torch.device(args.device),
     )
+    if str(args.stage1_mode) == "official_fm":
+        n_diffusion_tokens = int(context["n_diffusion_tokens"])
+        b_star = int(outputs.sequences.shape[0])
+        position_ids = torch.arange(n_diffusion_tokens, device=torch.device(args.device))
+        position_ids = position_ids.view(1, 1, n_diffusion_tokens).repeat(3, b_star, 1).clone()
+        delta = outputs.rope_deltas.to(position_ids.device) + int(context["kv_cache_seq_len"])
+        context["position_ids"] = position_ids + delta
+        context["attention_mask"] = None
+        context["official_fm_position_ids"] = True
 
     generated_ids = outputs.sequences[:, int(fused_input_ids.shape[1]) :]
     generated_texts = model.tokenizer.batch_decode(generated_ids.detach().cpu(), skip_special_tokens=False)
@@ -497,6 +677,72 @@ def build_batch(
     }
 
 
+def stable_sample_seed(base_seed: int, sample_id: str, repeat_index: int, salt: str) -> int:
+    key = f"{int(base_seed)}::{salt}::{sample_id}::{int(repeat_index)}".encode("utf-8")
+    digest = hashlib.sha256(key).digest()
+    return int.from_bytes(digest[:8], "little") % (2**32)
+
+
+def sample_train_timestep(
+    *,
+    batch_size: int,
+    device: torch.device,
+    dtype: torch.dtype,
+    sampler: str,
+) -> torch.Tensor:
+    if sampler == "beta":
+        beta = torch.distributions.beta.Beta(
+            torch.tensor(1.5, dtype=torch.float32, device=device),
+            torch.tensor(1.0, dtype=torch.float32, device=device),
+        )
+        t = 0.999 - beta.sample((batch_size,)).to(device=device) * 0.999
+        return t.to(dtype=dtype).view(batch_size, 1, 1)
+    return torch.rand((batch_size, 1, 1), device=device, dtype=dtype)
+
+
+def make_flow_training_tensors(
+    *,
+    x1: torch.Tensor,
+    sample_ids: list[str],
+    args: argparse.Namespace,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    if str(args.train_noise_mode) != "fixed_by_sample":
+        x0 = torch.randn_like(x1)
+        t = sample_train_timestep(
+            batch_size=int(x1.shape[0]),
+            device=device,
+            dtype=dtype,
+            sampler=str(args.train_timestep_sampler),
+        )
+        x_t = (1.0 - t) * x0 + t * x1
+        return x0, t, x_t, x1 - x0
+
+    x0_rows: list[torch.Tensor] = []
+    t_rows: list[float] = []
+    for index, sample_id in enumerate(sample_ids):
+        seed = stable_sample_seed(
+            int(args.seed),
+            str(sample_id),
+            repeat_index=index,
+            salt=str(args.fixed_grid_salt),
+        )
+        rng = np.random.default_rng(seed)
+        x0_np = rng.standard_normal(tuple(x1.shape[1:]), dtype=np.float32)
+        if str(args.train_timestep_sampler) == "beta":
+            t_value = float(0.999 - rng.beta(1.5, 1.0) * 0.999)
+        else:
+            t_value = float(rng.random())
+        x0_rows.append(torch.from_numpy(x0_np))
+        t_rows.append(t_value)
+
+    x0 = torch.stack(x0_rows, dim=0).to(device=device, dtype=dtype)
+    t = torch.tensor(t_rows, device=device, dtype=dtype).view(int(x1.shape[0]), 1, 1)
+    x_t = (1.0 - t) * x0 + t * x1
+    return x0, t, x_t, x1 - x0
+
+
 def train_velocity_forward(
     *,
     bundle: AE28Bundle,
@@ -504,6 +750,8 @@ def train_velocity_forward(
     prompt_cache: Any,
     context: dict[str, Any],
     target_action: torch.Tensor,
+    sample_ids: list[str],
+    args: argparse.Namespace,
     num_time_samples: int,
     device: torch.device,
 ) -> tuple[torch.Tensor, dict[str, float]]:
@@ -513,12 +761,16 @@ def train_velocity_forward(
         prompt_cache.batch_repeat_interleave(repeats)
         context = repeat_context(context, repeats)
         target_action = target_action.repeat_interleave(repeats, dim=0)
+        sample_ids = [sample_id for sample_id in sample_ids for _ in range(repeats)]
 
     x1 = target_action.to(device=device, dtype=dtype)
-    x0 = torch.randn_like(x1)
-    t = torch.rand((x1.shape[0], 1, 1), device=device, dtype=dtype)
-    x_t = (1.0 - t) * x0 + t * x1
-    target_v = x1 - x0
+    x0, t, x_t, target_v = make_flow_training_tensors(
+        x1=x1,
+        sample_ids=sample_ids,
+        args=args,
+        device=device,
+        dtype=dtype,
+    )
 
     prefill_seq_len = int(context["kv_cache_seq_len"])
     n_diffusion_tokens = int(context["n_diffusion_tokens"])
@@ -534,7 +786,11 @@ def train_velocity_forward(
         inputs_embeds=future_token_embeds,
         position_ids=context["position_ids"],
         past_key_values=prompt_cache,
-        attention_mask=context["attention_mask"].to(dtype=future_token_embeds.dtype),
+        attention_mask=(
+            None
+            if context.get("attention_mask") is None
+            else context["attention_mask"].to(dtype=future_token_embeds.dtype)
+        ),
         use_cache=True,
         **forward_kwargs,
     )
@@ -546,6 +802,8 @@ def train_velocity_forward(
         "target_action_abs_mean": float(x1.detach().abs().mean().cpu()),
         "pred_v_abs_mean": float(pred_v.detach().abs().mean().cpu()),
         "target_v_abs_mean": float(target_v.detach().abs().mean().cpu()),
+        "train_t_mean": float(t.detach().float().mean().cpu()),
+        "train_x0_abs_mean": float(x0.detach().abs().mean().cpu()),
     }
 
 
@@ -575,7 +833,11 @@ def _expert_velocity_forward(
         inputs_embeds=future_token_embeds,
         position_ids=context["position_ids"],
         past_key_values=prompt_cache,
-        attention_mask=context["attention_mask"].to(dtype=future_token_embeds.dtype),
+        attention_mask=(
+            None
+            if context.get("attention_mask") is None
+            else context["attention_mask"].to(dtype=future_token_embeds.dtype)
+        ),
         use_cache=True,
         **forward_kwargs,
     )
@@ -686,7 +948,11 @@ def sample_bundle_paths_batch(
             inputs_embeds=future_token_embeds,
             position_ids=context["position_ids"],
             past_key_values=prompt_cache,
-            attention_mask=context["attention_mask"].to(dtype=future_token_embeds.dtype),
+            attention_mask=(
+                None
+                if context.get("attention_mask") is None
+                else context["attention_mask"].to(dtype=future_token_embeds.dtype)
+            ),
             use_cache=True,
             **forward_kwargs,
         )
@@ -752,7 +1018,11 @@ def sample_modules_paths_batch(
             inputs_embeds=future_token_embeds,
             position_ids=context["position_ids"],
             past_key_values=prompt_cache,
-            attention_mask=context["attention_mask"].to(dtype=future_token_embeds.dtype),
+            attention_mask=(
+                None
+                if context.get("attention_mask") is None
+                else context["attention_mask"].to(dtype=future_token_embeds.dtype)
+            ),
             use_cache=True,
             **forward_kwargs,
         )
@@ -801,6 +1071,7 @@ def evaluate(
 ) -> dict[str, Any]:
     bundle.eval()
     rows: list[dict[str, Any]] = []
+    velocity_mse_rows: list[float] = []
     device = torch.device(args.device)
     eval_items = items[: int(args.eval_samples)]
     for batch_index, batch_items in enumerate(iter_batches(eval_items, int(args.eval_batch_size))):
@@ -866,6 +1137,33 @@ def evaluate(
                     "target_path_length_m": path_len(target_xyz[row_index]),
                 }
             )
+        if bool(args.eval_velocity_grid) and args.stage1_mode == "endpoint":
+            dtype = next(bundle.parameters()).dtype
+            x1 = batch["target_action"].to(device=device, dtype=dtype)
+            _x0, t, x_t, target_v = make_flow_training_tensors(
+                x1=x1,
+                sample_ids=batch["sample_ids"],
+                args=args,
+                device=device,
+                dtype=dtype,
+            )
+            with torch.no_grad(), torch.autocast(
+                "cuda",
+                dtype=dtype,
+                enabled=device.type == "cuda" and torch.cuda.is_available(),
+            ):
+                pred_v = _expert_velocity_forward(
+                    expert=bundle.expert,
+                    action_in_proj=bundle.action_in_proj,
+                    action_out_proj=bundle.action_out_proj,
+                    prompt_cache=batch["cache"],
+                    context=batch["context"],
+                    x_t=x_t,
+                    t=t,
+                    model=model,
+                )
+            per_sample_mse = (pred_v.float() - target_v.float()).pow(2).flatten(1).mean(dim=1)
+            velocity_mse_rows.extend([float(value.detach().cpu()) for value in per_sample_mse])
         del batch
         gc.collect()
     ades = [row["ade_m"] for row in rows]
@@ -881,6 +1179,14 @@ def evaluate(
         "fde_p95_m": float(np.percentile(fdes, 95)) if fdes else None,
         "rows": rows,
     }
+    if velocity_mse_rows:
+        out.update(
+            {
+                "velocity_grid_mse_mean": float(np.mean(velocity_mse_rows)),
+                "velocity_grid_mse_p50": float(np.percentile(velocity_mse_rows, 50)),
+                "velocity_grid_mse_p95": float(np.percentile(velocity_mse_rows, 95)),
+            }
+        )
     bundle.train()
     return out
 
@@ -959,9 +1265,11 @@ def main() -> None:
             attn_implementation="sdpa" if args.attn_implementation != "eager" else "eager",
             use_kv_mixer=args.stage1_mode == "teacher_velocity_kv_mixer",
             kv_mixer_init_alpha=float(args.kv_mixer_init_alpha),
+            ae_init_mode=str(args.ae_init_mode),
         )
         trainable_params = sum(p.numel() for p in bundle.parameters() if p.requires_grad)
         summary["trainable_params"] = int(trainable_params)
+        summary["ae_init_mode"] = str(args.ae_init_mode)
         optimizer_groups = [
             {"params": bundle.expert.parameters(), "lr": float(args.expert_lr)},
             {"params": bundle.action_in_proj.parameters(), "lr": float(args.proj_lr)},
@@ -1052,6 +1360,8 @@ def main() -> None:
                     prompt_cache=batch["cache"],
                     context=batch["context"],
                     target_action=batch["target_action"],
+                    sample_ids=batch["sample_ids"],
+                    args=args,
                     num_time_samples=int(args.num_time_samples),
                     device=device,
                 )

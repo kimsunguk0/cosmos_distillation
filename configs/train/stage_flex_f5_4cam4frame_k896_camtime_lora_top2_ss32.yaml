@@ -1,0 +1,94 @@
+stage_name: stage_a
+epochs: 1.0
+batch_size: 1
+max_length: 4096
+bf16: true
+gradient_checkpointing: false
+learning_rate: 5.0e-6
+
+# K=896 FLEX recovery from F3.
+# Adds true autoregressive prefix scheduled sampling so the model trains on
+# its own early trajectory tokens instead of only teacher-forced prefixes.
+
+flex:
+  enabled: true
+  tokens_per_image: 56
+  expected_images_per_sample: 16
+  input_hidden_size: 2048
+  hidden_size: 1024
+  num_layers: 2
+  num_heads: 8
+  mlp_ratio: 4.0
+  dropout: 0.0
+  use_camera_time_embeddings: true
+  max_camera_types: 16
+
+lora:
+  rank: 64
+  alpha: 128
+  dropout: 0.05
+  train_lm_head_token_rows: true
+
+optimization:
+  freeze_all_parameters: true
+  unfreeze_flex_scene_encoder: true
+  language_layers_from: 26
+  unfreeze_lora_only: true
+  flex_scene_lr_scale: 5.0
+  language_lora_lr_scale: 1.0
+
+data_view:
+  prompt_mode: joint
+  target_mode: joint
+  image_prompt_style: camera_labeled
+  prompt_text_style: official_alpamayo
+  fuse_history_tokens: true
+  teacher_pair_target: false
+  hard_view_uses_teacher_cot: true
+  enable_teacher_view: false
+  enable_action_aux: false
+
+loss_weights:
+  gt_cot_loss: 0.08
+  teacher_cot_loss: 0.0
+  teacher_topk_kd_loss: 0.05
+  traj_loss: 1.0
+  teacher_traj_loss: 0.0
+  teacher_traj_topk_kd_loss: 0.05
+  teacher_traj_hidden_align_loss: 0.0
+  teacher_text_boundary_hidden_align_loss: 0.0
+  output_format_loss: 0.25
+  meta_action_loss: 0.0
+  feature_align_loss: 0.0
+  traj_aux_loss: 0.0
+  traj_aux_xyz_loss: 0.0
+  traj_aux_final_loss: 0.0
+  traj_xyz_loss: 0.0
+  traj_delta_loss: 0.0
+  traj_final_loss: 0.0
+
+scheduled_sampling:
+  enabled: true
+  mode: generated_prefix
+  p: 0.15
+  p_start: 0.0
+  ramp_steps: 512
+  prefix_tokens: 32
+  autoregressive_prefix: true
+  generated_prefix_topk_kd_scale: 0.02
+  replacement_vocab: "<i0>~<i2999>"
+
+traj_token_reweighting:
+  enabled: false
+
+decode_eval:
+  enabled: false
+  split: val
+  num_samples: 0
+  max_new_tokens: 256
+  prompt_mode: joint
+  target_mode: joint
+  image_prompt_style: camera_labeled
+  prompt_text_style: official_alpamayo
+  fuse_history_tokens: true
+  metric_name: free_run_geometry_score

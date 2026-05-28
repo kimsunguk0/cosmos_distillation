@@ -43,6 +43,7 @@ class TargetLayout:
     traj_prefix_len: int
     traj_content_len: int
     traj_suffix_len: int
+    loss_ignore_prefix_len: int = 0
 
     @property
     def cot_span_len(self) -> int:
@@ -298,6 +299,98 @@ def resolve_camera_indices(
     return [0, 1, 2, 6]
 
 
+def _metadata_payload(sample: dict[str, Any], project_root: Path) -> dict[str, Any]:
+    sample_input = sample.get("input") or {}
+    metadata_path = sample_input.get("metadata_path")
+    if not metadata_path:
+        return {}
+    try:
+        return json.loads(_resolve_path(metadata_path, project_root).read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def resolve_image_relative_timestamps(
+    sample: dict[str, Any],
+    project_root: Path,
+    *,
+    camera_count: int,
+    frames_per_camera: int,
+) -> list[list[float]]:
+    """Resolve per-camera frame times relative to the sample timestamp."""
+    metadata = _metadata_payload(sample, project_root)
+    sample_metadata = sample.get("metadata") or {}
+    raw_rel = (
+        metadata.get("relative_timestamps_us")
+        or metadata.get("relative_timestamps_sec")
+        or metadata.get("relative_timestamps")
+    )
+    if raw_rel is not None:
+        arr = np.asarray(raw_rel, dtype=np.float32)
+        if arr.size == camera_count * frames_per_camera:
+            arr = arr.reshape(camera_count, frames_per_camera)
+            if "relative_timestamps_us" in metadata:
+                arr = arr / 1_000_000.0
+            return arr.astype(np.float32).tolist()
+
+    raw_abs = metadata.get("absolute_timestamps_us")
+    if raw_abs is not None:
+        arr = np.asarray(raw_abs, dtype=np.float32)
+        if arr.size == camera_count * frames_per_camera:
+            arr = arr.reshape(camera_count, frames_per_camera)
+            t0_us = (
+                metadata.get("sample_timestamp_us")
+                or sample_metadata.get("sample_timestamp_us")
+                or (sample.get("input") or {}).get("sample_timestamp_us")
+            )
+            if t0_us is not None:
+                return ((arr - float(t0_us)) / 1_000_000.0).astype(np.float32).tolist()
+
+    sample_input = sample.get("input") or {}
+    raw_offsets = sample_input.get("frame_offsets_sec")
+    if raw_offsets is None:
+        try:
+            raw_offsets = frame_offsets_from_sample(resolve_sample_path(sample, project_root))
+        except Exception:  # noqa: BLE001
+            raw_offsets = FRAME_OFFSETS_DEFAULT
+    offsets = [float(value) for value in raw_offsets]
+    if len(offsets) < frames_per_camera:
+        offsets = [float(value) for value in FRAME_OFFSETS_DEFAULT[:frames_per_camera]]
+    if len(offsets) < frames_per_camera:
+        offsets = [float(index - frames_per_camera + 1) * 0.1 for index in range(frames_per_camera)]
+    offsets = offsets[:frames_per_camera]
+    return [list(offsets) for _ in range(camera_count)]
+
+
+def _pad_camera_metadata(
+    items: list[tuple[list[int], list[list[float]], int]],
+) -> dict[str, torch.Tensor]:
+    max_cameras = max(len(camera_indices) for camera_indices, _, _ in items)
+    max_frames = max(max(max(len(row) for row in relative_times), 1) for _, relative_times, _ in items)
+    camera_indices_tensor = torch.zeros((len(items), max_cameras), dtype=torch.long)
+    relative_timestamps_tensor = torch.zeros((len(items), max_cameras, max_frames), dtype=torch.float32)
+    camera_counts = torch.zeros((len(items),), dtype=torch.long)
+    frames_per_camera = torch.zeros((len(items),), dtype=torch.long)
+    for row_index, (camera_indices, relative_times, frame_count) in enumerate(items):
+        camera_count = len(camera_indices)
+        camera_counts[row_index] = camera_count
+        frames_per_camera[row_index] = int(frame_count)
+        camera_indices_tensor[row_index, :camera_count] = torch.tensor(camera_indices, dtype=torch.long)
+        for camera_offset, row_times in enumerate(relative_times[:camera_count]):
+            count = min(len(row_times), max_frames)
+            if count > 0:
+                relative_timestamps_tensor[row_index, camera_offset, :count] = torch.tensor(
+                    row_times[:count],
+                    dtype=torch.float32,
+                )
+    return {
+        "camera_indices": camera_indices_tensor,
+        "relative_timestamps": relative_timestamps_tensor,
+        "camera_counts": camera_counts,
+        "frames_per_camera": frames_per_camera,
+    }
+
+
 def build_traj_only_prompt(
     sample: dict[str, Any],
     project_root: Path,
@@ -415,7 +508,13 @@ def _labels_from_prompt_and_full(prompt_batch, full_batch) -> torch.Tensor:
     return labels
 
 
-def _build_target_layout(tokenizer, cot_text: str | None, traj_token_ids: list[int]) -> TargetLayout:
+def _build_target_layout(
+    tokenizer,
+    cot_text: str | None,
+    traj_token_ids: list[int],
+    *,
+    loss_ignore_prefix_len: int = 0,
+) -> TargetLayout:
     cot_text = str(cot_text or "").strip()
     cot_content_ids = tokenizer.encode(cot_text, add_special_tokens=False) if cot_text else []
     cot_end_ids = tokenizer.encode("<|cot_end|>", add_special_tokens=False)
@@ -430,10 +529,16 @@ def _build_target_layout(tokenizer, cot_text: str | None, traj_token_ids: list[i
         traj_prefix_len=len(traj_prefix_ids),
         traj_content_len=len(traj_token_ids),
         traj_suffix_len=len(traj_suffix_ids),
+        loss_ignore_prefix_len=max(int(loss_ignore_prefix_len), 0),
     )
 
 
-def _build_traj_only_target_layout(tokenizer, traj_token_ids: list[int]) -> TargetLayout:
+def _build_traj_only_target_layout(
+    tokenizer,
+    traj_token_ids: list[int],
+    *,
+    loss_ignore_prefix_len: int = 0,
+) -> TargetLayout:
     traj_suffix_ids = tokenizer.encode("<|traj_future_end|>", add_special_tokens=False)
     traj_token_text = "".join(discrete_traj_token(int(token_id)) for token_id in traj_token_ids)
     completion_text = f"{traj_token_text}<|traj_future_end|>"
@@ -444,6 +549,7 @@ def _build_traj_only_target_layout(tokenizer, traj_token_ids: list[int]) -> Targ
         traj_prefix_len=0,
         traj_content_len=len(traj_token_ids),
         traj_suffix_len=len(traj_suffix_ids),
+        loss_ignore_prefix_len=max(int(loss_ignore_prefix_len), 0),
     )
 
 
@@ -521,6 +627,41 @@ def _target_layout_masks(labels: torch.Tensor, layouts: list[TargetLayout]) -> d
         "text_topk_positions": text_topk_positions,
         "boundary_hidden_positions": boundary_hidden_positions,
     }
+
+
+def _apply_layout_loss_ignore_prefix(
+    labels: torch.Tensor,
+    masks: dict[str, Any],
+    layouts: list[TargetLayout],
+) -> None:
+    """Mask prefix completion tokens that are context-only, e.g. DAgger prefixes.
+
+    DAgger rows can include a student-generated CoT and a short student-generated
+    trajectory prefix in the assistant span. Those tokens must be visible as
+    conditioning context, but the supervised loss should start at the teacher
+    continuation. The layout is computed before this mutation so token offsets
+    still line up with the full assistant completion.
+    """
+    mask_keys = (
+        "cot_span_mask",
+        "cot_content_mask",
+        "traj_span_mask",
+        "traj_token_mask",
+        "format_token_mask",
+    )
+    for row_index, layout in enumerate(layouts):
+        prefix_len = max(int(layout.loss_ignore_prefix_len), 0)
+        if prefix_len <= 0:
+            continue
+        valid_positions = torch.nonzero(labels[row_index] != IGNORE_INDEX, as_tuple=False).flatten()
+        if valid_positions.numel() == 0:
+            continue
+        prefix_positions = valid_positions[: min(prefix_len, int(valid_positions.numel()))]
+        labels[row_index, prefix_positions] = IGNORE_INDEX
+        for key in mask_keys:
+            value = masks.get(key)
+            if isinstance(value, torch.Tensor):
+                value[row_index, prefix_positions] = False
 
 
 def _build_label_token_weights(
@@ -667,6 +808,52 @@ def _teacher_boundary_hidden_signal_from_sample(
         if hidden is not None:
             stacked[index] = hidden
     return {"hidden": stacked, "mask": mask}
+
+
+def _teacher_action_traj_xyz_from_sample(sample: dict[str, Any], project_root: Path) -> np.ndarray | None:
+    """Load teacher action-expert trajectory xyz from the raw Alpamayo output JSON."""
+    teacher_cache = sample.get("teacher_cache") or {}
+    raw_path = teacher_cache.get("text_raw_json_path")
+    if raw_path in (None, ""):
+        return None
+    try:
+        path = _resolve_path(raw_path, project_root)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        result = (payload.get("results") or [None])[0]
+        if not isinstance(result, dict):
+            return None
+        xyz = np.asarray(result.get("pred_xyz"), dtype=np.float32).reshape(-1, 64, 3)[0]
+    except Exception:  # noqa: BLE001
+        return None
+    if xyz.ndim != 2 or xyz.shape[0] <= 0 or xyz.shape[-1] < 2:
+        return None
+    if xyz.shape[-1] < 3:
+        padded = np.zeros((xyz.shape[0], 3), dtype=np.float32)
+        padded[:, : xyz.shape[-1]] = xyz
+        xyz = padded
+    return xyz[:64, :3].astype(np.float32)
+
+
+def _pad_teacher_action_traj_batch(items: list[np.ndarray | None]) -> dict[str, torch.Tensor]:
+    steps = 64
+    traj = torch.zeros((len(items), steps, 3), dtype=torch.float32)
+    mask = torch.zeros((len(items), steps), dtype=torch.bool)
+    available = torch.zeros((len(items),), dtype=torch.bool)
+    for row_index, item in enumerate(items):
+        if item is None:
+            continue
+        arr = np.asarray(item, dtype=np.float32)
+        count = min(int(arr.shape[0]), steps)
+        if count <= 0:
+            continue
+        traj[row_index, :count, : min(int(arr.shape[-1]), 3)] = torch.from_numpy(arr[:count, :3]).float()
+        mask[row_index, :count] = True
+        available[row_index] = True
+    return {
+        "teacher_action_traj_xyz": traj,
+        "teacher_action_traj_mask": mask,
+        "teacher_action_traj_available": available,
+    }
 
 
 def _teacher_traj15_signal_from_sample(
@@ -1018,6 +1205,7 @@ class DistillationCollator:
         ego_histories: list[np.ndarray] = []
         ego_futures: list[np.ndarray] = []
         hard_layouts: list[TargetLayout] = []
+        camera_metadata_items: list[tuple[list[int], list[list[float]], int]] = []
 
         sample_ids: list[str] = []
         splits: list[str] = []
@@ -1033,6 +1221,7 @@ class DistillationCollator:
         action_aux_weight: list[float] = []
         hard_teacher_signal_items: list[dict[str, np.ndarray | int] | None] = []
         teacher_boundary_hidden_signal_items: list[dict[str, np.ndarray] | None] = []
+        teacher_action_traj_items: list[np.ndarray | None] = []
         hard_teacher_signal_weights: list[float] = []
         hard_teacher_quality_multiplier: list[float] = []
         teacher_traj_token_weight_items: list[np.ndarray | None] = []
@@ -1041,6 +1230,7 @@ class DistillationCollator:
         teacher_full_messages: list[list[dict[str, Any]]] = []
         teacher_image_batch: list[list[Image.Image]] = []
         teacher_layouts: list[TargetLayout] = []
+        teacher_camera_metadata_items: list[tuple[list[int], list[list[float]], int]] = []
         teacher_signal_items: list[dict[str, np.ndarray | int] | None] = []
         teacher_view_traj_signal_items: list[dict[str, np.ndarray | float] | None] = []
         teacher_sample_ids: list[str] = []
@@ -1058,6 +1248,7 @@ class DistillationCollator:
             teacher_target = sample.get("teacher_target") or {}
             teacher_signal = _teacher_signal_from_sample(sample, self.project_root)
             teacher_boundary_hidden_signal = _teacher_boundary_hidden_signal_from_sample(sample, self.project_root)
+            teacher_action_traj = _teacher_action_traj_xyz_from_sample(sample, self.project_root)
             teacher_traj_signal = _teacher_traj15_signal_from_sample(
                 sample,
                 teacher_traj_cache_dir=self.teacher_traj_cache_dir,
@@ -1095,6 +1286,7 @@ class DistillationCollator:
                 target_provenance = "teacher_pair"
             if not traj_token_ids:
                 raise ValueError(f"Sample {sample.get('sample_id')} is missing target traj_future_token_ids")
+            loss_ignore_prefix_len = int(hard_target.get("loss_ignore_completion_token_count") or 0)
 
             ego_history_xyz = load_ego_history_xyz(sample, self.project_root)
             if self.prompt_mode == "traj_only":
@@ -1110,11 +1302,26 @@ class DistillationCollator:
             images = load_sample_images(sample, self.project_root)
             camera_indices = resolve_camera_indices(sample, self.project_root, image_count=len(images))
             num_frames_per_camera = max(len(images) // max(len(camera_indices), 1), 1)
+            relative_timestamps = resolve_image_relative_timestamps(
+                sample,
+                self.project_root,
+                camera_count=len(camera_indices),
+                frames_per_camera=num_frames_per_camera,
+            )
             if self.target_mode == "traj_only":
-                hard_layout = _build_traj_only_target_layout(self.tokenizer, traj_token_ids)
+                hard_layout = _build_traj_only_target_layout(
+                    self.tokenizer,
+                    traj_token_ids,
+                    loss_ignore_prefix_len=loss_ignore_prefix_len,
+                )
                 assistant_prefix = "<|traj_future_start|>"
             else:
-                hard_layout = _build_target_layout(self.tokenizer, target_cot_text, traj_token_ids)
+                hard_layout = _build_target_layout(
+                    self.tokenizer,
+                    target_cot_text,
+                    traj_token_ids,
+                    loss_ignore_prefix_len=loss_ignore_prefix_len,
+                )
                 assistant_prefix = "<|cot_start|>"
 
             prompt_messages.append(
@@ -1142,6 +1349,7 @@ class DistillationCollator:
             ego_histories.append(ego_history_xyz)
             ego_futures.append(ego_future_xyz)
             hard_layouts.append(hard_layout)
+            camera_metadata_items.append((camera_indices, relative_timestamps, num_frames_per_camera))
 
             sample_ids.append(str(sample.get("sample_id")))
             splits.append(str(sample.get("split", "train")))
@@ -1185,6 +1393,9 @@ class DistillationCollator:
             teacher_boundary_hidden_signal_items.append(
                 teacher_boundary_hidden_signal if (self.teacher_pair_target or self.hard_view_uses_teacher_cot) else None
             )
+            teacher_action_traj_items.append(
+                teacher_action_traj if (self.teacher_pair_target or self.hard_view_uses_teacher_cot) else None
+            )
             hard_teacher_signal_weights.append(
                 1.0 if (self.teacher_pair_target or self.hard_view_uses_teacher_cot) and teacher_signal is not None else 0.0
             )
@@ -1224,6 +1435,7 @@ class DistillationCollator:
             )
             teacher_image_batch.append(images)
             teacher_layouts.append(teacher_layout)
+            teacher_camera_metadata_items.append((camera_indices, relative_timestamps, num_frames_per_camera))
             teacher_signal_items.append(teacher_signal)
             teacher_view_traj_signal_items.append(teacher_traj_signal)
             teacher_sample_ids.append(str(sample.get("sample_id")))
@@ -1268,6 +1480,7 @@ class DistillationCollator:
             )
         labels = _labels_from_prompt_and_full(prompt_batch, full_batch)
         hard_masks = _target_layout_masks(labels, hard_layouts)
+        _apply_layout_loss_ignore_prefix(labels, hard_masks, hard_layouts)
         ego_history_xyz, ego_history_mask = _pad_ego_history_batch(ego_histories)
         ego_future_xyz, ego_future_mask = _pad_future_xyz_batch(ego_futures)
 
@@ -1306,6 +1519,7 @@ class DistillationCollator:
             "hard_cot_weights": torch.tensor(hard_cot_weights, dtype=torch.float32),
             "traj_weights": torch.tensor(traj_weights, dtype=torch.float32),
         }
+        batch.update(_pad_camera_metadata(camera_metadata_items))
         if any(item is not None for item in hard_teacher_signal_items):
             batch.update(_pad_teacher_signal_batch(hard_teacher_signal_items, hard_masks["text_topk_positions"]))
         if any(item is not None for item in teacher_boundary_hidden_signal_items):
@@ -1315,6 +1529,8 @@ class DistillationCollator:
                     hard_masks["boundary_hidden_positions"],
                 )
             )
+        if any(item is not None for item in teacher_action_traj_items):
+            batch.update(_pad_teacher_action_traj_batch(teacher_action_traj_items))
         teacher_traj_available = torch.tensor(
             [item is not None for item in teacher_traj_signal_items],
             dtype=torch.bool,
@@ -1513,6 +1729,7 @@ class DistillationCollator:
                 "traj_weights": torch.tensor(teacher_traj_weights, dtype=torch.float32),
                 "teacher_quality_multiplier": torch.tensor(teacher_quality_multiplier, dtype=torch.float32),
             }
+            teacher_view_batch.update(_pad_camera_metadata(teacher_camera_metadata_items))
             teacher_view_batch.update(_pad_teacher_signal_batch(teacher_signal_items, teacher_masks["text_topk_positions"]))
             if self.teacher_traj_topk_on_teacher_view:
                 teacher_view_batch.update(

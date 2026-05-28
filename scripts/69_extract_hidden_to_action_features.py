@@ -35,7 +35,7 @@ def _load_readiness_module():
 
 helpers = _load_readiness_module()
 
-from src.training.collator import load_ego_future_xyz
+from src.training.collator import fuse_history_tokens_in_input_ids, load_ego_future_xyz
 
 
 def parse_args() -> argparse.Namespace:
@@ -59,6 +59,17 @@ def parse_args() -> argparse.Namespace:
         choices=("compact", "camera_labeled"),
         default="compact",
         help="Use compact image blocks or Alpamayo camera/frame labels for prefix construction.",
+    )
+    parser.add_argument(
+        "--prompt-text-style",
+        choices=("numeric_history_question", "official_alpamayo"),
+        default="numeric_history_question",
+        help="Use numeric-history question text or the official Alpamayo history-token prompt.",
+    )
+    parser.add_argument(
+        "--fuse-history-tokens",
+        action="store_true",
+        help="Replace official <|traj_history|> placeholders with encoded ego-history tokens.",
     )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--overwrite", action="store_true")
@@ -179,14 +190,18 @@ def apply_image_mode(image_batches: list[list[Any]], image_mode: str) -> list[li
 
 def backbone_last_hidden(model, moved: dict[str, Any]) -> torch.Tensor:
     """Run the frozen backbone and return the raw final-layer hidden states."""
-    outputs = model.backbone(
-        input_ids=moved["input_ids"],
-        attention_mask=moved["attention_mask"],
-        pixel_values=moved.get("pixel_values"),
-        image_grid_thw=moved.get("image_grid_thw"),
-        output_hidden_states=True,
-        return_dict=True,
-    )
+    kwargs = {
+        "input_ids": moved["input_ids"],
+        "attention_mask": moved["attention_mask"],
+        "pixel_values": moved.get("pixel_values"),
+        "image_grid_thw": moved.get("image_grid_thw"),
+        "output_hidden_states": True,
+        "return_dict": True,
+    }
+    try:
+        outputs = model.backbone(**kwargs, logits_to_keep=1)
+    except TypeError:
+        outputs = model.backbone(**kwargs)
     hidden_states = getattr(outputs, "hidden_states", None)
     if hidden_states is None and hasattr(outputs, "language_model_outputs"):
         hidden_states = getattr(outputs.language_model_outputs, "hidden_states", None)
@@ -196,14 +211,26 @@ def backbone_last_hidden(model, moved: dict[str, Any]) -> torch.Tensor:
 
 
 def make_teacher_prefix_batch(
-    samples: list[dict[str, Any]], *, processor, tokenizer, image_mode: str = "normal", image_prompt_style: str = "compact"
+    samples: list[dict[str, Any]],
+    *,
+    processor,
+    tokenizer,
+    image_mode: str = "normal",
+    image_prompt_style: str = "compact",
+    prompt_text_style: str = "numeric_history_question",
+    fuse_history_tokens: bool = False,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     texts: list[str] = []
     image_batches: list[list[Any]] = []
     prepared: list[dict[str, Any]] = []
     for sample in samples:
         history_xyz = helpers.load_ego_history_xyz(sample, PROJECT_ROOT)
-        prompt_text = helpers.build_user_prompt(sample, PROJECT_ROOT, ego_history_xyz=history_xyz)
+        prompt_text = helpers.build_user_prompt(
+            sample,
+            PROJECT_ROOT,
+            ego_history_xyz=history_xyz,
+            prompt_text_style=prompt_text_style,
+        )
         images = helpers.load_sample_images(sample, PROJECT_ROOT)
         camera_indices = helpers.resolve_camera_indices(sample, PROJECT_ROOT, image_count=len(images))
         teacher_cot = str((sample.get("teacher_target") or {}).get("cot_text") or (sample.get("hard_target") or {}).get("cot_text") or "")
@@ -233,18 +260,33 @@ def make_teacher_prefix_batch(
         truncation=True,
         max_length=4096,
     )
+    if fuse_history_tokens:
+        histories = [helpers.load_ego_history_xyz(sample, PROJECT_ROOT) for sample in prepared]
+        batch["input_ids"] = fuse_history_tokens_in_input_ids(batch["input_ids"], tokenizer, histories)
     return batch, prepared
 
 
 def make_student_prompt_batch(
-    samples: list[dict[str, Any]], *, processor, tokenizer, image_mode: str = "normal", image_prompt_style: str = "compact"
+    samples: list[dict[str, Any]],
+    *,
+    processor,
+    tokenizer,
+    image_mode: str = "normal",
+    image_prompt_style: str = "compact",
+    prompt_text_style: str = "numeric_history_question",
+    fuse_history_tokens: bool = False,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     texts: list[str] = []
     image_batches: list[list[Any]] = []
     prepared: list[dict[str, Any]] = []
     for sample in samples:
         history_xyz = helpers.load_ego_history_xyz(sample, PROJECT_ROOT)
-        prompt_text = helpers.build_user_prompt(sample, PROJECT_ROOT, ego_history_xyz=history_xyz)
+        prompt_text = helpers.build_user_prompt(
+            sample,
+            PROJECT_ROOT,
+            ego_history_xyz=history_xyz,
+            prompt_text_style=prompt_text_style,
+        )
         images = helpers.load_sample_images(sample, PROJECT_ROOT)
         camera_indices = helpers.resolve_camera_indices(sample, PROJECT_ROOT, image_count=len(images))
         messages = helpers.build_messages(
@@ -272,12 +314,15 @@ def make_student_prompt_batch(
             processor_tokenizer.padding_side = "left"
         batch = processor(
             text=texts,
-        images=apply_image_mode(image_batches, image_mode),
+            images=apply_image_mode(image_batches, image_mode),
             return_tensors="pt",
             padding=True,
             truncation=True,
             max_length=4096,
         )
+        if fuse_history_tokens:
+            histories = [helpers.load_ego_history_xyz(sample, PROJECT_ROOT) for sample in prepared]
+            batch["input_ids"] = fuse_history_tokens_in_input_ids(batch["input_ids"], tokenizer, histories)
     finally:
         if old_tokenizer_padding is not None:
             tokenizer.padding_side = old_tokenizer_padding
@@ -398,6 +443,9 @@ def main() -> None:
         "max_new_tokens": int(args.max_new_tokens),
         "empty_cot_token_threshold": int(args.empty_cot_token_threshold),
         "image_mode": str(args.image_mode),
+        "image_prompt_style": str(args.image_prompt_style),
+        "prompt_text_style": str(args.prompt_text_style),
+        "fuse_history_tokens": bool(args.fuse_history_tokens),
         "splits": {},
         "feature_schema": {
             "hidden_feature": "concat(h_cot_end, h_traj_start, h_prefix_mean_last16), float16, [6144]",
@@ -501,6 +549,8 @@ def main() -> None:
                     tokenizer=tokenizer,
                     image_mode=str(args.image_mode),
                     image_prompt_style=str(args.image_prompt_style),
+                    prompt_text_style=str(args.prompt_text_style),
+                    fuse_history_tokens=bool(args.fuse_history_tokens),
                 )
                 moved = move_processor_batch(batch, device=device, model_dtype=model_dtype)
             elif args.prefix_type == "student_free":
@@ -510,6 +560,8 @@ def main() -> None:
                     tokenizer=tokenizer,
                     image_mode=str(args.image_mode),
                     image_prompt_style=str(args.image_prompt_style),
+                    prompt_text_style=str(args.prompt_text_style),
+                    fuse_history_tokens=bool(args.fuse_history_tokens),
                 )
                 prompt_moved = move_processor_batch(batch, device=device, model_dtype=model_dtype)
                 prompt_len = int(prompt_moved["input_ids"].shape[1])
@@ -677,6 +729,8 @@ def main() -> None:
                             "feature_dim": 6144,
                             "target_type": "teacher_action_space_and_teacher_action_expert_traj",
                             "image_prompt_style": args.image_prompt_style,
+                            "prompt_text_style": args.prompt_text_style,
+                            "fuse_history_tokens": bool(args.fuse_history_tokens),
                         },
                     )
                     if path is not None:
@@ -699,6 +753,8 @@ def main() -> None:
                 "feature_dim": 6144,
                 "target_type": "teacher_action_space_and_teacher_action_expert_traj",
                 "image_prompt_style": args.image_prompt_style,
+                "prompt_text_style": args.prompt_text_style,
+                "fuse_history_tokens": bool(args.fuse_history_tokens),
             },
         )
         if path is not None:
@@ -715,6 +771,8 @@ def main() -> None:
             "bucket_counts": dict(bucket_counts),
             "feature_dim": 6144,
             "image_prompt_style": args.image_prompt_style,
+            "prompt_text_style": args.prompt_text_style,
+            "fuse_history_tokens": bool(args.fuse_history_tokens),
             "shard_count": len(shard_paths),
             "shards": shard_paths,
         }

@@ -8,6 +8,7 @@ from typing import Any
 
 import torch
 
+from src.model.flex_scene_encoder import FlexSceneConfig
 from src.model.lm_head_adapter import (
     attach_lm_head_token_adapter,
     export_lm_head_token_rows_state,
@@ -51,6 +52,10 @@ def _traj_aux_head_path(checkpoint_dir: Path) -> Path:
     return checkpoint_dir / "traj_aux_head.pt"
 
 
+def _boundary_action_head_path(checkpoint_dir: Path) -> Path:
+    return checkpoint_dir / "boundary_action_head.pt"
+
+
 def _traj_hidden_projector_path(checkpoint_dir: Path) -> Path:
     return checkpoint_dir / "traj_hidden_projector.pt"
 
@@ -69,6 +74,29 @@ def _lm_head_token_adapter_path(checkpoint_dir: Path) -> Path:
 
 def _lm_head_token_rows_path(checkpoint_dir: Path) -> Path:
     return checkpoint_dir / "lm_head_token_rows.pt"
+
+
+def _flex_scene_encoder_path(checkpoint_dir: Path) -> Path:
+    return checkpoint_dir / "flex_scene_encoder.pt"
+
+
+def _flex_scene_config_from_manifest(manifest: dict[str, Any]) -> FlexSceneConfig | None:
+    raw = manifest.get("flex_scene_config")
+    if not isinstance(raw, dict) or not bool(raw.get("enabled", False)):
+        return None
+    return FlexSceneConfig(
+        enabled=True,
+        tokens_per_image=int(raw.get("tokens_per_image", 32) or 32),
+        expected_images_per_sample=int(raw.get("expected_images_per_sample", 16) or 16),
+        input_hidden_size=int(raw.get("input_hidden_size", 2048) or 2048),
+        hidden_size=int(raw.get("hidden_size", 1024) or 1024),
+        num_layers=int(raw.get("num_layers", 2) or 2),
+        num_heads=int(raw.get("num_heads", 8) or 8),
+        mlp_ratio=float(raw.get("mlp_ratio", 4.0) or 4.0),
+        dropout=float(raw.get("dropout", 0.0) or 0.0),
+        use_camera_time_embeddings=bool(raw.get("use_camera_time_embeddings", False)),
+        max_camera_types=int(raw.get("max_camera_types", 16) or 16),
+    )
 
 
 def _legacy_state_path(checkpoint_dir: Path) -> Path:
@@ -111,6 +139,8 @@ def save_student_checkpoint(
         model.backbone.save_pretrained(adapter_dir, safe_serialization=True)
         torch.save(_cpu_state_dict(model.meta_action_head), _meta_head_path(checkpoint_dir))
         torch.save(_cpu_state_dict(model.traj_aux_head), _traj_aux_head_path(checkpoint_dir))
+        if getattr(model, "boundary_action_head", None) is not None:
+            torch.save(_cpu_state_dict(model.boundary_action_head), _boundary_action_head_path(checkpoint_dir))
         payload = {
             "format": "lora_adapter",
             "adapter_dir": adapter_dir.name,
@@ -118,6 +148,8 @@ def save_student_checkpoint(
             "traj_aux_head": _traj_aux_head_path(checkpoint_dir).name,
             "traj_aux_num_buckets": int(getattr(model, "traj_aux_num_buckets", 1) or 1),
         }
+        if getattr(model, "boundary_action_head", None) is not None:
+            payload["boundary_action_head"] = _boundary_action_head_path(checkpoint_dir).name
         if getattr(model, "traj_hidden_projector", None) is not None:
             torch.save(_cpu_state_dict(model.traj_hidden_projector), _traj_hidden_projector_path(checkpoint_dir))
             payload["traj_hidden_projector"] = _traj_hidden_projector_path(checkpoint_dir).name
@@ -129,6 +161,26 @@ def save_student_checkpoint(
             payload["traj_hidden_bridge_teacher"] = _traj_hidden_bridge_teacher_path(checkpoint_dir).name
             payload["traj_hidden_bridge_size"] = int(getattr(model, "traj_hidden_bridge_size", 0) or 0)
             payload["traj_teacher_hidden_size"] = int(getattr(model, "traj_teacher_hidden_size", 0) or 0)
+        if getattr(model, "flex_scene_encoder", None) is not None:
+            torch.save(_cpu_state_dict(model.flex_scene_encoder), _flex_scene_encoder_path(checkpoint_dir))
+            payload["flex_scene_encoder"] = _flex_scene_encoder_path(checkpoint_dir).name
+            flex_cfg = getattr(model, "flex_scene_config", None)
+            if flex_cfg is not None:
+                payload["flex_scene_config"] = {
+                    "enabled": bool(getattr(flex_cfg, "enabled", False)),
+                    "tokens_per_image": int(getattr(flex_cfg, "tokens_per_image", 0) or 0),
+                    "expected_images_per_sample": int(getattr(flex_cfg, "expected_images_per_sample", 0) or 0),
+                    "input_hidden_size": int(getattr(flex_cfg, "input_hidden_size", 0) or 0),
+                    "hidden_size": int(getattr(flex_cfg, "hidden_size", 0) or 0),
+                    "num_layers": int(getattr(flex_cfg, "num_layers", 0) or 0),
+                    "num_heads": int(getattr(flex_cfg, "num_heads", 0) or 0),
+                    "mlp_ratio": float(getattr(flex_cfg, "mlp_ratio", 0.0) or 0.0),
+                    "dropout": float(getattr(flex_cfg, "dropout", 0.0) or 0.0),
+                    "use_camera_time_embeddings": bool(
+                        getattr(flex_cfg, "use_camera_time_embeddings", False)
+                    ),
+                    "max_camera_types": int(getattr(flex_cfg, "max_camera_types", 0) or 0),
+                }
         lm_head_adapter = get_lm_head_token_adapter(model.backbone)
         if lm_head_adapter is not None:
             torch.save(_cpu_state_dict(lm_head_adapter), _lm_head_token_adapter_path(checkpoint_dir))
@@ -153,6 +205,16 @@ def save_student_checkpoint(
         if getattr(model, "traj_hidden_bridge_student", None) is not None:
             payload["traj_hidden_bridge_size"] = int(getattr(model, "traj_hidden_bridge_size", 0) or 0)
             payload["traj_teacher_hidden_size"] = int(getattr(model, "traj_teacher_hidden_size", 0) or 0)
+        if getattr(model, "flex_scene_encoder", None) is not None:
+            payload["flex_scene_config"] = {
+                "enabled": True,
+                "tokens_per_image": int(getattr(model.flex_scene_config, "tokens_per_image", 0) or 0),
+                "expected_images_per_sample": int(getattr(model.flex_scene_config, "expected_images_per_sample", 0) or 0),
+                "use_camera_time_embeddings": bool(
+                    getattr(model.flex_scene_config, "use_camera_time_embeddings", False)
+                ),
+                "max_camera_types": int(getattr(model.flex_scene_config, "max_camera_types", 0) or 0),
+            }
         lm_head_adapter = get_lm_head_token_adapter(model.backbone)
         if lm_head_adapter is not None:
             payload["lm_head_trainable_token_rows"] = int(lm_head_adapter.token_indices.numel())
@@ -177,6 +239,9 @@ def load_student_checkpoint(
     if checkpoint_format == "lora_adapter":
         from peft import PeftModel
         manifest = json.loads(_manifest_path(checkpoint_dir).read_text(encoding="utf-8"))
+        flex_scene_config = _flex_scene_config_from_manifest(manifest)
+        if flex_scene_config is not None and hasattr(model, "configure_flex_scene"):
+            model.configure_flex_scene(flex_scene_config)
         traj_aux_num_buckets = manifest.get("traj_aux_num_buckets")
         if traj_aux_num_buckets not in (None, 0):
             model.configure_traj_aux_head(int(traj_aux_num_buckets))
@@ -218,6 +283,13 @@ def load_student_checkpoint(
                 inferred_num_buckets = max(int(aux_weight.shape[0] // 2), 1)
                 model.configure_traj_aux_head(inferred_num_buckets)
             model.traj_aux_head.load_state_dict(traj_aux_head_state, strict=True)
+        boundary_action_head_path = _boundary_action_head_path(checkpoint_dir)
+        if boundary_action_head_path.exists() and getattr(model, "boundary_action_head", None) is not None:
+            try:
+                boundary_action_head_state = torch.load(boundary_action_head_path, map_location="cpu", weights_only=True)
+            except TypeError:
+                boundary_action_head_state = torch.load(boundary_action_head_path, map_location="cpu")
+            model.boundary_action_head.load_state_dict(boundary_action_head_state, strict=True)
         traj_hidden_projector_path = _traj_hidden_projector_path(checkpoint_dir)
         if traj_hidden_projector_path.exists():
             try:
@@ -254,6 +326,15 @@ def load_student_checkpoint(
                 raise ValueError("Checkpoint contains traj_hidden_bridge modules but the model is not configured for them.")
             model.traj_hidden_bridge_student.load_state_dict(student_bridge_state, strict=True)
             model.traj_hidden_bridge_teacher.load_state_dict(teacher_bridge_state, strict=True)
+        flex_scene_encoder_path = _flex_scene_encoder_path(checkpoint_dir)
+        if flex_scene_encoder_path.exists():
+            try:
+                flex_state = torch.load(flex_scene_encoder_path, map_location="cpu", weights_only=True)
+            except TypeError:
+                flex_state = torch.load(flex_scene_encoder_path, map_location="cpu")
+            if getattr(model, "flex_scene_encoder", None) is None:
+                raise ValueError("Checkpoint contains flex_scene_encoder but the model is not configured for FLEX.")
+            model.flex_scene_encoder.load_state_dict(flex_state, strict=True)
         lm_head_adapter_path = _lm_head_token_adapter_path(checkpoint_dir)
         if lm_head_adapter_path.exists():
             try:
@@ -294,6 +375,9 @@ def load_student_checkpoint(
 
     if checkpoint_format == "full_state_dict":
         manifest = json.loads(_manifest_path(checkpoint_dir).read_text(encoding="utf-8"))
+        flex_scene_config = _flex_scene_config_from_manifest(manifest)
+        if flex_scene_config is not None and hasattr(model, "configure_flex_scene"):
+            model.configure_flex_scene(flex_scene_config)
         traj_aux_num_buckets = manifest.get("traj_aux_num_buckets")
         if traj_aux_num_buckets not in (None, 0):
             model.configure_traj_aux_head(int(traj_aux_num_buckets))
