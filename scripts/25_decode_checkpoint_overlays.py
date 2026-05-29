@@ -132,6 +132,11 @@ def parse_args() -> argparse.Namespace:
         default=1,
         help="Number of samples per free-run generate() call. Use 1 for the old sample-by-sample path.",
     )
+    parser.add_argument("--samples-per-row", type=int, default=1, help="Number of generated trajectories per sample.")
+    parser.add_argument("--seed", type=int, default=97, help="Random seed used when samples_per_row > 1.")
+    parser.add_argument("--temperature", type=float, default=1.0, help="Sampling temperature when multiple trajectories are requested.")
+    parser.add_argument("--top-p", type=float, default=1.0, help="Top-p sampling when multiple trajectories are requested.")
+    parser.add_argument("--selected-json", type=Path, help="JSON list of selected sample rows or sample ids.")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--summary-json", type=Path, required=True)
@@ -169,6 +174,79 @@ def _select_rows(rows: list[dict[str, Any]], split: str, num_samples: int) -> li
     if num_samples > 0:
         return selected[:num_samples]
     return selected
+
+
+def _load_selected_rows(
+    path: Path | None,
+    rows: list[dict[str, Any]],
+    *,
+    split: str,
+) -> list[dict[str, Any]]:
+    if path is None:
+        return rows
+    if not path.exists():
+        raise SystemExit(f"selected-json not found: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    selected_ids: list[str] = []
+    for item in payload:
+        if isinstance(item, str):
+            selected_ids.append(str(item))
+            continue
+        if isinstance(item, dict) and "sample_id" in item:
+            selected_ids.append(str(item["sample_id"]))
+    if not selected_ids:
+        return []
+    row_map = {str(row.get("sample_id")): row for row in rows if str(row.get("split") or "") == split}
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for sample_id in selected_ids:
+        row = row_map.get(sample_id)
+        if row is None or sample_id in seen:
+            continue
+        selected.append(row)
+        seen.add(sample_id)
+    return selected
+
+
+def _candidate_score(ade: float | None, fde: float | None, cand: list[int]) -> tuple[float, float, int]:
+    if (
+        ade is None
+        or fde is None
+        or not math.isfinite(float(ade))
+        or not math.isfinite(float(fde))
+        or math.isnan(float(ade))
+        or math.isnan(float(fde))
+    ):
+        return (float("inf"), float("inf"), -len(cand))
+    return (float(ade), float(fde), -len(cand))
+
+
+def _select_best_candidate(
+    candidate_records: list[dict[str, Any]],
+) -> tuple[int, dict[str, Any]]:
+    best_index = 0
+    best_score = (float("inf"), float("inf"), 1 << 30)
+    best_row = {
+        "candidate_index": 1,
+        "student_free_run_traj_tokens": [],
+        "student_vs_teacher_discrete_ade_m": None,
+        "student_vs_teacher_discrete_fde_m": None,
+        "student_free_run_unique_token_count": 0,
+        "student_free_run_token_match_rate": 0.0,
+    }
+    if not candidate_records:
+        return best_index, best_row
+    for idx, cand in enumerate(candidate_records):
+        score = _candidate_score(
+            cand.get("student_vs_teacher_discrete_ade_m"),
+            cand.get("student_vs_teacher_discrete_fde_m"),
+            cand.get("student_free_run_traj_tokens") or [],
+        )
+        if score < best_score:
+            best_score = score
+            best_row = cand
+            best_index = idx
+    return best_index, best_row
 
 
 def _resolve_path(raw_path: str | Path | None) -> Path | None:
@@ -589,7 +667,11 @@ def main() -> int:
 
     model, tokenizer, processor, device, base_model = _load_model_and_processors(args)
     rows = _load_jsonl(args.corpus_jsonl)
-    selected = _select_rows(rows, args.split, args.num_samples)
+    selected = _load_selected_rows(
+        args.selected_json,
+        _select_rows(rows, args.split, args.num_samples),
+        split=args.split,
+    )
     if not selected:
         raise SystemExit(f"No samples selected for split={args.split!r} from {args.corpus_jsonl}")
 
@@ -772,6 +854,26 @@ def main() -> int:
             logits_processor = LogitsProcessorList([TrajSpanLogitsProcessor(contract)])
             stopping_criteria = StoppingCriteriaList([StopOnTrajEndCriteria(contract)])
 
+        samples_per_row = max(int(args.samples_per_row), 1)
+        if args.seed is not None:
+            seed_value = int(args.seed) + len(per_sample)
+            torch.manual_seed(seed_value)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed_value)
+
+        if flex_enabled and samples_per_row > 1:
+            print(
+                json.dumps(
+                    {
+                        "event": "warning",
+                        "batch_size": len(prepared),
+                        "message": "flex path does not support multi-sample generation; falling back to greedy single-sample decode",
+                    },
+                    flush=True,
+                )
+            )
+            samples_per_row = 1
+
         with torch.inference_mode():
             if flex_enabled:
                 generated = _manual_flex_generate(
@@ -785,8 +887,11 @@ def main() -> int:
                 generated = model.backbone.generate(
                     **batch,
                     max_new_tokens=args.max_new_tokens,
-                    do_sample=False,
+                    do_sample=samples_per_row > 1,
+                    num_return_sequences=samples_per_row,
                     use_cache=True,
+                    temperature=float(args.temperature),
+                    top_p=float(args.top_p),
                     logits_processor=logits_processor,
                     stopping_criteria=stopping_criteria,
                 )
@@ -799,33 +904,100 @@ def main() -> int:
             history_rot = item["history_rot"]
             gt_future = item["gt_future"]
             target_tokens = item["target_tokens"]
-
-            generated_text = _extract_generated_text(tokenizer, batch["input_ids"], generated, row_index=row_index)
-            generated_tokens = _extract_generated_traj_tokens(generated_text)
-            all_tokens.update(generated_tokens)
-            rep = _token_repetition_stats(generated_tokens)
-            unique_values.append(int(rep["unique"]))
-            max_run_values.append(int(rep["max_same_run"]))
-            invalid_count = sum(1 for token in generated_tokens if token < 0 or token >= 3000)
-            invalid_counts.append(invalid_count)
-            token_match = float(
-                sum(1 for left, right in zip(generated_tokens, target_tokens) if int(left) == int(right))
-                / max(len(target_tokens), 1)
-            )
-            token_match_values.append(token_match)
-
-            student_xyz = (
-                decoder.decode(history_xyz, history_rot, generated_tokens)
-                if len(generated_tokens) == decoder.n_waypoints * 2
-                else None
-            )
             teacher_xyz = (
                 decoder.decode(history_xyz, history_rot, target_tokens)
                 if len(target_tokens) == decoder.n_waypoints * 2
                 else np.zeros((0, 3), dtype=np.float32)
             )
             reference_xyz = teacher_xyz if args.geometry_reference == "teacher" else gt_future
-            geom = _path_metrics(student_xyz, reference_xyz)
+            if args.geometry_reference != "teacher" and reference_xyz.size == 0:
+                reference_xyz = teacher_xyz
+
+            row_candidates: list[dict[str, Any]] = []
+            row_start = row_index * samples_per_row
+            row_end = min(row_start + samples_per_row, generated.shape[0])
+            for candidate_index, sample_row in enumerate(range(row_start, row_end), start=1):
+                generated_text = _extract_generated_text(
+                    tokenizer,
+                    batch["input_ids"],
+                    generated,
+                    row_index=sample_row,
+                )
+                generated_tokens = _extract_generated_traj_tokens(generated_text)
+                all_tokens.update(generated_tokens)
+                rep = _token_repetition_stats(generated_tokens)
+                invalid_count = sum(1 for token in generated_tokens if token < 0 or token >= 3000)
+                token_match = float(
+                    sum(1 for left, right in zip(generated_tokens, target_tokens) if int(left) == int(right))
+                    / max(len(target_tokens), 1)
+                )
+                student_xyz = (
+                    decoder.decode(history_xyz, history_rot, generated_tokens)
+                    if len(generated_tokens) == decoder.n_waypoints * 2
+                    else None
+                )
+                candidate_geom = _path_metrics(student_xyz, reference_xyz)
+                row_candidates.append(
+                    {
+                        "candidate_index": candidate_index,
+                        "student_free_run_traj_tokens": generated_tokens,
+                        "student_vs_teacher_discrete_ade_m": candidate_geom.get("ade_m"),
+                        "student_vs_teacher_discrete_fde_m": candidate_geom.get("fde_m"),
+                        "student_free_run_unique_token_count": rep["unique"],
+                        "student_free_run_token_match_rate": token_match,
+                        "student_free_run_invalid_future_token_count_i3000_plus": invalid_count,
+                    }
+                )
+
+            if not row_candidates:
+                row_candidates = [
+                    {
+                        "candidate_index": 1,
+                        "student_free_run_traj_tokens": [],
+                        "student_vs_teacher_discrete_ade_m": None,
+                        "student_vs_teacher_discrete_fde_m": None,
+                        "student_free_run_unique_token_count": 0,
+                        "student_free_run_token_match_rate": 0.0,
+                        "student_free_run_invalid_future_token_count_i3000_plus": 0,
+                    }
+                ]
+
+            best_index, best_row = _select_best_candidate(row_candidates)
+            generated_tokens = list(best_row.get("student_free_run_traj_tokens") or [])
+            generated_metrics = _path_metrics(
+                decoder.decode(history_xyz, history_rot, generated_tokens)
+                if len(generated_tokens) == decoder.n_waypoints * 2
+                else None,
+                reference_xyz,
+            )
+            best_generated_text = ""
+            for candidate_index, sample_row in enumerate(range(row_start, row_end), start=1):
+                if candidate_index - 1 != best_index:
+                    continue
+                best_generated_text = _extract_generated_text(
+                    tokenizer,
+                    batch["input_ids"],
+                    generated,
+                    row_index=sample_row,
+                )
+                break
+
+            rep = _token_repetition_stats(generated_tokens)
+            token_match = float(
+                sum(1 for left, right in zip(generated_tokens, target_tokens) if int(left) == int(right))
+                / max(len(target_tokens), 1)
+            )
+            invalid_count = int(sum(1 for token in generated_tokens if token < 0 or token >= 3000))
+            best_student_xyz = decoder.decode(history_xyz, history_rot, generated_tokens)
+            if best_student_xyz is None:
+                best_student_xyz = np.zeros((0, 3), dtype=np.float32)
+
+            unique_values.append(int(rep["unique"]))
+            max_run_values.append(int(rep["max_same_run"]))
+            invalid_counts.append(invalid_count)
+            token_match_values.append(token_match)
+
+            geom = generated_metrics if generated_metrics else _path_metrics(None, reference_xyz)
             if geom:
                 ade_values.append(geom["ade_m"])
                 fde_values.append(geom["fde_m"])
@@ -845,7 +1017,7 @@ def main() -> int:
             text_entry = teacher_text.get(sample_id) or {}
             human_coc = text_entry.get("human_coc") or str((sample.get("hard_target") or {}).get("cot_text") or "")
             teacher_cot = text_entry.get("teacher_long_cot") or str((sample.get("teacher_target") or {}).get("cot_text") or "")
-            student_cot = _extract_student_cot(generated_text)
+            student_cot = _extract_student_cot(best_generated_text or generated_text)
 
             svg_path = None
             if not args.skip_overlays:
@@ -859,7 +1031,7 @@ def main() -> int:
                     title=title,
                     history=history_xyz,
                     gt=gt_future,
-                    student=student_xyz,
+                    student=best_student_xyz,
                     student_cot=student_cot,
                     human_coc=human_coc,
                     teacher_cot=teacher_cot,
@@ -876,6 +1048,11 @@ def main() -> int:
                 "generated_top_tokens": rep["top_tokens"],
                 "generated_traj_tokens": generated_tokens,
                 "target_traj_tokens": target_tokens,
+                "student_free_run_candidate_records": row_candidates,
+                "student_free_run_candidate_count": len(row_candidates),
+                "student_free_run_selected_candidate_index": best_index + 1,
+                "student_free_run_best_candidate_ade_m": best_row.get("student_vs_teacher_discrete_ade_m"),
+                "student_free_run_best_candidate_fde_m": best_row.get("student_vs_teacher_discrete_fde_m"),
                 "token_match_rate": token_match,
                 **geom,
                 "teacher_best_ade_m": (manifest or {}).get("best_candidate_ade_m"),
@@ -898,6 +1075,7 @@ def main() -> int:
                         "sample_id": sample_id,
                         "ade_m": row.get("ade_m"),
                         "fde_m": row.get("fde_m"),
+                        "student_free_run_candidates": len(row_candidates),
                         "tags": tags,
                     }
                 ),

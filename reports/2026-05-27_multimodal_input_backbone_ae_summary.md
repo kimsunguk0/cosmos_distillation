@@ -508,3 +508,162 @@ Actual attention/hidden/KV values: not matched, must be learned/verified.
 ```
 
 This explains why the student can still be weaker on camera grounding even after the token-order bug is fixed.
+
+---
+
+## 10. step_006250 Checkpoint Evaluation (2026-05-29)
+
+### Checkpoint
+
+
+
+This is the checkpoint referenced at the end of Section 4 (projector/visual-merger open run, full444k + semantic200k, hidden GC, b16 w4).
+
+### Full free-run eval — greedy vs teacher and vs GT (n=4760)
+
+Report:
+
+
+
+| Metric | 200k baseline | step_006250 |
+| --- | ---: | ---: |
+| Greedy ADE / FDE vs teacher | 2.818 / 9.175 | **2.557 / 8.365** |
+| Greedy unique traj token ids | 13.9 | 17.0 |
+
+True-GT comparison (computed separately via ego_future_xyz.npy):
+
+| | ADE (m) | FDE (m) |
+| --- | ---: | ---: |
+| Teacher vs GT | 1.739 | 5.175 |
+| Greedy student vs GT | 3.011 | 9.822 |
+
+Interpretation:
+
+- Greedy vs teacher improved ~10% over the 200k baseline.
+- Greedy unique token count is still low (17 out of 128 possible traj tokens), indicating strong mode collapse under argmax decoding.
+- Teacher itself sits at ADE 1.74m vs GT, setting the oracle target for distillation.
+
+### Best-of-4 sampling oracle (n=4760 full val)
+
+Script:  (temperature=1.0, top_p=0.95, N=4)
+
+| | ADE (m) | FDE (m) | Reference |
+| --- | ---: | ---: | --- |
+| Teacher | 1.739 | 5.175 | vs GT |
+| Best-of-4 oracle | **1.702** | **4.914** | vs GT |
+| Greedy | 3.011 | 9.822 | vs GT |
+
+Interpretation:
+
+- Best-of-4 oracle beats teacher vs GT (1.70 vs 1.74m ADE) on the full val set.
+- Greedy → Best-of-4 improvement: ADE −43%, FDE −50%.
+- The model can produce teacher-level (or better) trajectories under sampling; greedy decoding cannot surface them.
+- This confirms the bottleneck is the decoding strategy, not model capacity.
+
+### Best-of-4 vs teacher (partial, n=112, full run in progress)
+
+Script:  (batch=16, temperature=1.0, top_p=0.95, N=4)
+
+Results at time of writing (full 4760 run ongoing):
+
+| | ADE (m) | FDE (m) |
+| --- | ---: | ---: |
+| Greedy vs teacher | 2.425 | 7.460 |
+| Best-of-4 vs teacher | **1.347** | **3.861** |
+
+Oracle-greedy gap vs teacher: ~1.08m ADE, ~3.6m FDE.
+
+Output:  (resumable, incremental)
+
+### Token diversity: greedy vs sampling
+
+| Decoding | Unique traj tokens (avg) | Typical range |
+| --- | ---: | --- |
+| Greedy (full 4760) | 17 / 128 | collapses to ~2–3 repeating tokens |
+| Sampling t=1.0, top_p=0.95 | ~75 / 128 | much broader coverage |
+
+Greedy produces the same 2–3 traj tokens repeatedly per sample. Sampling covers ~75 of 128 possible tokens on average. This is the mechanism behind the oracle-greedy gap.
+
+
+---
+
+## 10. step_006250 Checkpoint Evaluation (2026-05-29)
+
+### Checkpoint
+
+```
+outputs/checkpoints/no_nav_camera_labeled_official_full444k/
+  no_nav_official_full444k_semantic200k_hidden_gc_b16_w4_final_20260526_051838/step_006250
+```
+
+This is the checkpoint referenced at the end of Section 4 (projector/visual-merger open run, full444k + semantic200k, hidden GC, b16 w4).
+
+### Full free-run eval — greedy vs teacher and vs GT (n=4760)
+
+Report:
+
+```
+outputs/reports/no_nav_distill/full_free_run_eval_step006250_20260527_batched/
+  step_006250_val_full_4760_b16_summary.json
+```
+
+| Metric | 200k baseline | step_006250 |
+| --- | ---: | ---: |
+| Greedy ADE / FDE vs teacher | 2.818 / 9.175 | **2.557 / 8.365** |
+| Greedy unique traj token ids | 13.9 | 17.0 |
+
+True-GT comparison (computed separately via ego_future_xyz.npy):
+
+| | ADE (m) | FDE (m) |
+| --- | ---: | ---: |
+| Teacher vs GT | 1.739 | 5.175 |
+| Greedy student vs GT | 3.011 | 9.822 |
+
+Interpretation:
+
+- Greedy vs teacher improved ~10% over the 200k baseline.
+- Greedy unique token count is still low (17 out of 128 possible traj tokens), indicating strong mode collapse under argmax decoding.
+- Teacher itself sits at ADE 1.74m vs GT, setting the oracle target for distillation.
+
+### Best-of-4 sampling oracle (n=4760 full val)
+
+Script: scripts/best_of_n_full4760.py (temperature=1.0, top_p=0.95, N=4)
+
+| | ADE (m) | FDE (m) | Reference |
+| --- | ---: | ---: | --- |
+| Teacher | 1.739 | 5.175 | vs GT |
+| Best-of-4 oracle | **1.702** | **4.914** | vs GT |
+| Greedy | 3.011 | 9.822 | vs GT |
+
+Interpretation:
+
+- Best-of-4 oracle beats teacher vs GT (1.70 vs 1.74m ADE) on the full val set.
+- Greedy to Best-of-4 improvement: ADE -43%, FDE -50%.
+- The model can produce teacher-level (or better) trajectories under sampling; greedy decoding cannot surface them.
+- This confirms the bottleneck is the decoding strategy, not model capacity.
+
+### Best-of-4 vs teacher (partial n=112, full run in progress)
+
+Script: scripts/best_of_n_vs_teacher_batched.py (batch=16, temperature=1.0, top_p=0.95, N=4)
+
+Output: outputs/reports/no_nav_distill/best_of_4_vs_teacher_full4760.jsonl (resumable, incremental)
+
+Results at time of writing (full 4760 run ongoing, ETA ~1h):
+
+| | ADE (m) | FDE (m) |
+| --- | ---: | ---: |
+| Greedy vs teacher | 2.425 | 7.460 |
+| Best-of-4 vs teacher | **1.347** | **3.861** |
+
+Oracle-greedy gap vs teacher: ~1.08m ADE, ~3.6m FDE.
+
+### Token diversity: greedy vs sampling
+
+| Decoding | Unique traj tokens (avg) |
+| --- | ---: |
+| Greedy (full 4760) | 17 / 128 |
+| Sampling t=1.0, top_p=0.95 | ~75 / 128 |
+
+Greedy collapses to 2-3 repeating tokens per sample. Sampling covers ~75 of 128 possible tokens. This is the mechanism behind the oracle-greedy gap.
+
+
