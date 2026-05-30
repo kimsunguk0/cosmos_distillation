@@ -327,6 +327,31 @@ def load_ego_history_rot(sample: dict[str, Any], project_root: Path) -> np.ndarr
     return rotations
 
 
+def load_ego_future_rot(sample: dict[str, Any], project_root: Path) -> np.ndarray:
+    """Load future rotations stored at sample directory (canonicalized to ego-local at t0).
+
+    The on-disk array may have leading singleton dims (n_scenes, n_traj_per_scene, T, 3, 3);
+    we flatten leading dims into time so the result is (T_total, 3, 3) — mirroring how
+    ``load_ego_future_xyz`` in ``src/training/collator.py`` flattens leading dims for xyz.
+    """
+    sample_input = sample.get("input") or {}
+    for raw_path in (
+        sample_input.get("ego_future_rot_path"),
+        resolve_sample_path(sample, project_root) / "ego" / "ego_future_rot.npy",
+        resolve_sample_path(sample, project_root) / "ego_future_rot.npy",
+    ):
+        if isinstance(raw_path, Path):
+            path = raw_path
+        else:
+            path = _resolve_existing_path(raw_path)
+        if path is not None and path.exists():
+            arr = np.load(path).astype(np.float32)
+            if arr.ndim > 3:
+                arr = arr.reshape(-1, arr.shape[-2], arr.shape[-1])
+            return arr
+    raise FileNotFoundError(f"Missing ego_future_rot for sample {sample.get('sample_id')}")
+
+
 class TrajectoryTokenDecoder:
     """Decode Alpamayo discrete trajectory tokens into local-frame future xyz."""
 

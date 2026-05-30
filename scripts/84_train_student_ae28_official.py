@@ -59,11 +59,12 @@ from src.training.collator import (  # noqa: E402
     build_messages,
     build_user_prompt,
     fuse_history_tokens_in_input_ids,
+    load_ego_future_xyz,
     load_ego_history_xyz,
     load_sample_images,
     resolve_camera_indices,
 )
-from src.inference.checkpoint_eval import load_ego_history_rot  # noqa: E402
+from src.inference.checkpoint_eval import load_ego_future_rot, load_ego_history_rot  # noqa: E402
 from src.utils.runtime_paths import remap_external_path, resolve_student_model_path  # noqa: E402
 
 
@@ -161,6 +162,16 @@ def parse_args() -> argparse.Namespace:
             "teacher_compressed copies selected teacher expert layers and action projections. "
             "scratch keeps the Alpamayo-compatible AE structure but randomly initializes "
             "expert/action projection weights for student-KV training."
+        ),
+    )
+    parser.add_argument(
+        "--target-source",
+        choices=("teacher", "gt"),
+        default="teacher",
+        help=(
+            "Flow-matching regression target source. 'teacher' uses raw_json pred_xyz/pred_rot "
+            "(default, preserves existing behavior). 'gt' uses canonicalized ego_future_xyz/rot "
+            "from sample directory (ego-local at t0)."
         ),
     )
     parser.add_argument("--max-new-tokens", type=int, default=192)
@@ -657,8 +668,29 @@ def build_batch(
 
     target_xyz_np: list[np.ndarray] = []
     target_rot_np: list[np.ndarray] = []
-    for item in batch_items:
-        xyz, rot = raw_teacher_pred(Path(item["raw_json"]))
+    target_source = str(getattr(args, "target_source", "teacher"))
+    expected_wp = 64
+    for item, row in zip(batch_items, rows):
+        if target_source == "gt":
+            xyz = load_ego_future_xyz(row, PROJECT_ROOT).astype(np.float32)
+            rot = load_ego_future_rot(row, PROJECT_ROOT).astype(np.float32)
+            if not (xyz.ndim == 2 and xyz.shape[-1] == 3):
+                raise ValueError(
+                    f"GT future xyz unexpected shape {xyz.shape} for {item.get('sample_id')}"
+                )
+            if not (rot.ndim == 3 and rot.shape[-2:] == (3, 3)):
+                raise ValueError(
+                    f"GT future rot unexpected shape {rot.shape} for {item.get('sample_id')}"
+                )
+            if xyz.shape[0] < expected_wp or rot.shape[0] < expected_wp:
+                raise ValueError(
+                    f"GT future too short (xyz={xyz.shape[0]} wp, rot={rot.shape[0]} wp) "
+                    f"for {item.get('sample_id')}; expected >= {expected_wp}"
+                )
+            xyz = xyz[:expected_wp]
+            rot = rot[:expected_wp]
+        else:  # teacher (default)
+            xyz, rot = raw_teacher_pred(Path(item["raw_json"]))
         target_xyz_np.append(xyz)
         target_rot_np.append(rot)
     target_xyz = torch.from_numpy(np.stack(target_xyz_np, axis=0)).to(device=device, dtype=torch.float32)
@@ -671,6 +703,12 @@ def build_batch(
             ego_history_rot,
             target_xyz,
             target_rot,
+        )
+    expected_action_dims = tuple(teacher_model.action_space.get_action_space_dims())
+    if tuple(target_action.shape[1:]) != expected_action_dims:
+        raise AssertionError(
+            f"target_action shape {tuple(target_action.shape)} != expected (B, *{expected_action_dims}); "
+            f"target_source={target_source}"
         )
 
     traj_start_id = student_tokenizer.convert_tokens_to_ids("<|traj_future_start|>")
@@ -1067,6 +1105,7 @@ def main() -> None:
         student, student_tokenizer, student_processor, base_model = load_student(args)
         summary["student_base_model"] = str(base_model)
 
+        print(json.dumps({"event": "target_source", "mode": str(args.target_source)}), flush=True)
         print(json.dumps({"event": "load_teacher_action_modules_start", "device": args.teacher_load_device}), flush=True)
         teacher_model, _teacher_processor, _cfg, _cfg_path, _runtime = load_model_and_processor(
             checkpoint_path=args.teacher_checkpoint_path,
