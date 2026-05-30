@@ -647,16 +647,6 @@ def build_batch(
         prefix_mask=tokenized_data.get("attention_mask"),
         device=torch.device(args.device),
     )
-    if str(args.stage1_mode) == "official_fm":
-        n_diffusion_tokens = int(context["n_diffusion_tokens"])
-        b_star = int(outputs.sequences.shape[0])
-        position_ids = torch.arange(n_diffusion_tokens, device=torch.device(args.device))
-        position_ids = position_ids.view(1, 1, n_diffusion_tokens).repeat(3, b_star, 1).clone()
-        delta = outputs.rope_deltas.to(position_ids.device) + int(context["kv_cache_seq_len"])
-        context["position_ids"] = position_ids + delta
-        context["attention_mask"] = None
-        context["official_fm_position_ids"] = True
-
     generated_ids = outputs.sequences[:, int(fused_input_ids.shape[1]) :]
     generated_texts = model.tokenizer.batch_decode(generated_ids.detach().cpu(), skip_special_tokens=False)
     return {

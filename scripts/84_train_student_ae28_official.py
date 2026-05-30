@@ -22,6 +22,7 @@ import random
 import sys
 import time
 from collections.abc import Mapping
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -154,7 +155,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--ae-init-mode",
-        choices=("teacher_compressed", "scratch"),
+        choices=("teacher_compressed", "scratch", "student_backbone_init", "student_backbone_init_teacher_q"),
         default="teacher_compressed",
         help=(
             "teacher_compressed copies selected teacher expert layers and action projections. "
@@ -187,6 +188,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--proj-lr", type=float, default=3e-5)
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--grad-clip-norm", type=float, default=1.0)
+    parser.add_argument("--lr-warmup-steps", type=int, default=0,
+        help="Linear warmup steps for cosine schedule. 0 disables the schedule (constant LR).")
+    parser.add_argument("--min-lr", type=float, default=1e-6,
+        help="Minimum learning rate at end of cosine decay.")
+    parser.add_argument("--no-norm-bias-decay", action="store_true",
+        help="Skip weight decay for biases, LayerNorm/RMSNorm scales (matches alpamayo SFT).")
+    parser.add_argument("--train-backbone-lora", action="store_true",
+        help="Joint-train student backbone LoRA params. Only valid in teacher_forced mode.")
+    parser.add_argument("--backbone-lora-lr", type=float, default=5e-6,
+        help="Learning rate for student backbone LoRA params when joint-trained.")
     parser.add_argument("--seed", type=int, default=97)
     parser.add_argument(
         "--eval-seed-mode",
@@ -433,7 +444,80 @@ def build_scratch_expert(
     return expert
 
 
-def build_bundle(teacher_model: Any, args: argparse.Namespace) -> tuple[AE28Bundle, list[int]]:
+
+def _merged_layer_state_dict(layer: nn.Module) -> dict:
+    """Extract state dict from a (possibly LoRA-wrapped) transformer layer.
+
+    For LoRA layers, merges base_layer.weight + lora_B @ lora_A * scaling
+    to produce the effective weight. Non-LoRA parameters are copied as-is.
+    """
+    merged: dict = {}
+    for param_name, param in layer.named_parameters():
+        parts = param_name.split(".")
+        # e.g. self_attn.q_proj.base_layer.weight -> canonical: self_attn.q_proj.weight
+        if "base_layer" in parts:
+            idx = parts.index("base_layer")
+            canonical = ".".join(parts[:idx] + parts[idx + 1:])
+            # find the parent LoRA module to compute merged weight
+            parent = layer
+            for p in parts[:idx]:
+                parent = getattr(parent, p)
+            # parent is now the lora Linear module
+            if hasattr(parent, "lora_A") and hasattr(parent, "lora_B"):
+                # compute merged: base + lora_B @ lora_A * scaling
+                base_w = param.data.float()
+                for adapter_name in parent.lora_A:
+                    scale = parent.scaling.get(adapter_name, 1.0)
+                    lora_a = parent.lora_A[adapter_name].weight.data.float()
+                    lora_b = parent.lora_B[adapter_name].weight.data.float()
+                    base_w = base_w + (lora_b @ lora_a) * scale
+                merged[canonical] = base_w.to(param.dtype)
+            else:
+                merged[canonical] = param.data
+        elif any(x in parts for x in ("lora_A", "lora_B", "lora_embedding_A", "lora_embedding_B", "scaling")):
+            # skip raw LoRA delta tensors — already merged above via base_layer path
+            pass
+        else:
+            merged[param_name] = param.data
+    return merged
+
+
+def build_student_backbone_expert(
+    *,
+    student: Any,
+    dtype: torch.dtype,
+    device: str,
+    attn_implementation: str,
+) -> nn.Module:
+    """Init AE expert from student backbone transformer layers.
+
+    Student backbone has 28 layers / hidden_size=2048 matching teacher expert dims.
+    Q/K/V weights are calibrated for student KV, avoiding uniform-attention collapse
+    that random init causes over 3000+ token KV caches.
+    LoRA adapters (if present) are merged into base weights during copy.
+    """
+    student_lm = student.backbone.model.language_model
+    new_config = copy.deepcopy(student_lm.config)
+    if hasattr(new_config, "_attn_implementation"):
+        new_config._attn_implementation = attn_implementation
+    if hasattr(new_config, "attn_implementation"):
+        new_config.attn_implementation = attn_implementation
+    expert = AutoModel.from_config(new_config)
+    if hasattr(expert, "embed_tokens"):
+        del expert.embed_tokens
+    with torch.no_grad():
+        for i, src_layer in enumerate(student_lm.layers):
+            sd = _merged_layer_state_dict(src_layer)
+            expert.layers[i].load_state_dict(sd, strict=True)
+        # norm has no LoRA — direct copy
+        norm_sd = {k: v.data for k, v in student_lm.norm.named_parameters()}
+        expert.norm.load_state_dict(norm_sd, strict=True)
+    expert = expert.to(device=device, dtype=dtype).train()
+    force_attention(expert, attn_implementation)
+    return expert
+
+
+def build_bundle(teacher_model: Any, args: argparse.Namespace, student: Any = None) -> tuple[AE28Bundle, list[int]]:
     ae_dtype = torch_dtype_from_name(args.ae_dtype)
     selected = layer_mapping(
         int(teacher_model.expert.config.num_hidden_layers),
@@ -459,6 +543,51 @@ def build_bundle(teacher_model: Any, args: argparse.Namespace) -> tuple[AE28Bund
             device=args.device,
             attn_implementation=expert_attn,
         )
+        action_in_proj = copy.deepcopy(teacher_model.action_in_proj).to(device=args.device, dtype=ae_dtype).train()
+        action_out_proj = copy.deepcopy(teacher_model.action_out_proj).to(device=args.device, dtype=ae_dtype).train()
+        reset_module_parameters(action_in_proj)
+        reset_module_parameters(action_out_proj)
+    elif args.ae_init_mode == "student_backbone_init":
+        if student is None:
+            raise ValueError("student_backbone_init requires student model passed to build_bundle()")
+        expert = build_student_backbone_expert(
+            student=student,
+            dtype=ae_dtype,
+            device=args.device,
+            attn_implementation=expert_attn,
+        ).train()
+        action_in_proj = copy.deepcopy(teacher_model.action_in_proj).to(device=args.device, dtype=ae_dtype).train()
+        action_out_proj = copy.deepcopy(teacher_model.action_out_proj).to(device=args.device, dtype=ae_dtype).train()
+        reset_module_parameters(action_in_proj)
+        reset_module_parameters(action_out_proj)
+    elif args.ae_init_mode == "student_backbone_init_teacher_q":
+        if student is None:
+            raise ValueError("student_backbone_init_teacher_q requires student model passed to build_bundle()")
+        expert = build_student_backbone_expert(
+            student=student,
+            dtype=ae_dtype,
+            device=args.device,
+            attn_implementation=expert_attn,
+        ).train()
+        # Override q_proj from teacher expert layers (first_n mapping)
+        teacher_layers = teacher_model.expert.layers
+        n_layers = len(expert.layers)
+        if len(teacher_layers) < n_layers:
+            raise RuntimeError(
+                f"Teacher expert has {len(teacher_layers)} layers, need at least {n_layers}"
+            )
+        with torch.no_grad():
+            for new_idx in range(n_layers):
+                t_q = teacher_layers[new_idx].self_attn.q_proj
+                s_q = expert.layers[new_idx].self_attn.q_proj
+                if t_q.weight.shape != s_q.weight.shape:
+                    raise RuntimeError(
+                        f"Q proj shape mismatch at layer {new_idx}: "
+                        f"teacher={tuple(t_q.weight.shape)} student={tuple(s_q.weight.shape)}"
+                    )
+                s_q.weight.copy_(t_q.weight.to(device=args.device, dtype=ae_dtype))
+                if getattr(t_q, "bias", None) is not None and getattr(s_q, "bias", None) is not None:
+                    s_q.bias.copy_(t_q.bias.to(device=args.device, dtype=ae_dtype))
         action_in_proj = copy.deepcopy(teacher_model.action_in_proj).to(device=args.device, dtype=ae_dtype).train()
         action_out_proj = copy.deepcopy(teacher_model.action_out_proj).to(device=args.device, dtype=ae_dtype).train()
         reset_module_parameters(action_in_proj)
@@ -583,7 +712,8 @@ def build_batch(
         prefix_attention_mask = encoded.get("attention_mask")
         cache = outputs.past_key_values
     else:
-        with torch.no_grad(), torch.autocast(
+        backbone_grad_ctx = nullcontext() if bool(getattr(args, "train_backbone_lora", False)) else torch.no_grad()
+        with backbone_grad_ctx, torch.autocast(
             "cuda",
             dtype=torch_dtype_from_name(args.student_dtype),
             enabled=device.type == "cuda" and torch.cuda.is_available(),
@@ -952,7 +1082,7 @@ def main() -> None:
         for param in teacher_model.parameters():
             param.requires_grad_(False)
         force_attention(teacher_model.expert, "sdpa" if args.attn_implementation != "eager" else "eager")
-        bundle, selected_layers = build_bundle(teacher_model, args)
+        bundle, selected_layers = build_bundle(teacher_model, args, student=student)
         summary["ae28_selected_teacher_layers"] = selected_layers
         summary["trainable_params"] = int(sum(p.numel() for p in bundle.parameters() if p.requires_grad))
         # Free teacher VLM weights from memory; action_space/diffusion/mask helpers stay on the parent.
@@ -962,14 +1092,80 @@ def main() -> None:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-        optimizer = torch.optim.AdamW(
-            [
-                {"params": bundle.expert.parameters(), "lr": float(args.expert_lr)},
-                {"params": bundle.action_in_proj.parameters(), "lr": float(args.proj_lr)},
-                {"params": bundle.action_out_proj.parameters(), "lr": float(args.proj_lr)},
-            ],
-            weight_decay=float(args.weight_decay),
-        )
+        def _split_decay_params(mod: nn.Module, lr_val: float) -> list[dict[str, Any]]:
+            if not args.no_norm_bias_decay:
+                return [{"params": list(mod.parameters()), "lr": lr_val,
+                         "weight_decay": float(args.weight_decay)}]
+            decay, no_decay = [], []
+            for pname, p in mod.named_parameters():
+                if not p.requires_grad:
+                    continue
+                lname = pname.lower()
+                is_norm = ("norm" in lname or "layernorm" in lname or "rmsnorm" in lname or "ln_" in lname)
+                if p.dim() <= 1 or pname.endswith(".bias") or is_norm:
+                    no_decay.append(p)
+                else:
+                    decay.append(p)
+            groups: list[dict[str, Any]] = []
+            if decay:
+                groups.append({"params": decay, "lr": lr_val, "weight_decay": float(args.weight_decay)})
+            if no_decay:
+                groups.append({"params": no_decay, "lr": lr_val, "weight_decay": 0.0})
+            return groups
+
+        opt_groups: list[dict[str, Any]] = []
+        opt_groups.extend(_split_decay_params(bundle.expert, float(args.expert_lr)))
+        opt_groups.extend(_split_decay_params(bundle.action_in_proj, float(args.proj_lr)))
+        opt_groups.extend(_split_decay_params(bundle.action_out_proj, float(args.proj_lr)))
+
+        # Joint-train student backbone LoRA params (only meaningful in teacher_forced mode).
+        backbone_lora_trainable_count = 0
+        if bool(args.train_backbone_lora):
+            if str(args.prefix_mode) != "teacher_forced":
+                raise ValueError("--train-backbone-lora requires --prefix-mode teacher_forced "
+                                 "(stochastic generate() in student_free blocks gradient).")
+            backbone_lora_params: list[nn.Parameter] = []
+            for pname, p in student.backbone.named_parameters():
+                lname = pname.lower()
+                if ("lora_a" in lname or "lora_b" in lname or "lora_embedding_a" in lname or "lora_embedding_b" in lname):
+                    p.requires_grad = True
+                    backbone_lora_params.append(p)
+                else:
+                    p.requires_grad = False
+            backbone_lora_trainable_count = sum(int(p.numel()) for p in backbone_lora_params)
+            if backbone_lora_params:
+                opt_groups.append({"params": backbone_lora_params,
+                                   "lr": float(args.backbone_lora_lr),
+                                   "weight_decay": 0.0})
+            print(json.dumps({
+                "event": "backbone_lora_unfrozen",
+                "param_count": backbone_lora_trainable_count,
+                "module_count": len(backbone_lora_params),
+                "lr": float(args.backbone_lora_lr),
+            }), flush=True)
+        optimizer = torch.optim.AdamW(opt_groups)
+
+        # Cosine LR schedule with warmup (matches alpamayo_base SFT lr_scheduler_type=cosine_warmup_with_min_lr).
+        # Only enabled when --lr-warmup-steps > 0.
+        scheduler = None
+        if int(args.lr_warmup_steps) > 0:
+            import math as _math
+            warmup_steps_local = int(args.lr_warmup_steps)
+            total_steps_local = int(args.steps)
+            min_lr_local = float(args.min_lr)
+
+            def _make_lambda(base_lr: float):
+                min_ratio = min(1.0, min_lr_local / max(base_lr, 1e-12))
+                def _lr_lambda(step_idx: int) -> float:
+                    if step_idx < warmup_steps_local:
+                        return float(step_idx) / max(1, warmup_steps_local)
+                    progress = (step_idx - warmup_steps_local) / max(1, total_steps_local - warmup_steps_local)
+                    cosine = 0.5 * (1.0 + _math.cos(_math.pi * progress))
+                    return max(min_ratio, cosine * (1.0 - min_ratio) + min_ratio)
+                return _lr_lambda
+
+            lambdas = [_make_lambda(g["lr"]) for g in opt_groups]
+            scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambdas)
         log_handle = log_path.open("a", encoding="utf-8")
         best_eval: dict[str, Any] | None = None
 
@@ -1011,8 +1207,15 @@ def main() -> None:
                 device=device,
             )
             loss.backward()
-            grad_norm = torch.nn.utils.clip_grad_norm_(bundle.parameters(), float(args.grad_clip_norm))
+            if bool(args.train_backbone_lora):
+                params_for_clip = [p for p in bundle.parameters() if p.requires_grad]
+                params_for_clip += [p for p in student.backbone.parameters() if p.requires_grad]
+            else:
+                params_for_clip = list(bundle.parameters())
+            grad_norm = torch.nn.utils.clip_grad_norm_(params_for_clip, float(args.grad_clip_norm))
             optimizer.step()
+            if scheduler is not None:
+                scheduler.step()
             if step == 1 or step % int(args.log_every) == 0:
                 row = {
                     "event": "train_step",
