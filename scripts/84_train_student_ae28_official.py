@@ -131,6 +131,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--steps", type=int, default=200)
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--eval-samples", type=int, default=16)
+    parser.add_argument(
+        "--eval-num-paths",
+        type=int,
+        default=1,
+        help=(
+            "Number of trajectory samples per eval input (best-of-N diagnostic). "
+            "N=1 preserves the existing single-sample eval behavior exactly. "
+            "N>1: re-runs sample_paths() with different seeds and adds "
+            "ade_best_of_n_*, ade_mean_over_paths_*, ade_std_over_paths_* keys."
+        ),
+    )
     parser.add_argument("--eval-batch-size", type=int, default=2)
     parser.add_argument("--eval-every", type=int, default=50)
     parser.add_argument("--log-every", type=int, default=5)
@@ -995,11 +1006,21 @@ def evaluate(
     bundle.eval()
     rows: list[dict[str, Any]] = []
     device = torch.device(args.device)
+    horizon_specs = (("h1p6_16wp", 16), ("h3p2_32wp", 32), ("h6p4_64wp", 64))
+    horizon_names = tuple(name for name, _ in horizon_specs)
+    # Aggregates from path 0 only (backward-compatible "single sample" view).
     horizon_values: dict[str, dict[str, list[float]]] = {
-        "h1p6_16wp": {"ade": [], "fde": []},
-        "h3p2_32wp": {"ade": [], "fde": []},
-        "h6p4_64wp": {"ade": [], "fde": []},
+        name: {"ade": [], "fde": []} for name in horizon_names
     }
+    # Best-of-N aggregates (populated only when num_paths > 1).
+    horizon_best_values: dict[str, dict[str, list[float]]] = {
+        name: {"ade": [], "fde": []} for name in horizon_names
+    }
+    ades_best: list[float] = []
+    fdes_best: list[float] = []
+    mean_paths_all: list[float] = []
+    std_paths_all: list[float] = []
+    num_paths = max(1, int(getattr(args, "eval_num_paths", 1)))
     eval_seed_base = int(args.seed) + 1000 + (0 if str(args.eval_seed_mode) == "fixed" else int(step))
     for batch_index, batch_items in enumerate(iter_batches(items[: int(args.eval_samples)], int(args.eval_batch_size))):
         batch = build_batch(
@@ -1010,34 +1031,97 @@ def evaluate(
             teacher_model=teacher_model,
             batch_items=batch_items,
         )
-        pred = sample_paths(
-            bundle=bundle,
-            teacher_model=teacher_model,
-            batch=batch,
-            seed=eval_seed_base + batch_index,
-            device=device,
-        )
         target_xyz = batch["target_xyz"].detach().cpu().numpy()
-        for row_index, sample_id in enumerate(batch["sample_ids"]):
-            ade, fde = ade_fde(pred["pred_xyz"][row_index], target_xyz[row_index])
-            horizon_metrics: dict[str, float] = {}
-            for name, horizon in (("h1p6_16wp", 16), ("h3p2_32wp", 32), ("h6p4_64wp", 64)):
-                n = min(horizon, int(pred["pred_xyz"][row_index].shape[0]), int(target_xyz[row_index].shape[0]))
-                h_ade, h_fde = ade_fde(pred["pred_xyz"][row_index][:n], target_xyz[row_index][:n])
-                horizon_values[name]["ade"].append(h_ade)
-                horizon_values[name]["fde"].append(h_fde)
-                horizon_metrics[f"{name}_ade_m"] = h_ade
-                horizon_metrics[f"{name}_fde_m"] = h_fde
-            rows.append(
-                {
-                    "sample_id": sample_id,
-                    "ade_m": ade,
-                    "fde_m": fde,
-                    **horizon_metrics,
-                    "pred_path_length_m": path_len(pred["pred_xyz"][row_index]),
-                    "target_path_length_m": path_len(target_xyz[row_index]),
-                }
+        sample_ids = list(batch["sample_ids"])
+        n_samples_batch = len(sample_ids)
+        per_sample_ades: list[list[float]] = [[] for _ in range(n_samples_batch)]
+        per_sample_fdes: list[list[float]] = [[] for _ in range(n_samples_batch)]
+        per_sample_h_ades: list[dict[str, list[float]]] = [
+            {name: [] for name in horizon_names} for _ in range(n_samples_batch)
+        ]
+        per_sample_h_fdes: list[dict[str, list[float]]] = [
+            {name: [] for name in horizon_names} for _ in range(n_samples_batch)
+        ]
+        first_path_pred_xyz: list[np.ndarray | None] = [None] * n_samples_batch
+        for path_idx in range(num_paths):
+            # N=1 → seed = eval_seed_base + batch_index (matches legacy formula).
+            path_seed = eval_seed_base + batch_index * num_paths + path_idx
+            pred = sample_paths(
+                bundle=bundle,
+                teacher_model=teacher_model,
+                batch=batch,
+                seed=path_seed,
+                device=device,
             )
+            for row_index in range(n_samples_batch):
+                pred_xyz_row = pred["pred_xyz"][row_index]
+                target_xyz_row = target_xyz[row_index]
+                ade, fde = ade_fde(pred_xyz_row, target_xyz_row)
+                per_sample_ades[row_index].append(float(ade))
+                per_sample_fdes[row_index].append(float(fde))
+                for name, horizon in horizon_specs:
+                    n = min(horizon, int(pred_xyz_row.shape[0]), int(target_xyz_row.shape[0]))
+                    h_ade, h_fde = ade_fde(pred_xyz_row[:n], target_xyz_row[:n])
+                    per_sample_h_ades[row_index][name].append(float(h_ade))
+                    per_sample_h_fdes[row_index][name].append(float(h_fde))
+                if path_idx == 0:
+                    first_path_pred_xyz[row_index] = pred_xyz_row.copy()
+            del pred
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        for row_index, sample_id in enumerate(sample_ids):
+            ades_n = per_sample_ades[row_index]
+            fdes_n = per_sample_fdes[row_index]
+            single_ade = ades_n[0]
+            single_fde = fdes_n[0]
+            # Backward-compatible (path-0 only) aggregates.
+            horizon_metrics: dict[str, float] = {}
+            for name in horizon_names:
+                h0_ade = per_sample_h_ades[row_index][name][0]
+                h0_fde = per_sample_h_fdes[row_index][name][0]
+                horizon_values[name]["ade"].append(h0_ade)
+                horizon_values[name]["fde"].append(h0_fde)
+                horizon_metrics[f"{name}_ade_m"] = h0_ade
+                horizon_metrics[f"{name}_fde_m"] = h0_fde
+            row = {
+                "sample_id": sample_id,
+                "ade_m": single_ade,
+                "fde_m": single_fde,
+                **horizon_metrics,
+                "pred_path_length_m": path_len(first_path_pred_xyz[row_index]),
+                "target_path_length_m": path_len(target_xyz[row_index]),
+            }
+            if num_paths > 1:
+                best_idx = int(np.argmin(ades_n))
+                best_ade = ades_n[best_idx]
+                best_fde = fdes_n[best_idx]
+                ades_best.append(best_ade)
+                fdes_best.append(best_fde)
+                mean_paths_all.append(float(np.mean(ades_n)))
+                std_paths_all.append(float(np.std(ades_n)))
+                horizon_best_metrics: dict[str, float] = {}
+                for name in horizon_names:
+                    h_ades_n = per_sample_h_ades[row_index][name]
+                    h_fdes_n = per_sample_h_fdes[row_index][name]
+                    h_best_idx = int(np.argmin(h_ades_n))
+                    horizon_best_values[name]["ade"].append(h_ades_n[h_best_idx])
+                    horizon_best_values[name]["fde"].append(h_fdes_n[h_best_idx])
+                    horizon_best_metrics[f"{name}_ade_best_of_n_m"] = h_ades_n[h_best_idx]
+                    horizon_best_metrics[f"{name}_fde_best_of_n_m"] = h_fdes_n[h_best_idx]
+                row.update(
+                    {
+                        "ade_best_of_n_m": best_ade,
+                        "fde_best_of_n_m": best_fde,
+                        "ade_single_m": single_ade,
+                        "ade_mean_over_paths_m": float(np.mean(ades_n)),
+                        "ade_std_over_paths_m": float(np.std(ades_n)),
+                        "ade_all_paths_m": [float(a) for a in ades_n],
+                        "best_path_idx": best_idx,
+                        **horizon_best_metrics,
+                    }
+                )
+            rows.append(row)
         del batch
         gc.collect()
         if torch.cuda.is_available():
@@ -1047,6 +1131,7 @@ def evaluate(
     out = {
         "event": "eval",
         "step": int(step),
+        "eval_num_paths": int(num_paths),
         "eval_seed_mode": str(args.eval_seed_mode),
         "eval_seed_base": int(eval_seed_base),
         "eval_count": len(rows),
@@ -1065,6 +1150,22 @@ def evaluate(
         },
         "rows": rows,
     }
+    if num_paths > 1:
+        out["ade_best_of_n_mean_m"] = float(np.mean(ades_best)) if ades_best else None
+        out["ade_best_of_n_p50_m"] = float(np.percentile(ades_best, 50)) if ades_best else None
+        out["fde_best_of_n_mean_m"] = float(np.mean(fdes_best)) if fdes_best else None
+        out["fde_best_of_n_p50_m"] = float(np.percentile(fdes_best, 50)) if fdes_best else None
+        out["ade_mean_over_paths_mean_m"] = float(np.mean(mean_paths_all)) if mean_paths_all else None
+        out["ade_std_over_paths_mean_m"] = float(np.mean(std_paths_all)) if std_paths_all else None
+        out["horizon_best_of_n"] = {
+            name: {
+                "ade_mean_m": float(np.mean(values["ade"])) if values["ade"] else None,
+                "ade_p50_m": float(np.percentile(values["ade"], 50)) if values["ade"] else None,
+                "fde_mean_m": float(np.mean(values["fde"])) if values["fde"] else None,
+                "fde_p50_m": float(np.percentile(values["fde"], 50)) if values["fde"] else None,
+            }
+            for name, values in horizon_best_values.items()
+        }
     bundle.train()
     return out
 
