@@ -142,6 +142,17 @@ def parse_args() -> argparse.Namespace:
             "ade_best_of_n_*, ade_mean_over_paths_*, ade_std_over_paths_* keys."
         ),
     )
+    parser.add_argument(
+        "--train-ade-every",
+        type=int,
+        default=0,
+        help=(
+            "If > 0, every N training steps, additionally run sample_paths() on the "
+            "CURRENT training batch and log in-distribution train_inb_ade_m. "
+            "Diagnostic only — does not affect gradients (bundle.eval() + torch.no_grad, "
+            "RNG state saved/restored). Default 0 disables (no behavior change)."
+        ),
+    )
     parser.add_argument("--eval-batch-size", type=int, default=2)
     parser.add_argument("--eval-every", type=int, default=50)
     parser.add_argument("--log-every", type=int, default=5)
@@ -1370,6 +1381,74 @@ def main() -> None:
                 print(json.dumps(row), flush=True)
                 log_handle.write(json.dumps(row) + "\n")
                 log_handle.flush()
+            if int(getattr(args, "train_ade_every", 0)) > 0 and step % int(args.train_ade_every) == 0:
+                # In-batch ADE diagnostic: did the model memorize the training samples it just saw?
+                _torch_rng = torch.get_rng_state()
+                _cuda_rng = (
+                    torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+                )
+                bundle.eval()
+                try:
+                    train_seed = int(args.seed) + 2_000_000 + int(step)
+                    with torch.no_grad():
+                        pred_tr = sample_paths(
+                            bundle=bundle,
+                            teacher_model=teacher_model,
+                            batch=batch,
+                            seed=train_seed,
+                            device=device,
+                        )
+                finally:
+                    bundle.train()
+                    torch.set_rng_state(_torch_rng)
+                    if _cuda_rng is not None:
+                        torch.cuda.set_rng_state_all(_cuda_rng)
+                target_xyz_tr = batch["target_xyz"].detach().cpu().numpy()
+                in_batch_ades: list[float] = []
+                in_batch_fdes: list[float] = []
+                in_batch_h: dict[str, dict[str, list[float]]] = {
+                    "h1p6_16wp": {"ade": [], "fde": []},
+                    "h3p2_32wp": {"ade": [], "fde": []},
+                    "h6p4_64wp": {"ade": [], "fde": []},
+                }
+                per_sample_target_xyz_abs: list[float] = []
+                for r_idx in range(pred_tr["pred_xyz"].shape[0]):
+                    p_xyz = pred_tr["pred_xyz"][r_idx]
+                    t_xyz = target_xyz_tr[r_idx]
+                    ade_tr, fde_tr = ade_fde(p_xyz, t_xyz)
+                    in_batch_ades.append(float(ade_tr))
+                    in_batch_fdes.append(float(fde_tr))
+                    for name, horizon in (("h1p6_16wp", 16), ("h3p2_32wp", 32), ("h6p4_64wp", 64)):
+                        n_h = min(horizon, int(p_xyz.shape[0]), int(t_xyz.shape[0]))
+                        h_ade, h_fde = ade_fde(p_xyz[:n_h], t_xyz[:n_h])
+                        in_batch_h[name]["ade"].append(float(h_ade))
+                        in_batch_h[name]["fde"].append(float(h_fde))
+                    per_sample_target_xyz_abs.append(float(np.abs(t_xyz).mean()))
+                train_inb_row = {
+                    "event": "train_inb_ade",
+                    "step": int(step),
+                    "train_inb_ade_m": float(np.mean(in_batch_ades)) if in_batch_ades else None,
+                    "train_inb_ade_p50_m": float(np.percentile(in_batch_ades, 50)) if in_batch_ades else None,
+                    "train_inb_fde_m": float(np.mean(in_batch_fdes)) if in_batch_fdes else None,
+                    "train_inb_horizon": {
+                        name: {
+                            "ade_mean_m": float(np.mean(v["ade"])) if v["ade"] else None,
+                            "fde_mean_m": float(np.mean(v["fde"])) if v["fde"] else None,
+                        }
+                        for name, v in in_batch_h.items()
+                    },
+                    "batch_sample_ids": list(batch["sample_ids"]),
+                    "batch_target_xyz_abs_mean_per_sample": per_sample_target_xyz_abs,
+                    "batch_loss": float(loss.detach().cpu()) if loss is not None else None,
+                    "train_seed_used": int(train_seed),
+                }
+                print(json.dumps(train_inb_row), flush=True)
+                log_handle.write(json.dumps(train_inb_row) + "\n")
+                log_handle.flush()
+                del pred_tr
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
             del batch, loss
             gc.collect()
             if torch.cuda.is_available():
