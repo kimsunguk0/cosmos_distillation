@@ -254,6 +254,15 @@ current Stage 2 run:
   outputs/action_expert/stage2_200k_b8_nt16_fa2_speed_20260603
 ```
 
+## Next Work
+
+Planned next experiments after the current Stage 2 readout:
+
+- Apply FLEX to improve the student conditioning/adaptation path.
+- Apply QA-LoRA as the next parameter-efficient adaptation pass.
+- Re-evaluate with the same held-out split and report both deployable ADE and
+  oracle minADE@N so selection quality and sample quality stay separated.
+
 ## Decision Rules
 
 Use the next Stage 2 evals to decide the next move:
