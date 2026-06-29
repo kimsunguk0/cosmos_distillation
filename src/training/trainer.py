@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 from transformers import LogitsProcessor, LogitsProcessorList
 
 from src.training.losses import (
@@ -37,7 +38,7 @@ from src.training.losses import (
     trajectory_control_regression_losses,
     weighted_causal_ce,
 )
-from src.training.flex_batch import compress_batch_for_flex
+from src.training.flex_batch import attach_qwen_mrope_position_ids, compress_batch_for_flex
 
 
 @dataclass(slots=True)
@@ -57,6 +58,7 @@ class ScheduledSamplingConfig:
     enabled: bool = False
     probability: float = 0.0
     probability_start: float | None = None
+    start_step: int = 0
     ramp_steps: int = 0
     traj_token_start_id: int = 0
     replacement_vocab_size: int = 3000
@@ -64,6 +66,25 @@ class ScheduledSamplingConfig:
     prefix_tokens: int = 0
     autoregressive_prefix: bool = False
     generated_prefix_topk_kd_scale: float = 1.0
+
+
+@dataclass(slots=True)
+class OnPolicyGKDConfig:
+    enabled: bool = False
+    probability: float = 0.0
+    probability_start: float | None = None
+    start_step: int = 0
+    ramp_steps: int = 0
+    traj_token_start_id: int = 0
+    replacement_vocab_size: int = 3000
+    rollout_tokens: int = 128
+    loss_weight: float = 1.0
+    kd_temperature: float = 1.5
+    do_sample: bool = True
+    generation_temperature: float = 0.6
+    top_p: float = 0.98
+    top_k: int = 0
+    teacher_token_id_map: dict[int, int] | None = None
 
 
 class _FutureTokenRangeLogitsProcessor(LogitsProcessor):
@@ -105,6 +126,27 @@ def move_batch_to_device(batch: dict[str, Any], device: torch.device) -> dict[st
     return moved
 
 
+def prepare_flex_batch_for_model(batch: dict[str, Any], model: Any) -> dict[str, Any]:
+    """Apply FLEX placeholder compression before device transfer when possible."""
+    if "flex_stats" in batch:
+        return batch
+    unwrapped_model = getattr(model, "module", model)
+    if not (hasattr(unwrapped_model, "flex_enabled") and unwrapped_model.flex_enabled()):
+        return batch
+    flex_cfg = getattr(unwrapped_model, "flex_scene_config", None)
+    if flex_cfg is None:
+        return batch
+    batch = attach_qwen_mrope_position_ids(batch, unwrapped_model)
+    return compress_batch_for_flex(
+        batch,
+        image_token_id=int(getattr(unwrapped_model, "image_token_id")),
+        tokens_per_image=int(getattr(flex_cfg, "tokens_per_image")),
+        pad_token_id=int(getattr(unwrapped_model, "pad_token_id", 0) or 0),
+        preserve_original_position_ids=True,
+        selection_strategy=str(getattr(flex_cfg, "selection_strategy", "first") or "first"),
+    )
+
+
 def _zero(device: torch.device) -> torch.Tensor:
     return torch.tensor(0.0, device=device)
 
@@ -123,14 +165,34 @@ def _restrict_traj_token_mask_to_prefix(
 def _scheduled_sampling_probability(config: ScheduledSamplingConfig, global_step: int | None) -> float:
     target_probability = min(max(float(config.probability), 0.0), 1.0)
     ramp_steps = max(int(getattr(config, "ramp_steps", 0) or 0), 0)
+    start_step = max(int(getattr(config, "start_step", 0) or 0), 0)
+    step = max(int(global_step or 0), 0)
+    if step < start_step:
+        return 0.0
     if ramp_steps <= 0:
         return target_probability
     start_probability = getattr(config, "probability_start", None)
     if start_probability is None:
         start_probability = 0.0
     start_probability = min(max(float(start_probability), 0.0), 1.0)
+    ramp_ratio = min(float(step - start_step) / float(ramp_steps), 1.0)
+    return start_probability + (target_probability - start_probability) * ramp_ratio
+
+
+def _on_policy_gkd_probability(config: OnPolicyGKDConfig, global_step: int | None) -> float:
+    target_probability = min(max(float(config.probability), 0.0), 1.0)
+    ramp_steps = max(int(getattr(config, "ramp_steps", 0) or 0), 0)
+    start_step = max(int(getattr(config, "start_step", 0) or 0), 0)
     step = max(int(global_step or 0), 0)
-    ramp_ratio = min(float(step) / float(ramp_steps), 1.0)
+    if step < start_step:
+        return 0.0
+    if ramp_steps <= 0:
+        return target_probability
+    start_probability = getattr(config, "probability_start", None)
+    if start_probability is None:
+        start_probability = 0.0
+    start_probability = min(max(float(start_probability), 0.0), 1.0)
+    ramp_ratio = min(float(step - start_step) / float(ramp_steps), 1.0)
     return start_probability + (target_probability - start_probability) * ramp_ratio
 
 
@@ -263,6 +325,10 @@ def _generate_flex_autoregressive_prefix_tokens(
     *,
     prefix_tokens: int,
     logits_processor: LogitsProcessorList,
+    do_sample: bool = False,
+    temperature: float = 1.0,
+    top_p: float = 1.0,
+    top_k: int = 0,
 ) -> torch.Tensor | None:
     generated = prefix_batch["input_ids"].clone()
     attention_mask = prefix_batch["attention_mask"].clone()
@@ -291,7 +357,28 @@ def _generate_flex_autoregressive_prefix_tokens(
     for token_index in range(max(int(prefix_tokens), 0)):
         scores = logits[:, -1, :]
         scores = logits_processor(generated, scores)
-        next_token = scores.argmax(dim=-1, keepdim=True)
+        if do_sample:
+            sample_scores = scores.float()
+            sample_temperature = max(float(temperature), 1e-6)
+            sample_scores = sample_scores / sample_temperature
+            resolved_top_k = int(top_k or 0)
+            if resolved_top_k > 0 and resolved_top_k < int(sample_scores.shape[-1]):
+                kth_values = torch.topk(sample_scores, k=resolved_top_k, dim=-1).values[:, -1:]
+                sample_scores = sample_scores.masked_fill(sample_scores < kth_values, torch.finfo(sample_scores.dtype).min)
+            resolved_top_p = float(top_p or 1.0)
+            if 0.0 < resolved_top_p < 1.0:
+                sorted_scores, sorted_indices = torch.sort(sample_scores, descending=True, dim=-1)
+                sorted_probs = torch.softmax(sorted_scores, dim=-1)
+                cumulative = sorted_probs.cumsum(dim=-1)
+                remove_sorted = cumulative > resolved_top_p
+                remove_sorted[:, 0] = False
+                remove_mask = torch.zeros_like(remove_sorted)
+                remove_mask.scatter_(1, sorted_indices, remove_sorted)
+                sample_scores = sample_scores.masked_fill(remove_mask, torch.finfo(sample_scores.dtype).min)
+            probs = torch.softmax(sample_scores, dim=-1)
+            next_token = torch.multinomial(probs, num_samples=1)
+        else:
+            next_token = scores.argmax(dim=-1, keepdim=True)
         generated = torch.cat([generated, next_token], dim=1)
         attention_mask = torch.cat(
             [attention_mask, torch.ones_like(next_token, dtype=attention_mask.dtype)],
@@ -330,6 +417,10 @@ def _generate_autoregressive_prefix_tokens(
     prefix_tokens: int,
     vocab_start: int,
     vocab_size: int,
+    do_sample: bool = False,
+    temperature: float = 1.0,
+    top_p: float = 1.0,
+    top_k: int = 0,
 ) -> tuple[torch.Tensor | None, list[torch.Tensor], float]:
     unwrapped_model = getattr(model, "module", model)
     backbone = getattr(unwrapped_model, "backbone", None)
@@ -365,6 +456,10 @@ def _generate_autoregressive_prefix_tokens(
             prefix_batch,
             prefix_tokens=prefix_tokens,
             logits_processor=logits_processor,
+            do_sample=do_sample,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
         )
         if generated_tokens is None:
             return None, traj_positions_by_row, 0.0
@@ -378,7 +473,7 @@ def _generate_autoregressive_prefix_tokens(
         "attention_mask": prefix_attention_mask,
         "max_new_tokens": int(prefix_tokens),
         "min_new_tokens": int(prefix_tokens),
-        "do_sample": False,
+        "do_sample": bool(do_sample),
         "use_cache": True,
         "pad_token_id": int(pad_token_id),
         "eos_token_id": None,
@@ -386,6 +481,10 @@ def _generate_autoregressive_prefix_tokens(
         "return_dict_in_generate": False,
         "logits_processor": logits_processor,
     }
+    if do_sample:
+        generate_kwargs["temperature"] = float(temperature)
+        generate_kwargs["top_p"] = float(top_p)
+        generate_kwargs["top_k"] = int(top_k or 0)
     if selected_pixel_values is not None:
         generate_kwargs["pixel_values"] = selected_pixel_values
     if selected_image_grid_thw is not None:
@@ -591,6 +690,229 @@ def _apply_scheduled_sampling(
     }, kd_sample_scale
 
 
+def _extract_logits(output: Any) -> torch.Tensor:
+    if isinstance(output, dict):
+        return output["logits"]
+    logits = getattr(output, "logits", None)
+    if logits is None and hasattr(output, "language_model_outputs"):
+        logits = getattr(output.language_model_outputs, "logits", None)
+    if logits is None:
+        raise ValueError("Model forward did not return logits.")
+    return logits
+
+
+def _teacher_forward_logits_for_gkd(
+    teacher_model,
+    batch: dict[str, Any],
+    input_ids: torch.Tensor,
+    token_id_map: dict[int, int] | None = None,
+) -> torch.Tensor:
+    teacher_input_ids = input_ids
+    if token_id_map:
+        teacher_input_ids = input_ids.clone()
+        for student_id, teacher_id in token_id_map.items():
+            if int(student_id) == int(teacher_id):
+                continue
+            teacher_input_ids[input_ids == int(student_id)] = int(teacher_id)
+    kwargs: dict[str, Any] = {
+        "input_ids": teacher_input_ids,
+        "attention_mask": batch.get("attention_mask"),
+        "pixel_values": batch.get("pixel_values"),
+        "image_grid_thw": batch.get("image_grid_thw"),
+        "return_dict": True,
+        "use_cache": False,
+        "output_hidden_states": False,
+    }
+    kwargs = {key: value for key, value in kwargs.items() if value is not None}
+    try:
+        return _extract_logits(teacher_model(**kwargs))
+    except TypeError:
+        for optional_key in ("return_dict", "use_cache", "output_hidden_states"):
+            kwargs.pop(optional_key, None)
+        return _extract_logits(teacher_model(**kwargs))
+
+
+def _codebook_kl_loss(
+    student_logits: torch.Tensor,
+    teacher_logits: torch.Tensor,
+    prediction_mask: torch.Tensor,
+    *,
+    vocab_start: int,
+    vocab_size: int,
+    temperature: float,
+) -> torch.Tensor:
+    if int(vocab_start) < 0 or int(vocab_size) <= 0:
+        return _zero(student_logits.device)
+    if student_logits.shape[:2] != teacher_logits.shape[:2]:
+        seq_len = min(int(student_logits.shape[1]), int(teacher_logits.shape[1]), int(prediction_mask.shape[1]))
+        student_logits = student_logits[:, :seq_len]
+        teacher_logits = teacher_logits[:, :seq_len]
+        prediction_mask = prediction_mask[:, :seq_len]
+    shifted_mask = prediction_mask[:, 1:].to(dtype=torch.bool)
+    if not bool(torch.any(shifted_mask).item()):
+        return _zero(student_logits.device)
+    student_selected = student_logits[:, :-1, int(vocab_start) : int(vocab_start) + int(vocab_size)][shifted_mask]
+    teacher_selected = teacher_logits[:, :-1, int(vocab_start) : int(vocab_start) + int(vocab_size)][shifted_mask]
+    if student_selected.numel() == 0 or teacher_selected.numel() == 0:
+        return _zero(student_logits.device)
+    kd_temperature = max(float(temperature), 1e-6)
+    student_log_probs = F.log_softmax(student_selected.float() / kd_temperature, dim=-1)
+    teacher_probs = F.softmax(teacher_selected.float() / kd_temperature, dim=-1)
+    return F.kl_div(student_log_probs, teacher_probs, reduction="batchmean") * (kd_temperature**2)
+
+
+def run_on_policy_gkd_step(
+    model,
+    teacher_model,
+    batch: dict[str, Any],
+    active_traj_token_mask: torch.Tensor,
+    config: OnPolicyGKDConfig | None,
+    global_step: int | None = None,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """Run student-rollout / teacher-forward KL on generated trajectory tokens."""
+    device = batch["input_ids"].device
+    if config is None or teacher_model is None or not config.enabled or float(config.probability) <= 0:
+        return _zero(device), {
+            "on_policy_gkd_active": 0.0,
+            "on_policy_gkd_probability": 0.0,
+            "on_policy_gkd_rows": 0.0,
+            "on_policy_gkd_tokens": 0.0,
+            "on_policy_gkd_loss": 0.0,
+        }
+    probability = _on_policy_gkd_probability(config, global_step)
+    if probability <= 0:
+        return _zero(device), {
+            "on_policy_gkd_active": 0.0,
+            "on_policy_gkd_probability": float(probability),
+            "on_policy_gkd_rows": 0.0,
+            "on_policy_gkd_tokens": 0.0,
+            "on_policy_gkd_loss": 0.0,
+        }
+
+    candidate_mask = active_traj_token_mask.to(dtype=torch.bool)
+    candidate_count = int(candidate_mask.sum().detach().cpu())
+    if candidate_count <= 0:
+        return _zero(device), {
+            "on_policy_gkd_active": 0.0,
+            "on_policy_gkd_probability": float(probability),
+            "on_policy_gkd_rows": 0.0,
+            "on_policy_gkd_tokens": 0.0,
+            "on_policy_gkd_loss": 0.0,
+        }
+
+    row_draw = torch.rand((candidate_mask.shape[0],), device=device) < float(probability)
+    selected_rows = torch.nonzero(row_draw, as_tuple=False).flatten().tolist()
+    selected_rows = [int(row_index) for row_index in selected_rows if bool(candidate_mask[int(row_index)].any().item())]
+    if not selected_rows:
+        return _zero(device), {
+            "on_policy_gkd_active": 0.0,
+            "on_policy_gkd_probability": float(probability),
+            "on_policy_gkd_rows": 0.0,
+            "on_policy_gkd_tokens": 0.0,
+            "on_policy_gkd_loss": 0.0,
+            "on_policy_gkd_candidate_tokens": float(candidate_count),
+        }
+
+    was_training = bool(model.training)
+    model.eval()
+    try:
+        with torch.no_grad():
+            generated_tokens, traj_positions_by_row, valid_rate = _generate_autoregressive_prefix_tokens(
+                model,
+                batch,
+                active_traj_token_mask,
+                selected_rows,
+                prefix_tokens=int(config.rollout_tokens),
+                vocab_start=int(config.traj_token_start_id),
+                vocab_size=int(config.replacement_vocab_size),
+                do_sample=bool(config.do_sample),
+                temperature=float(config.generation_temperature),
+                top_p=float(config.top_p),
+                top_k=int(config.top_k),
+            )
+    finally:
+        if was_training:
+            model.train()
+
+    if generated_tokens is None or not traj_positions_by_row:
+        return _zero(device), {
+            "on_policy_gkd_active": 0.0,
+            "on_policy_gkd_probability": float(probability),
+            "on_policy_gkd_rows": float(len(selected_rows)),
+            "on_policy_gkd_tokens": 0.0,
+            "on_policy_gkd_loss": 0.0,
+            "on_policy_gkd_generation_failed": 1.0,
+        }
+
+    rollout_input_ids = batch["input_ids"].clone()
+    prediction_mask = torch.zeros_like(batch["input_ids"], dtype=torch.bool)
+    replaced_count = 0
+    match_count = 0
+    for generated_row, row_index in enumerate(selected_rows):
+        traj_positions = traj_positions_by_row[generated_row][: int(config.rollout_tokens)]
+        if traj_positions.numel() <= 0:
+            continue
+        token_count = min(int(traj_positions.numel()), int(generated_tokens.shape[1]))
+        if token_count <= 0:
+            continue
+        positions = traj_positions[:token_count]
+        generated = generated_tokens[generated_row, :token_count].to(dtype=rollout_input_ids.dtype)
+        targets = batch["input_ids"][row_index, positions]
+        rollout_input_ids[row_index, positions] = generated
+        prediction_mask[row_index, positions] = True
+        replaced_count += token_count
+        match_count += int((generated == targets).sum().detach().cpu())
+
+    if replaced_count <= 0:
+        return _zero(device), {
+            "on_policy_gkd_active": 0.0,
+            "on_policy_gkd_probability": float(probability),
+            "on_policy_gkd_rows": float(len(selected_rows)),
+            "on_policy_gkd_tokens": 0.0,
+            "on_policy_gkd_loss": 0.0,
+        }
+
+    with torch.no_grad():
+        teacher_logits = _teacher_forward_logits_for_gkd(
+            teacher_model,
+            batch,
+            rollout_input_ids,
+            token_id_map=getattr(config, "teacher_token_id_map", None),
+        ).detach()
+    student_outputs = model(
+        input_ids=rollout_input_ids,
+        attention_mask=batch["attention_mask"],
+        pixel_values=batch.get("pixel_values"),
+        image_grid_thw=batch.get("image_grid_thw"),
+        return_hidden_states=False,
+        compute_meta_action=False,
+        compute_traj_aux=False,
+    )
+    student_logits = _extract_logits(student_outputs)
+    raw_loss = _codebook_kl_loss(
+        student_logits,
+        teacher_logits,
+        prediction_mask,
+        vocab_start=int(config.traj_token_start_id),
+        vocab_size=int(config.replacement_vocab_size),
+        temperature=float(config.kd_temperature),
+    )
+    loss = float(config.loss_weight) * raw_loss
+    del student_outputs, student_logits, teacher_logits
+    return loss, {
+        "on_policy_gkd_active": 1.0,
+        "on_policy_gkd_probability": float(probability),
+        "on_policy_gkd_rows": float(len(selected_rows)),
+        "on_policy_gkd_tokens": float(replaced_count),
+        "on_policy_gkd_valid_rate": float(valid_rate),
+        "on_policy_gkd_match_rate": float(match_count / max(replaced_count, 1)),
+        "on_policy_gkd_raw_loss": float(raw_loss.detach().cpu()),
+        "on_policy_gkd_loss": float(loss.detach().cpu()),
+        "on_policy_gkd_weight": float(config.loss_weight),
+        "on_policy_gkd_rollout_tokens": float(config.rollout_tokens),
+    }
+
+
 def _teacher_view_has_active_supervision(
     teacher_view: dict[str, Any] | None,
     weights: DistillationLossWeights,
@@ -629,18 +951,13 @@ def run_train_step(
     traj_body_prefix_tokens: int | None = None,
     traj_hidden_bridge_config: dict[str, float] | None = None,
     scheduled_sampling_config: ScheduledSamplingConfig | None = None,
+    on_policy_teacher_model=None,
+    on_policy_gkd_config: OnPolicyGKDConfig | None = None,
     global_step: int | None = None,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Run one train step and return total loss plus scalar logs."""
     unwrapped_model = getattr(model, "module", model)
-    if hasattr(unwrapped_model, "flex_enabled") and unwrapped_model.flex_enabled():
-        flex_cfg = getattr(unwrapped_model, "flex_scene_config", None)
-        batch = compress_batch_for_flex(
-            batch,
-            image_token_id=int(getattr(unwrapped_model, "image_token_id")),
-            tokens_per_image=int(getattr(flex_cfg, "tokens_per_image")),
-            pad_token_id=int(getattr(unwrapped_model, "pad_token_id", 0) or 0),
-        )
+    batch = prepare_flex_batch_for_model(batch, unwrapped_model)
     flex_stats = dict(batch.get("flex_stats") or {})
     device = batch["input_ids"].device
     active_traj_token_mask = _restrict_traj_token_mask_to_prefix(
@@ -815,6 +1132,14 @@ def run_train_step(
     teacher_traj_hidden_residual_diag = _zero(device)
     feat_align = _zero(device)
     boundary_action_xyz = _zero(device)
+    on_policy_gkd = _zero(device)
+    on_policy_gkd_logs: dict[str, float] = {
+        "on_policy_gkd_active": 0.0,
+        "on_policy_gkd_probability": 0.0,
+        "on_policy_gkd_rows": 0.0,
+        "on_policy_gkd_tokens": 0.0,
+        "on_policy_gkd_loss": 0.0,
+    }
 
     hard_teacher_pair_weights = None
     if batch.get("teacher_pair_weight") is not None:
@@ -1077,6 +1402,16 @@ def run_train_step(
         )
     del hard_outputs
 
+    if on_policy_teacher_model is not None and on_policy_gkd_config is not None and on_policy_gkd_config.enabled:
+        on_policy_gkd, on_policy_gkd_logs = run_on_policy_gkd_step(
+            model,
+            on_policy_teacher_model,
+            batch,
+            active_traj_token_mask,
+            on_policy_gkd_config,
+            global_step=global_step,
+        )
+
     teacher_view = batch.get("teacher_view")
     teacher_cot_acc = _zero(device)
     hard_teacher_traj_active = batch.get("teacher_traj_labels") is not None
@@ -1173,6 +1508,7 @@ def run_train_step(
         + weights.traj_aux_guided_kd * traj_aux_guided_kd
         + weights.traj_aux_pseudo_ce * traj_aux_pseudo_ce
         + weights.boundary_action_xyz * boundary_action_xyz
+        + on_policy_gkd
     )
 
     metrics = export_metric_logs(
@@ -1213,6 +1549,7 @@ def run_train_step(
         "traj_aux_guided_kd": float(traj_aux_guided_kd.detach().cpu()),
         "traj_aux_pseudo_ce": float(traj_aux_pseudo_ce.detach().cpu()),
         "boundary_action_xyz": float(boundary_action_xyz.detach().cpu()),
+        **on_policy_gkd_logs,
         "hard_token_acc": float(hard_token_acc.detach().cpu()),
         "hard_cot_acc": float(hard_cot_acc.detach().cpu()),
         "hard_traj_acc": float(hard_traj_acc.detach().cpu()),

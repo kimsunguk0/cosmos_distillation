@@ -15,6 +15,7 @@ from typing import Any, Sequence
 import numpy as np
 import torch
 from transformers import LogitsProcessorList, StoppingCriteriaList
+from transformers.generation.logits_process import TemperatureLogitsWarper, TopPLogitsWarper
 
 from src.data.consistency import normalize_action_class
 from src.data.path_semantics import extract_path_semantics
@@ -38,7 +39,7 @@ from src.training.collator import (
     resolve_image_relative_timestamps,
     resolve_sample_path,
 )
-from src.training.flex_batch import compress_batch_for_flex
+from src.training.flex_batch import attach_qwen_mrope_position_ids, compress_batch_for_flex
 from src.utils.runtime_paths import (
     remap_external_path,
     resolve_alpamayo_model_path,
@@ -103,6 +104,30 @@ def _past_seq_len(past_key_values: Any) -> int | None:
         return None
 
 
+def _model_rope_deltas(model) -> torch.Tensor | None:
+    candidates = [model]
+    conditional = model._conditional_backbone() if hasattr(model, "_conditional_backbone") else None
+    if conditional is not None:
+        candidates.append(conditional)
+        inner = getattr(conditional, "model", None)
+        if inner is not None:
+            candidates.append(inner)
+    backbone = getattr(model, "backbone", None)
+    if backbone is not None:
+        candidates.append(backbone)
+        base_model = getattr(backbone, "base_model", None)
+        if base_model is not None:
+            candidates.append(base_model)
+            inner = getattr(base_model, "model", None)
+            if inner is not None:
+                candidates.append(inner)
+    for candidate in candidates:
+        value = getattr(candidate, "rope_deltas", None)
+        if isinstance(value, torch.Tensor):
+            return value
+    return None
+
+
 def _manual_flex_generate(
     model,
     batch: dict[str, Any],
@@ -110,8 +135,12 @@ def _manual_flex_generate(
     max_new_tokens: int,
     logits_processor: LogitsProcessorList | None,
     stopping_criteria: StoppingCriteriaList | None,
+    do_sample: bool = False,
+    num_return_sequences: int = 1,
+    temperature: float = 1.0,
+    top_p: float = 1.0,
 ) -> torch.Tensor:
-    """Greedy generation for the FLEX wrapper.
+    """Generation for the FLEX wrapper.
 
     HF `generate()` calls the wrapped VLM directly and therefore bypasses the
     compressed prompt embeddings.  This path runs the FLEX prefill through the
@@ -120,6 +149,23 @@ def _manual_flex_generate(
     """
     generated = batch["input_ids"].clone()
     attention_mask = batch["attention_mask"].clone()
+    position_delta: torch.Tensor | None = None
+    position_ids = batch.get("position_ids")
+    if isinstance(position_ids, torch.Tensor):
+        row_positions = position_ids[0] if position_ids.ndim == 3 else position_ids
+        valid = attention_mask.to(dtype=torch.bool)
+        if bool(valid.any().item()):
+            max_positions = []
+            valid_lengths = []
+            for row_index in range(int(row_positions.shape[0])):
+                row_valid = valid[row_index]
+                if bool(row_valid.any().item()):
+                    max_positions.append(row_positions[row_index, row_valid].max() + 1)
+                    valid_lengths.append(row_valid.long().sum())
+            if max_positions:
+                position_delta = torch.stack(max_positions).to(dtype=torch.long) - torch.stack(valid_lengths).to(
+                    dtype=torch.long
+                )
     prefill_keys = (
         "input_ids",
         "attention_mask",
@@ -129,6 +175,13 @@ def _manual_flex_generate(
         "relative_timestamps",
         "camera_counts",
         "frames_per_camera",
+        "position_ids",
+        "flex_allow_dummy_image_slots",
+        "flex_residual_image_slots",
+        "flex_residual_scale",
+        "flex_passthrough_image_slots",
+        "flex_selection_strategy",
+        "flex_scene_deepstack",
     )
     prefill_kwargs = {key: batch[key] for key in prefill_keys if key in batch}
     prefill_kwargs.update(
@@ -141,12 +194,29 @@ def _manual_flex_generate(
     )
     output = model(**prefill_kwargs)
     logits, past_key_values = _model_logits_and_past(output)
+    rope_deltas = _model_rope_deltas(model)
+    if isinstance(rope_deltas, torch.Tensor):
+        position_delta = rope_deltas.reshape(-1).to(device=generated.device, dtype=torch.long)
 
-    for _ in range(max(int(max_new_tokens), 0)):
+    repeat_count = max(int(num_return_sequences), 1)
+    if repeat_count > 1:
+        generated = generated.repeat_interleave(repeat_count, dim=0)
+        attention_mask = attention_mask.repeat_interleave(repeat_count, dim=0)
+        logits = logits.repeat_interleave(repeat_count, dim=0)
+        past_key_values = _repeat_past_key_values(past_key_values, repeat_count)
+        if isinstance(position_delta, torch.Tensor):
+            position_delta = position_delta.repeat_interleave(repeat_count, dim=0)
+
+    for decode_step in range(max(int(max_new_tokens), 0)):
         scores = logits[:, -1, :]
         if logits_processor is not None:
             scores = logits_processor(generated, scores)
-        next_token = scores.argmax(dim=-1, keepdim=True)
+        next_token = _select_next_token(
+            scores,
+            do_sample=bool(do_sample),
+            temperature=float(temperature),
+            top_p=float(top_p),
+        )
         generated = torch.cat([generated, next_token], dim=1)
         attention_mask = torch.cat(
             [attention_mask, torch.ones_like(next_token, dtype=attention_mask.dtype)],
@@ -170,15 +240,69 @@ def _manual_flex_generate(
         }
         past_seq_len = _past_seq_len(past_key_values)
         if past_seq_len is not None:
-            decode_kwargs["cache_position"] = torch.arange(
+            cache_position = torch.arange(
                 past_seq_len,
                 past_seq_len + int(next_token.shape[1]),
                 device=next_token.device,
                 dtype=torch.long,
             )
+            decode_kwargs["cache_position"] = cache_position
+            if isinstance(position_delta, torch.Tensor):
+                batch_size = int(next_token.shape[0])
+                delta = position_delta.to(device=next_token.device, dtype=torch.long)
+                if int(delta.numel()) == 1 and batch_size > 1:
+                    delta = delta.expand(batch_size)
+                if int(delta.numel()) == batch_size:
+                    decode_kwargs["position_ids"] = (
+                        cache_position.view(1, 1, -1).expand(3, batch_size, -1)
+                        + delta.view(1, batch_size, 1)
+                    )
         output = model(**decode_kwargs)
         logits, past_key_values = _model_logits_and_past(output)
     return generated
+
+
+def _repeat_past_key_values(past_key_values: Any, repeats: int) -> Any:
+    if repeats <= 1 or past_key_values is None:
+        return past_key_values
+    if hasattr(past_key_values, "batch_repeat_interleave"):
+        past_key_values.batch_repeat_interleave(repeats)
+        return past_key_values
+    if isinstance(past_key_values, torch.Tensor):
+        return past_key_values.repeat_interleave(repeats, dim=0)
+    if isinstance(past_key_values, tuple):
+        return tuple(_repeat_past_key_values(value, repeats) for value in past_key_values)
+    if isinstance(past_key_values, list):
+        return [_repeat_past_key_values(value, repeats) for value in past_key_values]
+    if isinstance(past_key_values, dict):
+        return {key: _repeat_past_key_values(value, repeats) for key, value in past_key_values.items()}
+    return past_key_values
+
+
+def _select_next_token(
+    scores: torch.Tensor,
+    *,
+    do_sample: bool,
+    temperature: float,
+    top_p: float,
+) -> torch.Tensor:
+    if not do_sample:
+        return scores.argmax(dim=-1, keepdim=True)
+
+    warped = scores
+    if temperature > 0.0 and abs(temperature - 1.0) > 1e-6:
+        warped = TemperatureLogitsWarper(temperature)(None, warped)
+    if 0.0 < top_p < 1.0:
+        warped = TopPLogitsWarper(top_p=top_p, min_tokens_to_keep=1)(None, warped)
+
+    probs = torch.softmax(warped, dim=-1)
+    probs = torch.nan_to_num(probs, nan=0.0, posinf=0.0, neginf=0.0)
+    denom = probs.sum(dim=-1, keepdim=True)
+    fallback = warped.argmax(dim=-1, keepdim=True)
+    valid = denom.squeeze(-1) > 0
+    safe_probs = probs / denom.clamp_min(1e-12)
+    sampled = torch.multinomial(safe_probs, num_samples=1)
+    return torch.where(valid.view(-1, 1), sampled, fallback)
 
 
 def _infer_visual_float_dtype(model) -> torch.dtype:
@@ -429,6 +553,7 @@ class DecodeEvalConfig:
     image_prompt_style: str = "compact"
     prompt_text_style: str = "numeric_history_question"
     fuse_history_tokens: bool = False
+    preserve_flex_positions: bool = False
     metric_name: str = "anti_collapse_score"
 
 
@@ -538,12 +663,20 @@ def evaluate_decode_subset(
             batch["camera_counts"] = torch.tensor([len(camera_indices)], dtype=torch.long)
             batch["frames_per_camera"] = torch.tensor([frames_per_camera], dtype=torch.long)
             flex_cfg = getattr(model, "flex_scene_config")
+            if bool(getattr(config, "preserve_flex_positions", False)):
+                batch = attach_qwen_mrope_position_ids(batch, model)
             batch = compress_batch_for_flex(
                 batch,
                 image_token_id=int(getattr(model, "image_token_id")),
                 tokens_per_image=int(getattr(flex_cfg, "tokens_per_image")),
                 pad_token_id=int(getattr(tokenizer, "pad_token_id", 0) or 0),
+                preserve_original_position_ids=bool(getattr(config, "preserve_flex_positions", False)),
+                selection_strategy=str(getattr(config, "flex_selection_strategy", "first") or "first"),
             )
+            if str(getattr(config, "flex_selection_strategy", "first") or "first") != "first":
+                batch["flex_selection_strategy"] = str(getattr(config, "flex_selection_strategy"))
+            if bool(getattr(config, "flex_passthrough_image_slots", False)):
+                batch["flex_passthrough_image_slots"] = True
         visual_dtype = _infer_visual_float_dtype(model)
         batch = {
             key: (

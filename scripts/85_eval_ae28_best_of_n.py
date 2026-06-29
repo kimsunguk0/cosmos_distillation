@@ -35,16 +35,17 @@ assert _spec.loader is not None
 _spec.loader.exec_module(script_84)
 
 
-def _extract_ckpt_path(argv: list[str]) -> tuple[Path, list[str]]:
+def _extract_ckpt_path(argv: list[str]) -> tuple[Path, Path | None, list[str]]:
     """Pull --ckpt-path out of argv before handing the rest to 84's parser."""
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("--ckpt-path", type=Path, required=True)
+    pre.add_argument("--eval-summary-json", type=Path, default=None)
     parsed, remaining = pre.parse_known_args(argv)
-    return parsed.ckpt_path, remaining
+    return parsed.ckpt_path, parsed.eval_summary_json, remaining
 
 
 def main() -> None:
-    ckpt_path, remaining = _extract_ckpt_path(sys.argv[1:])
+    ckpt_path, eval_summary_json, remaining = _extract_ckpt_path(sys.argv[1:])
     if not ckpt_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
 
@@ -130,6 +131,9 @@ def main() -> None:
         items=items,
         step=int(state.get("payload", {}).get("step", 0)),
     )
+    if eval_summary_json is not None:
+        eval_summary_json.parent.mkdir(parents=True, exist_ok=True)
+        eval_summary_json.write_text(json.dumps(ev, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
     # Drop rows from the printed summary (still in the json for log files); keep top-level keys.
     print(json.dumps(ev), flush=True)
 

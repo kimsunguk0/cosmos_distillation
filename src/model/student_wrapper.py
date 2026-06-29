@@ -22,7 +22,7 @@ except ImportError:  # pragma: no cover - older transformers fallback
     Qwen3VLForConditionalGeneration = None
 
 from src.data.consistency import ACTION_CLASSES
-from src.model.flex_scene_encoder import FlexSceneConfig, FlexSceneEncoder
+from src.model.flex_scene_encoder import FlexSceneConfig, FlexSceneEncoder, MultiLevelFlexEncoder
 from src.model.tokenizer_ext import REQUIRED_SPECIAL_TOKENS, ensure_special_tokens
 
 
@@ -52,6 +52,16 @@ def _effective_local_files_only(config: StudentWrapperConfig) -> bool:
     return config.local_files_only or Path(config.student_model_name).expanduser().exists()
 
 
+def _checkpoint_artifact_source(config: StudentWrapperConfig, artifact_dir: str) -> str:
+    """Resolve tokenizer/processor subdirs saved beside a full HF model checkpoint."""
+    root = Path(config.student_model_name).expanduser()
+    if root.exists():
+        nested = root / artifact_dir
+        if nested.exists():
+            return str(nested)
+    return config.student_model_name
+
+
 class BoundaryActionHead(nn.Module):
     """Small readout from CoT/action boundary hidden states to teacher trajectory xyz."""
 
@@ -71,6 +81,57 @@ class BoundaryActionHead(nn.Module):
 
     def forward(self, boundary_hidden: torch.Tensor) -> torch.Tensor:
         return self.net(boundary_hidden.reshape(boundary_hidden.shape[0], -1)).view(-1, 64, 3)
+
+
+class FlexDeepStackProjector(nn.Module):
+    """Layer-specific low-rank adapters for compressed DeepStack tokens.
+
+    The adapters are zero-initialized at the output projection, so enabling the
+    module initially matches the no-compressed-DeepStack behavior instead of the
+    harmful "repeat final scene embeddings at every DeepStack layer" baseline.
+    """
+
+    def __init__(
+        self,
+        hidden_size: int,
+        num_layers: int,
+        *,
+        rank: int = 64,
+        dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+        hidden_size = int(hidden_size)
+        num_layers = int(num_layers)
+        rank = int(rank)
+        if hidden_size <= 0:
+            raise ValueError("FlexDeepStackProjector requires hidden_size > 0.")
+        if num_layers <= 0:
+            raise ValueError("FlexDeepStackProjector requires num_layers > 0.")
+        if rank <= 0:
+            raise ValueError("FlexDeepStackProjector requires rank > 0.")
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.rank = rank
+        self.dropout_p = float(dropout)
+        self.norm = nn.LayerNorm(hidden_size)
+        self.dropout = nn.Dropout(float(dropout))
+        self.down = nn.ModuleList(nn.Linear(hidden_size, rank, bias=False) for _ in range(num_layers))
+        self.up = nn.ModuleList(nn.Linear(rank, hidden_size, bias=False) for _ in range(num_layers))
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        for down, up in zip(self.down, self.up, strict=True):
+            nn.init.normal_(down.weight, mean=0.0, std=0.02)
+            nn.init.zeros_(up.weight)
+
+    def forward(self, scene_embeds: torch.Tensor) -> list[torch.Tensor]:
+        flat_scene = scene_embeds.reshape(-1, scene_embeds.shape[-1])
+        normalized = self.norm(flat_scene.float())
+        outputs: list[torch.Tensor] = []
+        for down, up in zip(self.down, self.up, strict=True):
+            residual = up(self.dropout(down(normalized)))
+            outputs.append(residual.to(dtype=flat_scene.dtype))
+        return outputs
 
 
 class DistillStudentModel(nn.Module):
@@ -97,7 +158,9 @@ class DistillStudentModel(nn.Module):
         self.image_token_id = image_token_id
         self.pad_token_id = pad_token_id
         self.flex_scene_config: FlexSceneConfig | None = None
-        self.flex_scene_encoder: FlexSceneEncoder | None = None
+        self.flex_scene_encoder: FlexSceneEncoder | MultiLevelFlexEncoder | None = None
+        self.flex_deepstack_projector: FlexDeepStackProjector | None = None
+        self.flex_deepstack_projector_config: dict[str, int | float] | None = None
         self.configure_flex_scene(flex_scene)
         self.meta_action_head = nn.Linear(hidden_size, num_action_classes)
         self.traj_aux_num_buckets: int = 1
@@ -133,11 +196,52 @@ class DistillStudentModel(nn.Module):
         if flex_scene is None or not bool(flex_scene.enabled):
             self.flex_scene_config = None
             self.flex_scene_encoder = None
+            self.flex_deepstack_projector = None
+            self.flex_deepstack_projector_config = None
             return
-        if self.flex_scene_config == flex_scene and self.flex_scene_encoder is not None:
+        architecture = str(getattr(flex_scene, "architecture", "single_level") or "single_level").strip().lower()
+        encoder_cls = MultiLevelFlexEncoder if architecture in {"multi_level", "ml_flex", "ml-flex"} else FlexSceneEncoder
+        if self.flex_scene_config == flex_scene and isinstance(self.flex_scene_encoder, encoder_cls):
             return
         self.flex_scene_config = flex_scene
-        self.flex_scene_encoder = FlexSceneEncoder(flex_scene)
+        self.flex_scene_encoder = encoder_cls(flex_scene)
+
+    def configure_flex_deepstack_projector(
+        self,
+        *,
+        num_layers: int,
+        rank: int = 64,
+        dropout: float = 0.0,
+    ) -> None:
+        """Attach layer-specific DeepStack adapters for compressed FLEX scene tokens."""
+        if self.flex_scene_config is None:
+            raise RuntimeError("FLEX scene must be configured before flex_deepstack_projector.")
+        config = {
+            "hidden_size": int(self.flex_scene_config.input_hidden_size),
+            "num_layers": int(num_layers),
+            "rank": int(rank),
+            "dropout": float(dropout),
+        }
+        existing = self.flex_deepstack_projector
+        if (
+            isinstance(existing, FlexDeepStackProjector)
+            and existing.hidden_size == int(config["hidden_size"])
+            and existing.num_layers == int(config["num_layers"])
+            and existing.rank == int(config["rank"])
+            and abs(float(existing.dropout_p) - float(config["dropout"])) < 1e-12
+        ):
+            self.flex_deepstack_projector_config = config
+            return
+        self.flex_deepstack_projector_config = config
+        self.flex_deepstack_projector = FlexDeepStackProjector(
+            hidden_size=int(config["hidden_size"]),
+            num_layers=int(config["num_layers"]),
+            rank=int(config["rank"]),
+            dropout=float(config["dropout"]),
+        )
+        if self.flex_scene_encoder is not None:
+            target_device = next(self.flex_scene_encoder.parameters()).device
+            self.flex_deepstack_projector.to(device=target_device)
 
     def configure_vit_projection(self, in_dim: int, out_dim: int) -> None:
         """Attach a learnable linear projection from teacher ViT dim to student hidden dim."""
@@ -307,10 +411,40 @@ class DistillStudentModel(nn.Module):
             batch_size = int(attention_mask.shape[0])
         return positions.view(1, batch_size, seq_len).expand(3, -1, -1)
 
-    def _qwen_visual_features(self, pixel_values: torch.Tensor, image_grid_thw: torch.Tensor) -> list[torch.Tensor]:
+    def _qwen_visual_features(
+        self,
+        pixel_values: torch.Tensor,
+        image_grid_thw: torch.Tensor,
+    ) -> tuple[list[torch.Tensor], list[torch.Tensor] | None]:
         conditional = self._conditional_backbone()
-        image_embeds, _ = conditional.get_image_features(pixel_values, image_grid_thw)
-        return list(image_embeds)
+        image_embeds, deepstack_image_embeds = conditional.get_image_features(pixel_values, image_grid_thw)
+        return list(image_embeds), deepstack_image_embeds
+
+    @staticmethod
+    def _flex_block_keep_offsets(
+        *,
+        length: int,
+        tokens_per_image: int,
+        strategy: str,
+        device: torch.device,
+    ) -> torch.Tensor:
+        length = max(int(length), 0)
+        keep_count = min(max(int(tokens_per_image), 0), length)
+        if keep_count <= 0:
+            return torch.empty((0,), dtype=torch.long, device=device)
+        strategy = str(strategy or "first").lower()
+        if strategy == "first":
+            return torch.arange(keep_count, dtype=torch.long, device=device)
+        if strategy == "uniform":
+            if keep_count == length:
+                return torch.arange(length, dtype=torch.long, device=device)
+            offsets = torch.div(
+                (torch.arange(keep_count, dtype=torch.long, device=device) * 2 + 1) * length,
+                2 * keep_count,
+                rounding_mode="floor",
+            )
+            return offsets.clamp_(0, length - 1)
+        raise ValueError(f"Unsupported FLEX image-token selection strategy: {strategy!r}.")
 
     @staticmethod
     def _default_camera_metadata(
@@ -387,6 +521,126 @@ class DistillStudentModel(nn.Module):
             relative_time_rows.append(torch.cat(row_times, dim=0))
         return torch.stack(camera_id_rows, dim=0), torch.stack(relative_time_rows, dim=0)
 
+    def _scene_deepstack_visual_embeds(self, scene_embeds: torch.Tensor) -> list[torch.Tensor] | None:
+        """Use compressed scene tokens as DeepStack visual injections.
+
+        Qwen3-VL feeds visual features into the decoder at several early layers.
+        Compressed FLEX image slots otherwise lose that entire pathway.  When a
+        FLEX DeepStack projector is configured this returns layer-specific
+        adapter outputs; otherwise it falls back to the repeated-scene diagnostic
+        baseline.
+        """
+        conditional = self._conditional_backbone()
+        visual_model = getattr(conditional, "visual", None)
+        layer_count = len(getattr(visual_model, "deepstack_visual_indexes", []) or [])
+        if layer_count <= 0:
+            layer_count = len(getattr(visual_model, "deepstack_merger_list", []) or [])
+        language_model = getattr(getattr(conditional, "model", None), "language_model", None)
+        if layer_count <= 0:
+            layer_count = len(getattr(language_model, "deepstack_visual_indexes", []) or [])
+        if layer_count <= 0:
+            layer_count = len(getattr(language_model, "deepstack_merger_list", []) or [])
+        if layer_count <= 0:
+            return None
+        projector = self.flex_deepstack_projector
+        if projector is not None:
+            if int(projector.num_layers) != int(layer_count):
+                raise ValueError(
+                    "FLEX DeepStack projector layer count does not match backbone hooks; "
+                    f"projector={int(projector.num_layers)}, backbone={layer_count}."
+                )
+            return projector(scene_embeds)
+        flat_scene = scene_embeds.reshape(-1, scene_embeds.shape[-1])
+        return [flat_scene for _ in range(layer_count)]
+
+    def _passthrough_deepstack_visual_embeds(
+        self,
+        deepstack_image_embeds: list[torch.Tensor] | None,
+        image_token_lengths: torch.Tensor,
+        *,
+        tokens_per_image: int,
+        selection_strategy: str,
+    ) -> list[torch.Tensor] | None:
+        if deepstack_image_embeds is None:
+            return None
+        layer_tensors = list(deepstack_image_embeds)
+        if not layer_tensors:
+            return None
+        batch_size, images_per_sample = int(image_token_lengths.shape[0]), int(image_token_lengths.shape[1])
+        flat_lengths = [int(value.item()) for value in image_token_lengths.reshape(-1)]
+        image_offsets: list[int] = []
+        cursor = 0
+        for length in flat_lengths:
+            image_offsets.append(cursor)
+            cursor += int(length)
+        selected_layers: list[torch.Tensor] = []
+        for layer_tensor in layer_tensors:
+            row_parts: list[torch.Tensor] = []
+            layer_device = layer_tensor.device
+            for row_index in range(batch_size):
+                for local_image_index in range(images_per_sample):
+                    flat_index = row_index * images_per_sample + local_image_index
+                    length = int(flat_lengths[flat_index])
+                    offsets = self._flex_block_keep_offsets(
+                        length=length,
+                        tokens_per_image=tokens_per_image,
+                        strategy=selection_strategy,
+                        device=layer_device,
+                    )
+                    take = int(offsets.numel())
+                    start = int(image_offsets[flat_index])
+                    if take > 0:
+                        row_parts.append(layer_tensor[start : start + length].index_select(0, offsets))
+                    if take < int(tokens_per_image):
+                        row_parts.append(
+                            layer_tensor.new_zeros((int(tokens_per_image) - take, int(layer_tensor.shape[-1])))
+                        )
+            if row_parts:
+                selected_layers.append(torch.cat(row_parts, dim=0))
+        return selected_layers or None
+
+    @staticmethod
+    def _batch_deepstack_visual_embeds(
+        deepstack_image_embeds: list[torch.Tensor] | None,
+        image_token_lengths: torch.Tensor,
+    ) -> list[torch.Tensor] | None:
+        if deepstack_image_embeds is None:
+            return None
+        layer_tensors = list(deepstack_image_embeds)
+        if not layer_tensors:
+            return None
+        batch_size, images_per_sample = int(image_token_lengths.shape[0]), int(image_token_lengths.shape[1])
+        row_lengths = image_token_lengths.sum(dim=1)
+        if not bool(torch.all(row_lengths == row_lengths[0]).item()):
+            raise ValueError(
+                "ML-FLEX currently requires equal visual token counts per sample; "
+                f"row_lengths={row_lengths.detach().cpu().tolist()}."
+            )
+        tokens_per_sample = int(row_lengths[0].item())
+        flat_lengths = [int(value.item()) for value in image_token_lengths.reshape(-1)]
+        image_offsets: list[int] = []
+        cursor = 0
+        for length in flat_lengths:
+            image_offsets.append(cursor)
+            cursor += int(length)
+        batched_layers: list[torch.Tensor] = []
+        for layer_tensor in layer_tensors:
+            row_parts: list[torch.Tensor] = []
+            for row_index in range(batch_size):
+                sample_parts: list[torch.Tensor] = []
+                for local_image_index in range(images_per_sample):
+                    flat_index = row_index * images_per_sample + local_image_index
+                    start = int(image_offsets[flat_index])
+                    length = int(flat_lengths[flat_index])
+                    if length > 0:
+                        sample_parts.append(layer_tensor[start : start + length])
+                if sample_parts:
+                    row_parts.append(torch.cat(sample_parts, dim=0))
+                else:
+                    row_parts.append(layer_tensor.new_zeros((tokens_per_sample, int(layer_tensor.shape[-1]))))
+            batched_layers.append(torch.stack(row_parts, dim=0))
+        return batched_layers
+
     def _flex_inputs_embeds(
         self,
         input_ids: torch.Tensor,
@@ -397,7 +651,13 @@ class DistillStudentModel(nn.Module):
         relative_timestamps: torch.Tensor | None = None,
         camera_counts: torch.Tensor | None = None,
         frames_per_camera: torch.Tensor | None = None,
-    ) -> torch.Tensor:
+        allow_dummy_image_slots: bool = False,
+        residual_image_slots: bool = False,
+        residual_scale: float = 1.0,
+        passthrough_image_slots: bool = False,
+        selection_strategy: str = "first",
+        scene_deepstack: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, list[torch.Tensor] | None]:
         if self.flex_scene_encoder is None or self.flex_scene_config is None:
             raise RuntimeError("FLEX scene encoder is not configured.")
         if self.image_token_id is None:
@@ -413,12 +673,20 @@ class DistillStudentModel(nn.Module):
         if expected_images > 0 and images_per_sample != expected_images:
             raise ValueError(f"FLEX expected {expected_images} images/sample, got {images_per_sample}.")
 
-        image_features = self._qwen_visual_features(pixel_values, image_grid_thw)
+        image_features, deepstack_image_embeds = self._qwen_visual_features(pixel_values, image_grid_thw)
         sample_features = []
+        image_token_lengths = torch.zeros(
+            (batch_size, images_per_sample),
+            dtype=torch.long,
+            device=input_ids.device,
+        )
         for row_index in range(batch_size):
             start = row_index * images_per_sample
             end = start + images_per_sample
-            sample_features.append(torch.cat(image_features[start:end], dim=0))
+            row_features = image_features[start:end]
+            for local_image_index, image_feature in enumerate(row_features):
+                image_token_lengths[row_index, local_image_index] = int(image_feature.shape[0])
+            sample_features.append(torch.cat(row_features, dim=0))
         visual_tokens = torch.stack(sample_features, dim=0).to(
             device=input_ids.device,
             dtype=self.flex_scene_encoder.scene_tokens.dtype,
@@ -436,28 +704,178 @@ class DistillStudentModel(nn.Module):
                 frames_per_camera=frames_per_camera,
                 device=input_ids.device,
             )
-        scene_embeds = self.flex_scene_encoder(
-            visual_tokens,
-            camera_ids=camera_ids,
-            relative_times=relative_times,
-        ).to(
+        ml_flex_deepstack = None
+        if bool(passthrough_image_slots):
+            scene_parts: list[torch.Tensor] = []
+            tokens_per_image = int(self.flex_scene_config.tokens_per_image)
+            for row_index in range(batch_size):
+                offset = 0
+                row_parts: list[torch.Tensor] = []
+                for local_image_index in range(images_per_sample):
+                    length = int(image_token_lengths[row_index, local_image_index].item())
+                    offsets = self._flex_block_keep_offsets(
+                        length=length,
+                        tokens_per_image=tokens_per_image,
+                        strategy=selection_strategy,
+                        device=input_ids.device,
+                    )
+                    take = int(offsets.numel())
+                    if take > 0:
+                        row_parts.append(
+                            visual_tokens[row_index, offset : offset + length].index_select(0, offsets)
+                        )
+                    if take < tokens_per_image:
+                        row_parts.append(
+                            visual_tokens.new_zeros((tokens_per_image - take, int(visual_tokens.shape[-1])))
+                        )
+                    offset += length
+                scene_parts.append(torch.cat(row_parts, dim=0))
+            scene_embeds = torch.stack(scene_parts, dim=0)
+        elif isinstance(self.flex_scene_encoder, MultiLevelFlexEncoder):
+            batched_deepstack = self._batch_deepstack_visual_embeds(deepstack_image_embeds, image_token_lengths)
+            if batched_deepstack is None:
+                raise RuntimeError("ML-FLEX requires Qwen DeepStack image embeddings from get_image_features().")
+            batched_deepstack = [
+                layer.to(device=input_ids.device, dtype=visual_tokens.dtype) for layer in batched_deepstack
+            ]
+            scene_embeds, ml_flex_deepstack = self.flex_scene_encoder(
+                visual_tokens,
+                deepstack_visual_tokens=batched_deepstack,
+                camera_ids=camera_ids,
+                relative_times=relative_times,
+                image_token_lengths=image_token_lengths,
+            )
+        else:
+            scene_embeds = self.flex_scene_encoder(
+                visual_tokens,
+                camera_ids=camera_ids,
+                relative_times=relative_times,
+                image_token_lengths=image_token_lengths,
+            )
+        scene_embeds = scene_embeds.to(
             device=input_ids.device,
             dtype=self.backbone.get_input_embeddings().weight.dtype,
         )
+        if ml_flex_deepstack is not None:
+            ml_flex_deepstack = [
+                layer.to(device=input_ids.device, dtype=scene_embeds.dtype).reshape(-1, int(layer.shape[-1]))
+                for layer in ml_flex_deepstack
+            ]
+        passthrough_deepstack = None
+        if bool(passthrough_image_slots) and bool(scene_deepstack):
+            passthrough_deepstack = self._passthrough_deepstack_visual_embeds(
+                deepstack_image_embeds,
+                image_token_lengths,
+                tokens_per_image=int(self.flex_scene_config.tokens_per_image),
+                selection_strategy=selection_strategy,
+            )
 
         inputs_embeds = self.backbone.get_input_embeddings()(input_ids)
         image_mask = input_ids == int(self.image_token_id)
         expected_scene_tokens = int(scene_embeds.shape[1])
         counts = image_mask.sum(dim=1)
+        if bool(residual_image_slots):
+            visual_embeds = visual_tokens.to(
+                device=input_ids.device,
+                dtype=inputs_embeds.dtype,
+            )
+            if not bool(torch.all(counts == visual_embeds.shape[1]).item()):
+                raise ValueError(
+                    "Residual FLEX expects full original image placeholders; "
+                    f"counts={counts.detach().cpu().tolist()}, visual_tokens={int(visual_embeds.shape[1])}."
+                )
+            out = inputs_embeds.masked_scatter(
+                image_mask.unsqueeze(-1).expand_as(inputs_embeds),
+                visual_embeds.reshape(-1),
+            )
+            tokens_per_image = int(self.flex_scene_config.tokens_per_image)
+            scaled_scene = scene_embeds * float(residual_scale)
+            for row_index in range(batch_size):
+                row_mask = image_mask[row_index]
+                selected: list[int] = []
+                cursor = 0
+                seq_len = int(row_mask.shape[0])
+                while cursor < seq_len:
+                    if not bool(row_mask[cursor].item()):
+                        cursor += 1
+                        continue
+                    end = cursor + 1
+                    while end < seq_len and bool(row_mask[end].item()):
+                        end += 1
+                    offsets = self._flex_block_keep_offsets(
+                        length=end - cursor,
+                        tokens_per_image=tokens_per_image,
+                        strategy=selection_strategy,
+                        device=input_ids.device,
+                    )
+                    selected.extend(int(cursor + value.item()) for value in offsets)
+                    cursor = end
+                if len(selected) != expected_scene_tokens:
+                    all_image_positions = torch.nonzero(row_mask, as_tuple=False).flatten()
+                    selected = [int(value) for value in all_image_positions[:expected_scene_tokens].tolist()]
+                if len(selected) != expected_scene_tokens:
+                    raise ValueError(
+                        "Residual FLEX could not map scene tokens to image placeholders; "
+                        f"selected={len(selected)}, expected={expected_scene_tokens}."
+                    )
+                positions = torch.tensor(selected, dtype=torch.long, device=input_ids.device)
+                out[row_index, positions] = out[row_index, positions] + scaled_scene[row_index]
+            return out, image_mask, deepstack_image_embeds
+        if bool(torch.all(counts == expected_scene_tokens).item()):
+            if bool(scene_deepstack) and ml_flex_deepstack is not None:
+                deepstack = ml_flex_deepstack
+            elif bool(scene_deepstack) and passthrough_deepstack is not None:
+                deepstack = passthrough_deepstack
+            else:
+                deepstack = self._scene_deepstack_visual_embeds(scene_embeds) if bool(scene_deepstack) else None
+            return (
+                inputs_embeds.masked_scatter(
+                    image_mask.unsqueeze(-1).expand_as(inputs_embeds),
+                    scene_embeds.reshape(-1),
+                ),
+                image_mask if deepstack is not None else None,
+                deepstack,
+            )
+        if bool(allow_dummy_image_slots) and bool(torch.all(counts >= expected_scene_tokens).item()):
+            tokens_per_image = int(self.flex_scene_config.tokens_per_image)
+            out = inputs_embeds.clone()
+            for row_index in range(batch_size):
+                row_mask = image_mask[row_index]
+                selected: list[int] = []
+                cursor = 0
+                seq_len = int(row_mask.shape[0])
+                while cursor < seq_len:
+                    if not bool(row_mask[cursor].item()):
+                        cursor += 1
+                        continue
+                    end = cursor + 1
+                    while end < seq_len and bool(row_mask[end].item()):
+                        end += 1
+                    offsets = self._flex_block_keep_offsets(
+                        length=end - cursor,
+                        tokens_per_image=tokens_per_image,
+                        strategy=selection_strategy,
+                        device=input_ids.device,
+                    )
+                    selected.extend(int(cursor + value.item()) for value in offsets)
+                    cursor = end
+                if len(selected) != expected_scene_tokens:
+                    all_image_positions = torch.nonzero(row_mask, as_tuple=False).flatten()
+                    selected = [int(value) for value in all_image_positions[:expected_scene_tokens].tolist()]
+                if len(selected) != expected_scene_tokens:
+                    raise ValueError(
+                        "Dummy-slot FLEX could not map scene tokens to image placeholders; "
+                        f"selected={len(selected)}, expected={expected_scene_tokens}."
+                    )
+                positions = torch.tensor(selected, dtype=torch.long, device=input_ids.device)
+                out[row_index, positions] = scene_embeds[row_index]
+            return out, None, None
         if not bool(torch.all(counts == expected_scene_tokens).item()):
             raise ValueError(
                 "Compressed image placeholder count must match FLEX scene tokens; "
                 f"counts={counts.detach().cpu().tolist()}, expected={expected_scene_tokens}."
             )
-        return inputs_embeds.masked_scatter(
-            image_mask.unsqueeze(-1).expand_as(inputs_embeds),
-            scene_embeds.reshape(-1),
-        )
+        raise AssertionError("unreachable FLEX image placeholder mapping state")
 
     def _forward_flex(
         self,
@@ -470,10 +888,27 @@ class DistillStudentModel(nn.Module):
     ) -> Any:
         conditional = self._conditional_backbone()
         past_key_values = kwargs.get("past_key_values")
+        position_ids_override = kwargs.pop("position_ids", None)
+        cache_position = kwargs.get("cache_position")
+        use_official_mrope_positions = False
+        visual_pos_masks = None
+        deepstack_visual_embeds = None
         if past_key_values is None:
             if pixel_values is None or image_grid_thw is None:
                 raise RuntimeError("FLEX prefill requires pixel_values and image_grid_thw.")
-            inputs_embeds = self._flex_inputs_embeds(
+            allow_dummy_image_slots = bool(kwargs.pop("flex_allow_dummy_image_slots", False))
+            residual_image_slots = bool(kwargs.pop("flex_residual_image_slots", False))
+            residual_scale = float(kwargs.pop("flex_residual_scale", 1.0))
+            passthrough_image_slots = bool(kwargs.pop("flex_passthrough_image_slots", False))
+            default_selection = (
+                getattr(self.flex_scene_config, "selection_strategy", "first")
+                if self.flex_scene_config is not None
+                else "first"
+            )
+            selection_strategy = str(kwargs.pop("flex_selection_strategy", default_selection) or default_selection)
+            default_scene_deepstack = isinstance(self.flex_scene_encoder, MultiLevelFlexEncoder)
+            scene_deepstack = bool(kwargs.pop("flex_scene_deepstack", default_scene_deepstack))
+            inputs_embeds, visual_pos_masks, deepstack_visual_embeds = self._flex_inputs_embeds(
                 input_ids,
                 pixel_values,
                 image_grid_thw,
@@ -481,21 +916,84 @@ class DistillStudentModel(nn.Module):
                 relative_timestamps=kwargs.pop("relative_timestamps", None),
                 camera_counts=kwargs.pop("camera_counts", None),
                 frames_per_camera=kwargs.pop("frames_per_camera", None),
+                allow_dummy_image_slots=allow_dummy_image_slots,
+                residual_image_slots=residual_image_slots,
+                residual_scale=residual_scale,
+                passthrough_image_slots=passthrough_image_slots,
+                selection_strategy=selection_strategy,
+                scene_deepstack=scene_deepstack,
             )
+            use_official_mrope_positions = bool(allow_dummy_image_slots or residual_image_slots)
         else:
             inputs_embeds = self.backbone.get_input_embeddings()(input_ids)
-        position_ids = self._position_ids_from_attention_mask(attention_mask, inputs_embeds.shape[1], inputs_embeds.device)
-        language_outputs = conditional.model.language_model(
-            input_ids=None,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_values=past_key_values,
-            inputs_embeds=inputs_embeds,
-            output_hidden_states=need_hidden_states,
-            return_dict=True,
-            use_cache=bool(kwargs.get("use_cache", False)),
-            cache_position=kwargs.get("cache_position"),
-        )
+        if position_ids_override is None:
+            if use_official_mrope_positions:
+                position_ids, rope_deltas = conditional.model.get_rope_index(
+                    input_ids=input_ids,
+                    image_grid_thw=image_grid_thw,
+                    video_grid_thw=None,
+                    attention_mask=attention_mask,
+                )
+                conditional.model.rope_deltas = rope_deltas
+            elif past_key_values is not None and isinstance(cache_position, torch.Tensor):
+                batch_size = int(inputs_embeds.shape[0])
+                base_positions = cache_position.to(device=inputs_embeds.device, dtype=torch.long)
+                row_positions = base_positions.view(1, -1).expand(batch_size, -1)
+                rope_deltas = getattr(conditional.model, "rope_deltas", None)
+                if isinstance(rope_deltas, torch.Tensor):
+                    delta = rope_deltas.reshape(-1).to(device=inputs_embeds.device, dtype=torch.long)
+                    if int(delta.numel()) == 1 and batch_size > 1:
+                        delta = delta.expand(batch_size)
+                    if int(delta.numel()) == batch_size:
+                        row_positions = row_positions + delta.view(batch_size, 1)
+                position_ids = row_positions.view(1, batch_size, -1).expand(3, -1, -1)
+            else:
+                position_ids = self._position_ids_from_attention_mask(
+                    attention_mask,
+                    inputs_embeds.shape[1],
+                    inputs_embeds.device,
+                )
+        else:
+            position_ids = position_ids_override.to(device=inputs_embeds.device, dtype=torch.long)
+            if position_ids.ndim == 2:
+                batch_size, seq_len = int(position_ids.shape[0]), int(position_ids.shape[1])
+                position_ids = position_ids.view(1, batch_size, seq_len).expand(3, -1, -1)
+            if position_ids.ndim != 3:
+                raise ValueError(f"position_ids override must be rank-2 or rank-3, got {tuple(position_ids.shape)}")
+            if int(position_ids.shape[-1]) != int(inputs_embeds.shape[1]):
+                raise ValueError(
+                    "position_ids override length must match inputs_embeds length; "
+                    f"got {tuple(position_ids.shape)} vs {tuple(inputs_embeds.shape)}."
+                )
+        pre_norm_hidden: torch.Tensor | None = None
+
+        def _capture_pre_norm_hidden(_module: nn.Module, inputs: tuple[Any, ...], _output: Any) -> None:
+            nonlocal pre_norm_hidden
+            if inputs:
+                candidate = inputs[0]
+                if isinstance(candidate, torch.Tensor):
+                    pre_norm_hidden = candidate
+
+        hook_handle = None
+        if need_hidden_states:
+            hook_handle = conditional.model.language_model.norm.register_forward_hook(_capture_pre_norm_hidden)
+        try:
+            language_outputs = conditional.model.language_model(
+                input_ids=None,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_values=past_key_values,
+                inputs_embeds=inputs_embeds,
+                output_hidden_states=False,
+                return_dict=True,
+                use_cache=bool(kwargs.get("use_cache", False)),
+                cache_position=cache_position,
+                visual_pos_masks=visual_pos_masks,
+                deepstack_visual_embeds=deepstack_visual_embeds,
+            )
+        finally:
+            if hook_handle is not None:
+                hook_handle.remove()
         hidden_states = language_outputs.last_hidden_state
         logits = self._output_head()(hidden_states)
 
@@ -505,9 +1003,9 @@ class DistillStudentModel(nn.Module):
         outputs = _FlexOutput()
         outputs.logits = logits
         outputs.past_key_values = getattr(language_outputs, "past_key_values", None)
-        outputs.hidden_states = getattr(language_outputs, "hidden_states", None)
-        if outputs.hidden_states is None and need_hidden_states:
-            outputs.hidden_states = (hidden_states,)
+        outputs.hidden_states = None
+        if need_hidden_states:
+            outputs.hidden_states = (pre_norm_hidden if pre_norm_hidden is not None else hidden_states,)
         return outputs
 
     def forward(
@@ -611,8 +1109,9 @@ class DistillStudentModel(nn.Module):
 
 def load_student_tokenizer(config: StudentWrapperConfig):
     """Load and extend the student tokenizer."""
+    tokenizer_source = _checkpoint_artifact_source(config, "tokenizer")
     tokenizer = AutoTokenizer.from_pretrained(
-        config.student_model_name,
+        tokenizer_source,
         trust_remote_code=config.trust_remote_code,
         local_files_only=_effective_local_files_only(config),
     )
@@ -624,8 +1123,9 @@ def load_student_processor(config: StudentWrapperConfig, tokenizer=None):
     """Load the student multimodal processor with bounded pixel budgets."""
     if tokenizer is None:
         tokenizer = load_student_tokenizer(config)
+    processor_source = _checkpoint_artifact_source(config, "processor")
     processor = AutoProcessor.from_pretrained(
-        config.student_model_name,
+        processor_source,
         trust_remote_code=config.trust_remote_code,
         local_files_only=_effective_local_files_only(config),
         min_pixels=config.min_pixels,

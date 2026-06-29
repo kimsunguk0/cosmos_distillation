@@ -46,8 +46,9 @@ from src.inference.decoding import (  # noqa: E402
 from src.model.checkpoint_io import detect_checkpoint_format, load_student_checkpoint  # noqa: E402
 from src.model.peft_setup import LoraConfigSpec, maybe_apply_lora  # noqa: E402
 from src.model.student_wrapper import StudentWrapperConfig, build_student_model  # noqa: E402
-from src.model.tokenizer_ext import distill_trainable_token_ids  # noqa: E402
+from src.model.tokenizer_ext import distill_trainable_token_ids, ensure_special_tokens  # noqa: E402
 from src.training.collator import (  # noqa: E402
+    DistillationCollator,
     build_messages,
     build_traj_only_prompt,
     build_user_prompt,
@@ -59,7 +60,8 @@ from src.training.collator import (  # noqa: E402
     resolve_image_relative_timestamps,
     resolve_camera_indices,
 )
-from src.training.flex_batch import compress_batch_for_flex  # noqa: E402
+from src.training.flex_batch import attach_qwen_mrope_position_ids, compress_batch_for_flex  # noqa: E402
+from src.training.qat_modelopt import apply_modelopt_qat  # noqa: E402
 from src.utils.runtime_paths import (  # noqa: E402
     DEFAULT_TEACHER_CACHE_ROOT,
     remap_external_path,
@@ -136,6 +138,76 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=97, help="Random seed used when samples_per_row > 1.")
     parser.add_argument("--temperature", type=float, default=1.0, help="Sampling temperature when multiple trajectories are requested.")
     parser.add_argument("--top-p", type=float, default=1.0, help="Top-p sampling when multiple trajectories are requested.")
+    parser.add_argument(
+        "--qat-quantization",
+        type=str,
+        default="",
+        choices=["", "int4_awq", "int4_blockwise", "int4_ffn_only", "fp8", "fp8_pcpt", "fp8_vit", "fp8_pcpt_vit"],
+        help="Apply ModelOpt fake quantization before decode evaluation. Use fp8_pcpt_vit for LM+ViT FP8.",
+    )
+    parser.add_argument(
+        "--qat-calib-samples",
+        type=int,
+        default=128,
+        help="Number of selected rows used for QAT calibration when --qat-quantization is set.",
+    )
+    parser.add_argument(
+        "--qat-calib-batch-size",
+        type=int,
+        default=0,
+        help="Calibration batch size. Default 0 reuses --batch-size.",
+    )
+    parser.add_argument(
+        "--preserve-flex-positions",
+        action="store_true",
+        help="For FLEX checkpoints, preserve original token position ids after image-token compression.",
+    )
+    parser.add_argument(
+        "--flex-selection-strategy",
+        choices=("first", "uniform"),
+        default="first",
+        help="Which image-placeholder positions to retain per image block for compressed FLEX batches.",
+    )
+    parser.add_argument(
+        "--flex-dummy-image-slots",
+        action="store_true",
+        help=(
+            "For FLEX checkpoints, keep all image placeholder slots and insert FLEX tokens into "
+            "the first K positions of each image block. Diagnostic only; no compression speedup."
+        ),
+    )
+    parser.add_argument(
+        "--flex-residual-image-slots",
+        action="store_true",
+        help=(
+            "For FLEX checkpoints, keep original visual embeddings and add FLEX tokens as a "
+            "residual to the first K positions of each image block. Diagnostic only."
+        ),
+    )
+    parser.add_argument(
+        "--flex-residual-scale",
+        type=float,
+        default=1.0,
+        help="Residual multiplier used with --flex-residual-image-slots.",
+    )
+    parser.add_argument(
+        "--flex-passthrough-image-slots",
+        action="store_true",
+        help=(
+            "For compressed FLEX checkpoints, bypass the FLEX scene encoder and fill retained "
+            "image slots with the original Qwen visual features. Diagnostic only."
+        ),
+    )
+    parser.add_argument(
+        "--flex-scene-deepstack",
+        action="store_true",
+        help="For compressed FLEX checkpoints, also inject scene tokens through Qwen3-VL DeepStack visual hooks.",
+    )
+    parser.add_argument(
+        "--disable-qwen-deepstack",
+        action="store_true",
+        help="Runtime ablation: clear Qwen3-VL visual DeepStack indexes before generation.",
+    )
     parser.add_argument("--selected-json", type=Path, help="JSON list of selected sample rows or sample ids.")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -268,6 +340,40 @@ def _batched(items: list[dict[str, Any]], batch_size: int) -> list[list[dict[str
     return [items[index : index + width] for index in range(0, len(items), width)]
 
 
+def _make_qat_calib_batch_factory(
+    *,
+    selected: list[dict[str, Any]],
+    tokenizer: Any,
+    processor: Any,
+    args: argparse.Namespace,
+) -> Any:
+    sample_count = min(max(int(args.qat_calib_samples), 1), len(selected))
+    batch_size = int(args.qat_calib_batch_size) if int(args.qat_calib_batch_size) > 0 else int(args.batch_size)
+    calib_rows = selected[:sample_count]
+    collator = DistillationCollator(
+        tokenizer=tokenizer,
+        processor=processor,
+        project_root=PROJECT_ROOT,
+        max_length=4096,
+        prompt_mode=args.prompt_mode,
+        target_mode=args.target_mode,
+        teacher_pair_target=False,
+        enable_teacher_view=False,
+        enable_action_aux=False,
+        hard_view_uses_teacher_cot=True,
+        image_prompt_style=args.image_prompt_style,
+        prompt_text_style=args.prompt_text_style,
+        fuse_history_tokens=bool(args.fuse_history_tokens),
+        image_ablation=str(args.image_ablation),
+    )
+
+    def factory():
+        for batch_rows in _batched(calib_rows, batch_size):
+            yield collator(batch_rows)
+
+    return factory
+
+
 def _extract_generated_traj_tokens(text: str) -> list[int]:
     return [int(match.group(1)) for match in re.finditer(r"<i(\d+)>", text)]
 
@@ -382,6 +488,7 @@ def _load_model_and_processors(args: argparse.Namespace):
         processor_dir if processor_dir.exists() else base_model,
         local_files_only=True,
     )
+    ensure_special_tokens(tokenizer)
     processor.tokenizer = tokenizer
     tokenizer.padding_side = "left"
     if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
@@ -419,6 +526,9 @@ def _load_model_and_processors(args: argparse.Namespace):
         )
     load_info = load_student_checkpoint(checkpoint_dir, model, use_lora=use_lora)
     model = model.to(device).eval()
+    if bool(getattr(args, "disable_qwen_deepstack", False)):
+        disabled = _disable_qwen_deepstack(model)
+        print(json.dumps({"event": "qwen_deepstack_disabled", "targets": disabled}), flush=True)
     print(
         json.dumps(
             {
@@ -430,6 +540,47 @@ def _load_model_and_processors(args: argparse.Namespace):
         )
     )
     return model, tokenizer, processor, device, base_model
+
+
+def _disable_qwen_deepstack(model: Any) -> list[dict[str, Any]]:
+    disabled: list[dict[str, Any]] = []
+    seen: set[int] = set()
+
+    def visit(name: str, obj: Any) -> None:
+        if obj is None or id(obj) in seen:
+            return
+        seen.add(id(obj))
+        if hasattr(obj, "deepstack_visual_indexes"):
+            old = list(getattr(obj, "deepstack_visual_indexes") or [])
+            setattr(obj, "deepstack_visual_indexes", [])
+            disabled.append({"target": name, "old_indexes": old})
+        cfg = getattr(obj, "config", None)
+        if cfg is not None and hasattr(cfg, "deepstack_visual_indexes"):
+            old = list(getattr(cfg, "deepstack_visual_indexes") or [])
+            setattr(cfg, "deepstack_visual_indexes", [])
+            disabled.append({"target": f"{name}.config", "old_indexes": old})
+        vision_cfg = getattr(cfg, "vision_config", None) if cfg is not None else None
+        if vision_cfg is not None and hasattr(vision_cfg, "deepstack_visual_indexes"):
+            old = list(getattr(vision_cfg, "deepstack_visual_indexes") or [])
+            setattr(vision_cfg, "deepstack_visual_indexes", [])
+            disabled.append({"target": f"{name}.config.vision_config", "old_indexes": old})
+
+    candidates = [
+        ("model", model),
+        ("model.backbone", getattr(model, "backbone", None)),
+        ("model.backbone.model", getattr(getattr(model, "backbone", None), "model", None)),
+        (
+            "model.backbone.model.visual",
+            getattr(getattr(getattr(model, "backbone", None), "model", None), "visual", None),
+        ),
+        (
+            "model.backbone.model.model.visual",
+            getattr(getattr(getattr(getattr(model, "backbone", None), "model", None), "model", None), "visual", None),
+        ),
+    ]
+    for name, obj in candidates:
+        visit(name, obj)
+    return disabled
 
 
 def _ade_fde(pred: np.ndarray, target: np.ndarray) -> tuple[float, float]:
@@ -674,6 +825,23 @@ def main() -> int:
     )
     if not selected:
         raise SystemExit(f"No samples selected for split={args.split!r} from {args.corpus_jsonl}")
+    qat_summary: dict[str, Any] | None = None
+    if str(args.qat_quantization or "").strip():
+        qat_summary = apply_modelopt_qat(
+            model,
+            quantization=str(args.qat_quantization),
+            calib_batches=_make_qat_calib_batch_factory(
+                selected=selected,
+                tokenizer=tokenizer,
+                processor=processor,
+                args=args,
+            ),
+            device=device,
+            bf16=device.type == "cuda",
+            calib_samples=int(args.qat_calib_samples),
+            is_rank_zero=True,
+        )
+        model.eval()
 
     decoder_path = resolve_traj_tokenizer_config_path(base_model)
     if decoder_path is None:
@@ -816,12 +984,31 @@ def main() -> int:
             batch["camera_counts"] = camera_counts
             batch["frames_per_camera"] = frames_per_camera_tensor
             flex_cfg = getattr(model, "flex_scene_config")
-            batch = compress_batch_for_flex(
-                batch,
-                image_token_id=int(getattr(model, "image_token_id")),
-                tokens_per_image=int(getattr(flex_cfg, "tokens_per_image")),
-                pad_token_id=int(getattr(tokenizer, "pad_token_id", 0) or 0),
-            )
+            if bool(args.flex_dummy_image_slots) or bool(args.flex_residual_image_slots):
+                if bool(args.flex_dummy_image_slots):
+                    batch["flex_allow_dummy_image_slots"] = True
+                if bool(args.flex_residual_image_slots):
+                    batch["flex_residual_image_slots"] = True
+                    batch["flex_residual_scale"] = float(args.flex_residual_scale)
+                if str(args.flex_selection_strategy) != "first":
+                    batch["flex_selection_strategy"] = str(args.flex_selection_strategy)
+            else:
+                if bool(args.preserve_flex_positions):
+                    batch = attach_qwen_mrope_position_ids(batch, model)
+                batch = compress_batch_for_flex(
+                    batch,
+                    image_token_id=int(getattr(model, "image_token_id")),
+                    tokens_per_image=int(getattr(flex_cfg, "tokens_per_image")),
+                    pad_token_id=int(getattr(tokenizer, "pad_token_id", 0) or 0),
+                    preserve_original_position_ids=bool(args.preserve_flex_positions),
+                    selection_strategy=str(args.flex_selection_strategy),
+                )
+                if str(args.flex_selection_strategy) != "first":
+                    batch["flex_selection_strategy"] = str(args.flex_selection_strategy)
+                if bool(args.flex_scene_deepstack):
+                    batch["flex_scene_deepstack"] = True
+                if bool(args.flex_passthrough_image_slots):
+                    batch["flex_passthrough_image_slots"] = True
         model_dtype = _infer_visual_float_dtype(model)
         batch = {
             key: (
@@ -861,19 +1048,6 @@ def main() -> int:
             if torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed_value)
 
-        if flex_enabled and samples_per_row > 1:
-            print(
-                json.dumps(
-                    {
-                        "event": "warning",
-                        "batch_size": len(prepared),
-                        "message": "flex path does not support multi-sample generation; falling back to greedy single-sample decode",
-                    },
-                    flush=True,
-                )
-            )
-            samples_per_row = 1
-
         with torch.inference_mode():
             if flex_enabled:
                 generated = _manual_flex_generate(
@@ -882,6 +1056,10 @@ def main() -> int:
                     max_new_tokens=args.max_new_tokens,
                     logits_processor=logits_processor,
                     stopping_criteria=stopping_criteria,
+                    do_sample=samples_per_row > 1,
+                    num_return_sequences=samples_per_row,
+                    temperature=float(args.temperature),
+                    top_p=float(args.top_p),
                 )
             else:
                 generated = model.backbone.generate(
@@ -1091,16 +1269,28 @@ def main() -> int:
         "split": args.split,
         "num_samples": len(per_sample),
         "batch_size": int(args.batch_size),
+        "samples_per_row": int(max(int(args.samples_per_row), 1)),
+        "temperature": float(args.temperature),
+        "top_p": float(args.top_p),
         "prompt_mode": args.prompt_mode,
         "target_mode": args.target_mode,
         "image_prompt_style": args.image_prompt_style,
         "image_ablation": args.image_ablation,
         "prompt_text_style": args.prompt_text_style,
         "fuse_history_tokens": bool(args.fuse_history_tokens),
+        "preserve_flex_positions": bool(args.preserve_flex_positions),
+        "flex_selection_strategy": str(args.flex_selection_strategy),
+        "flex_dummy_image_slots": bool(args.flex_dummy_image_slots),
+        "flex_residual_image_slots": bool(args.flex_residual_image_slots),
+        "flex_residual_scale": float(args.flex_residual_scale),
+        "flex_passthrough_image_slots": bool(args.flex_passthrough_image_slots),
+        "flex_scene_deepstack": bool(args.flex_scene_deepstack),
         "oracle_cot_prefix": bool(args.oracle_cot_prefix),
         "geometry_reference": args.geometry_reference,
         "avg_ade_m": mean(ade_values),
         "avg_fde_m": mean(fde_values),
+        "ade@6.4s_m": mean(ade_values) if int(max(int(args.samples_per_row), 1)) == 1 else None,
+        "minADE6@6.4s_m": mean(ade_values) if int(max(int(args.samples_per_row), 1)) == 6 else None,
         "avg_unique_traj_ids": mean(unique_values),
         "avg_max_same_token_run": mean(max_run_values),
         "avg_token_match_rate": mean(token_match_values),
@@ -1110,6 +1300,7 @@ def main() -> int:
             {"token": int(token), "count": int(count), "mass": float(count / max(sum(all_tokens.values()), 1))}
             for token, count in all_tokens.most_common(30)
         ],
+        "qat": qat_summary,
         "failure_tag_counts": dict(tag_counter.most_common()),
         "traj_tokenizer_config": str(decoder_path),
         "samples": per_sample,

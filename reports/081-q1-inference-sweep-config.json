@@ -1,0 +1,44 @@
+[
+  {
+    "label": "single_temp1p0",
+    "eval_temperature": 1.0,
+    "eval_num_paths": 1,
+    "eval_selection_method": "single"
+  },
+  {
+    "label": "single_temp0p85",
+    "eval_temperature": 0.85,
+    "eval_num_paths": 1,
+    "eval_selection_method": "single"
+  },
+  {
+    "label": "single_temp0p7",
+    "eval_temperature": 0.7,
+    "eval_num_paths": 1,
+    "eval_selection_method": "single"
+  },
+  {
+    "label": "single_temp0p6",
+    "eval_temperature": 0.6,
+    "eval_num_paths": 1,
+    "eval_selection_method": "single"
+  },
+  {
+    "label": "single_temp0p5",
+    "eval_temperature": 0.5,
+    "eval_num_paths": 1,
+    "eval_selection_method": "single"
+  },
+  {
+    "label": "mean_traj_n16_temp0p85",
+    "eval_temperature": 0.85,
+    "eval_num_paths": 16,
+    "eval_selection_method": "mean_traj"
+  },
+  {
+    "label": "oracle_best_n16_temp0p85",
+    "eval_temperature": 0.85,
+    "eval_num_paths": 16,
+    "eval_selection_method": "oracle_best"
+  }
+]

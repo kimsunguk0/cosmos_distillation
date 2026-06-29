@@ -1,0 +1,73 @@
+stage_name: stage_b
+epochs: 1.0
+batch_size: 1
+max_length: 4096
+bf16: true
+gradient_checkpointing: true
+gradient_checkpointing_use_reentrant: false
+learning_rate: 1.0e-5
+attn_implementation: flash_attention_2
+force_trainable_fp32: false
+
+# Step B: start from the Step A Q2-VQA full-FT checkpoint and teach only
+# Alpamayo trajectory tokens. Use with scripts/09_train_distill.py --disable-lora.
+# Input: 4 cameras x 4 frames RGB + numeric ego-history text. No nav text.
+# Target: 128 future trajectory tokens only. No CoT/action text target.
+
+lora:
+  rank: 64
+  alpha: 128
+  dropout: 0.05
+  train_lm_head_token_rows: false
+
+data_view:
+  prompt_mode: traj_only
+  target_mode: traj_only
+  image_prompt_style: camera_labeled
+  prompt_text_style: numeric_history_question
+  fuse_history_tokens: false
+  teacher_pair_target: false
+  hard_view_uses_teacher_cot: false
+  enable_teacher_view: false
+  enable_action_aux: false
+  teacher_traj_hidden_source: hidden
+  teacher_traj_topk_on_teacher_view: false
+
+loss_weights:
+  gt_cot_loss: 0.0
+  teacher_cot_loss: 0.0
+  teacher_topk_kd_loss: 0.0
+  traj_loss: 2.0
+  teacher_traj_loss: 0.0
+  teacher_traj_topk_kd_loss: 2.0
+  teacher_traj_hidden_align_loss: 0.0
+  teacher_text_boundary_hidden_align_loss: 0.0
+  output_format_loss: 0.0
+  meta_action_loss: 0.0
+  feature_align_loss: 0.0
+  traj_aux_loss: 0.0
+  traj_aux_xyz_loss: 0.0
+  traj_aux_final_loss: 0.0
+  traj_xyz_loss: 0.0
+  traj_delta_loss: 0.0
+  traj_final_loss: 0.0
+  traj_control_loss: 0.0
+  traj_control_delta_loss: 0.0
+
+optimization:
+  freeze_visual_tower: true
+
+traj_token_reweighting:
+  enabled: false
+
+decode_eval:
+  enabled: false
+  split: val
+  num_samples: 64
+  max_new_tokens: 160
+  prompt_mode: traj_only
+  target_mode: traj_only
+  image_prompt_style: camera_labeled
+  prompt_text_style: numeric_history_question
+  fuse_history_tokens: false
+  metric_name: backbone_discrete_ade

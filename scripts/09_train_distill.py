@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import math
 import os
@@ -14,6 +15,7 @@ import time
 from collections import Counter
 from contextlib import nullcontext
 from pathlib import Path
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -52,7 +54,14 @@ from src.training.losses import (
     resolve_optional_loss_weight_value,
     resolve_loss_weight_value,
 )
-from src.training.trainer import ScheduledSamplingConfig, TrainerConfig, move_batch_to_device, run_train_step
+from src.training.trainer import (
+    OnPolicyGKDConfig,
+    ScheduledSamplingConfig,
+    TrainerConfig,
+    move_batch_to_device,
+    prepare_flex_batch_for_model,
+    run_train_step,
+)
 from src.utils.runtime_paths import remap_external_path, resolve_student_model_path
 from src.utils.seeds import set_seed
 from src.utils.traj_tokens import discrete_traj_token
@@ -191,6 +200,25 @@ def parse_args() -> argparse.Namespace:
         help="Print eval-only progress every N validation batches. Set <=0 to disable.",
     )
     parser.add_argument("--seed", type=int, default=42)
+    # QAT (Quantization-Aware Training) options
+    parser.add_argument(
+        "--qat-quantization",
+        type=str,
+        default="",
+        choices=["", "int4_awq", "int4_blockwise", "int4_ffn_only", "fp8", "fp8_pcpt", "fp8_vit", "fp8_pcpt_vit"],
+        help="Apply ModelOpt fake-quantization to backbone before training. "
+             "int4_ffn_only: only FFN (gate/up/down_proj) in INT4, attention QKV/O stays FP16. "
+             "fp8_pcpt: FP8 per-channel weights and per-token dynamic activations. "
+             "fp8_vit/fp8_pcpt_vit: language FP8 plus visual tower FP8, while keeping "
+             "patch/embed/rotary/merger/norm paths unquantized. "
+             "Empty = disabled.",
+    )
+    parser.add_argument(
+        "--qat-calib-samples",
+        type=int,
+        default=512,
+        help="Number of samples for QAT calibration forward pass.",
+    )
     return parser.parse_args()
 
 
@@ -321,6 +349,7 @@ def stage_weights_from_yaml(path: Path) -> tuple[TrainerConfig, DistillationLoss
     stage_options = {
         "data_view": dict(config.get("data_view") or {}),
         "lora": dict(config.get("lora") or {}),
+        "attn_implementation": config.get("attn_implementation"),
         "traj_token_reweighting": dict(config.get("traj_token_reweighting") or {}),
         "decode_eval": dict(config.get("decode_eval") or {}),
         "traj_decode_reg": dict(config.get("traj_decode_reg") or {}),
@@ -330,7 +359,9 @@ def stage_weights_from_yaml(path: Path) -> tuple[TrainerConfig, DistillationLoss
         "curriculum": dict(config.get("curriculum") or {}),
         "interface_loss_weights": dict(config.get("interface_loss_weights") or {}),
         "scheduled_sampling": dict(config.get("scheduled_sampling") or {}),
+        "on_policy_gkd": dict(config.get("on_policy_gkd") or {}),
         "flex": dict(config.get("flex") or {}),
+        "force_trainable_fp32": bool(config.get("force_trainable_fp32", True)),
         "gradient_checkpointing_use_reentrant": bool(config.get("gradient_checkpointing_use_reentrant", False)),
     }
     return trainer_config, loss_weights, stage_options
@@ -346,6 +377,7 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
     cfg = dict(optimization_cfg or {})
     summary = {
         "freeze_all_but_traj_aux_head": False,
+        "freeze_visual_tower": False,
         "freeze_traj_aux_head": False,
         "freeze_meta_action_head": False,
         "freeze_boundary_action_head": False,
@@ -357,9 +389,22 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
     layer_ids: set[int] = set()
     if isinstance(explicit_layers, (list, tuple)):
         layer_ids = {int(value) for value in explicit_layers}
-    layer_from = cfg.get("language_layers_from")
-    layer_from = int(layer_from) if layer_from not in (None, "", False) else None
+    raw_layer_from = cfg.get("language_layers_from")
+    layer_from = (
+        None
+        if raw_layer_from is None or raw_layer_from == "" or raw_layer_from is False
+        else int(raw_layer_from)
+    )
     unfreeze_lora_only = bool(cfg.get("unfreeze_lora_only", False))
+
+    def is_visual_tower_parameter(name: str) -> bool:
+        if ".visual." not in name and not name.startswith("visual."):
+            return False
+        # Qwen3-VL exposes visual mergers as projector/bridge parameters. Keep
+        # those trainable when freezing the ViT body.
+        if "visual.merger" in name or "visual.deepstack_merger" in name:
+            return False
+        return True
 
     def should_unfreeze(name: str) -> bool:
         layer_match = re.search(r"language_model\.layers\.(\d+)\.", name)
@@ -482,6 +527,18 @@ def apply_optimization_policy(model, optimization_cfg: dict[str, object] | None)
                 "trainable_modules": trainable_modules,
             }
         trainable_modules = apply_explicit_unfreeze_rules()
+        if bool(cfg.get("freeze_visual_tower", cfg.get("freeze_vit", False))):
+            frozen_tensors = 0
+            frozen_params = 0
+            for name, parameter in model.named_parameters():
+                if is_visual_tower_parameter(name):
+                    if parameter.requires_grad:
+                        frozen_tensors += 1
+                        frozen_params += int(parameter.numel())
+                    parameter.requires_grad = False
+            summary["freeze_visual_tower"] = True
+            summary["frozen_visual_tensors"] = frozen_tensors
+            summary["frozen_visual_params"] = frozen_params
         if bool(cfg.get("freeze_traj_aux_head", False)):
             traj_aux_head = getattr(model, "traj_aux_head", None)
             if traj_aux_head is None:
@@ -686,6 +743,134 @@ def preferred_model_dtype(*, bf16: bool) -> torch.dtype | None:
     if torch.cuda.is_available() and bf16:
         return torch.bfloat16
     return None
+
+
+def torch_dtype_from_name(name: str) -> torch.dtype:
+    return {
+        "bfloat16": torch.bfloat16,
+        "bf16": torch.bfloat16,
+        "float16": torch.float16,
+        "fp16": torch.float16,
+        "float32": torch.float32,
+        "fp32": torch.float32,
+    }[str(name).strip().lower()]
+
+
+def load_on_policy_gkd_teacher(
+    config: dict[str, object] | None,
+    *,
+    tokenizer,
+    device: torch.device,
+    is_rank_zero: bool,
+) -> tuple[Any | None, dict[str, object]]:
+    cfg = dict(config or {})
+    if not bool(cfg.get("enabled", False)):
+        return None, {"enabled": False}
+
+    workspace_root = PROJECT_ROOT.parents[1]
+    if str(workspace_root) not in sys.path:
+        sys.path.insert(0, str(workspace_root))
+    from distillation.dataset_prep.scripts.batch_infer_nonhuman_no_nav import load_model_and_processor
+
+    teacher_model_path = Path(
+        str(
+            cfg.get("teacher_model_path")
+            or cfg.get("teacher_checkpoint_path")
+            or workspace_root / "base_weights" / "Alpamayo-1.5-10B"
+        )
+    ).expanduser()
+    teacher_dtype = torch_dtype_from_name(str(cfg.get("teacher_dtype", "bfloat16")))
+    teacher_device = str(cfg.get("teacher_device") or device)
+    config_json = cfg.get("teacher_config_json", cfg.get("config_json", None))
+    runtime_support = cfg.get("teacher_runtime_support", cfg.get("runtime_support", None))
+    attn_implementation = str(cfg.get("teacher_attn_implementation", cfg.get("attn_implementation", "sdpa")))
+    min_pixels = cfg.get("teacher_min_pixels", cfg.get("min_pixels", None))
+    max_pixels = cfg.get("teacher_max_pixels", cfg.get("max_pixels", None))
+
+    if is_rank_zero:
+        print(
+            json.dumps(
+                {
+                    "event": "on_policy_gkd_teacher_load_start",
+                    "teacher_model_path": str(teacher_model_path),
+                    "teacher_dtype": str(teacher_dtype).replace("torch.", ""),
+                    "teacher_device": teacher_device,
+                    "runtime_support": runtime_support,
+                    "attn_implementation": attn_implementation,
+                }
+            ),
+            flush=True,
+        )
+
+    container_model, processor, teacher_config, config_path, runtime_support_path = load_model_and_processor(
+        teacher_model_path,
+        dtype=teacher_dtype,
+        device=teacher_device,
+        config_json=str(config_json) if config_json not in (None, "") else None,
+        runtime_support=str(runtime_support) if runtime_support not in (None, "") else None,
+        attn_implementation=attn_implementation,
+        min_pixels=int(min_pixels) if min_pixels not in (None, "") else None,
+        max_pixels=int(max_pixels) if max_pixels not in (None, "") else None,
+    )
+    teacher_tokenizer = getattr(container_model, "tokenizer", getattr(processor, "tokenizer", None))
+    codebook_tokens = ["<i0>", "<i2999>"]
+    remap_tokens = [
+        "<|cot_start|>",
+        "<|cot_end|>",
+        "<|traj_future_start|>",
+        "<|traj_future_end|>",
+        "<|traj_history_start|>",
+        "<|traj_history_end|>",
+        "<|traj_history|>",
+        "<|route_start|>",
+        "<|route_end|>",
+        "<|question_start|>",
+        "<|question_end|>",
+    ]
+    checked_tokens = [*codebook_tokens, *remap_tokens]
+    token_ids: dict[str, dict[str, int]] = {}
+    token_id_map: dict[int, int] = {}
+    for token in checked_tokens:
+        student_id = tokenizer.convert_tokens_to_ids(token)
+        teacher_id = teacher_tokenizer.convert_tokens_to_ids(token) if teacher_tokenizer is not None else None
+        token_ids[token] = {"student": int(student_id), "teacher": int(teacher_id)}
+        if not isinstance(student_id, int) or not isinstance(teacher_id, int):
+            raise RuntimeError(
+                f"on-policy GKD token missing for {token!r}: student={student_id}, teacher={teacher_id}"
+            )
+        if token in codebook_tokens and int(student_id) != int(teacher_id):
+            raise RuntimeError(
+                f"on-policy GKD codebook token-id mismatch for {token!r}: student={student_id}, teacher={teacher_id}"
+            )
+        if int(student_id) != int(teacher_id):
+            token_id_map[int(student_id)] = int(teacher_id)
+
+    teacher_vlm = container_model.vlm
+    teacher_vlm.eval()
+    for parameter in teacher_vlm.parameters():
+        parameter.requires_grad_(False)
+    for attr in ("expert", "action_in_proj", "action_out_proj", "diffusion"):
+        if hasattr(container_model, attr):
+            delattr(container_model, attr)
+    del processor
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    summary = {
+        "enabled": True,
+        "teacher_model_path": str(teacher_model_path),
+        "teacher_dtype": str(teacher_dtype).replace("torch.", ""),
+        "teacher_device": teacher_device,
+        "teacher_config_path": str(config_path),
+        "runtime_support": str(runtime_support_path) if runtime_support_path is not None else None,
+        "attn_implementation": attn_implementation,
+        "token_ids": token_ids,
+        "token_id_map": token_id_map,
+    }
+    if is_rank_zero:
+        print(json.dumps({"event": "on_policy_gkd_teacher_load_done", **summary}), flush=True)
+    return teacher_vlm, summary
 
 
 def resolve_requested_epochs(args: argparse.Namespace, trainer_cfg: TrainerConfig) -> float:
@@ -966,6 +1151,7 @@ def scheduled_sampling_config_from_yaml(config: dict[str, object] | None, tokeni
     probability = float(cfg.get("p", cfg.get("probability", 0.0)) or 0.0)
     probability_start_raw = cfg.get("p_start", cfg.get("probability_start", None))
     probability_start = None if probability_start_raw is None else float(probability_start_raw)
+    start_step = int(cfg.get("start_step", cfg.get("start_steps", 0)) or 0)
     ramp_steps = int(cfg.get("ramp_steps", cfg.get("p_ramp_steps", 0)) or 0)
     mode = str(cfg.get("mode", cfg.get("sampling_mode", "token")) or "token").strip().lower()
     if mode in {"generated", "generated-prefix", "sample-prefix"}:
@@ -997,6 +1183,7 @@ def scheduled_sampling_config_from_yaml(config: dict[str, object] | None, tokeni
             "enabled": False,
             "p": probability,
             "p_start": probability_start,
+            "start_step": start_step,
             "ramp_steps": ramp_steps,
             "mode": mode,
             "prefix_tokens": prefix_tokens,
@@ -1012,6 +1199,7 @@ def scheduled_sampling_config_from_yaml(config: dict[str, object] | None, tokeni
         enabled=True,
         probability=probability,
         probability_start=probability_start,
+        start_step=start_step,
         ramp_steps=ramp_steps,
         traj_token_start_id=int(traj_start),
         replacement_vocab_size=int(replacement_vocab_size),
@@ -1024,6 +1212,7 @@ def scheduled_sampling_config_from_yaml(config: dict[str, object] | None, tokeni
         "enabled": True,
         "p": probability,
         "p_start": probability_start,
+        "start_step": start_step,
         "ramp_steps": ramp_steps,
         "mode": mode,
         "prefix_tokens": prefix_tokens,
@@ -1033,6 +1222,74 @@ def scheduled_sampling_config_from_yaml(config: dict[str, object] | None, tokeni
         "traj_token_start_id": int(traj_start),
         "replacement_vocab_size": int(replacement_vocab_size),
     }
+
+
+def on_policy_gkd_config_from_yaml(config: dict[str, object] | None, tokenizer) -> tuple[OnPolicyGKDConfig | None, dict[str, object]]:
+    cfg = dict(config or {})
+    enabled = bool(cfg.get("enabled", False))
+    probability = float(cfg.get("p", cfg.get("probability", 0.0)) or 0.0)
+    probability_start_raw = cfg.get("p_start", cfg.get("probability_start", None))
+    probability_start = None if probability_start_raw is None else float(probability_start_raw)
+    start_step = int(cfg.get("start_step", cfg.get("start_steps", 0)) or 0)
+    ramp_steps = int(cfg.get("ramp_steps", cfg.get("p_ramp_steps", 0)) or 0)
+    rollout_tokens = int(cfg.get("rollout_tokens", cfg.get("prefix_tokens", 128)) or 128)
+    loss_weight = float(cfg.get("loss_weight", cfg.get("weight", 1.0)) or 0.0)
+    kd_temperature = float(cfg.get("kd_temperature", 1.5) or 1.5)
+    do_sample = bool(cfg.get("do_sample", cfg.get("sample", True)))
+    generation_temperature = float(cfg.get("generation_temperature", cfg.get("sample_temperature", 0.6)) or 0.6)
+    top_p = float(cfg.get("top_p", 0.98) or 0.98)
+    top_k = int(cfg.get("top_k", 0) or 0)
+    vocab_spec = str(cfg.get("replacement_vocab", "<i0>~<i2999>")).strip()
+
+    traj_start = tokenizer.convert_tokens_to_ids("<i0>")
+    replacement_vocab_size = int(cfg.get("replacement_vocab_size", 3000) or 3000)
+    match = re.fullmatch(r"<i(\d+)>\s*~\s*<i(\d+)>", vocab_spec)
+    if match:
+        start_index = int(match.group(1))
+        end_index = int(match.group(2))
+        traj_start = tokenizer.convert_tokens_to_ids(discrete_traj_token(start_index))
+        replacement_vocab_size = max(end_index - start_index + 1, 0)
+
+    summary = {
+        "enabled": enabled,
+        "p": probability,
+        "p_start": probability_start,
+        "start_step": start_step,
+        "ramp_steps": ramp_steps,
+        "rollout_tokens": rollout_tokens,
+        "loss_weight": loss_weight,
+        "kd_temperature": kd_temperature,
+        "do_sample": do_sample,
+        "generation_temperature": generation_temperature,
+        "top_p": top_p,
+        "top_k": top_k,
+        "replacement_vocab": vocab_spec,
+        "replacement_vocab_size": replacement_vocab_size,
+    }
+    if not enabled or probability <= 0 or loss_weight <= 0:
+        summary["enabled"] = False
+        return None, summary
+    if not isinstance(traj_start, int) or traj_start < 0 or replacement_vocab_size <= 0:
+        raise ValueError(f"Invalid on_policy_gkd replacement_vocab={vocab_spec!r}")
+
+    config_obj = OnPolicyGKDConfig(
+        enabled=True,
+        probability=probability,
+        probability_start=probability_start,
+        start_step=start_step,
+        ramp_steps=ramp_steps,
+        traj_token_start_id=int(traj_start),
+        replacement_vocab_size=int(replacement_vocab_size),
+        rollout_tokens=max(int(rollout_tokens), 1),
+        loss_weight=loss_weight,
+        kd_temperature=kd_temperature,
+        do_sample=do_sample,
+        generation_temperature=generation_temperature,
+        top_p=top_p,
+        top_k=top_k,
+    )
+    summary["traj_token_start_id"] = int(traj_start)
+    return config_obj, summary
 
 
 def build_dataloader(
@@ -1094,22 +1351,24 @@ def evaluate_model(
     total_batches = len(dataloader)
     started_at = time.time()
     for batch_index, batch in enumerate(dataloader, start=1):
+        batch = prepare_flex_batch_for_model(batch, model)
         batch = move_batch_to_device(batch, device)
         autocast_context = (
             torch.autocast("cuda", dtype=torch.bfloat16)
             if bf16 and device.type == "cuda"
             else nullcontext()
         )
-        with autocast_context:
-            _, logs = run_train_step(
-                model,
-                batch,
-                loss_weights,
-                traj_decode_config=traj_decode_config,
-                traj_aux_interface_config=traj_aux_interface_config,
-                traj_body_prefix_tokens=traj_body_prefix_tokens,
-                traj_hidden_bridge_config=traj_hidden_bridge_config,
-            )
+        with torch.no_grad():
+            with autocast_context:
+                _, logs = run_train_step(
+                    model,
+                    batch,
+                    loss_weights,
+                    traj_decode_config=traj_decode_config,
+                    traj_aux_interface_config=traj_aux_interface_config,
+                    traj_body_prefix_tokens=traj_body_prefix_tokens,
+                    traj_hidden_bridge_config=traj_hidden_bridge_config,
+                )
         local_batches += 1
         for key, value in logs.items():
             metric_sums[key] = metric_sums.get(key, 0.0) + float(value)
@@ -1275,8 +1534,13 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     flex_cfg = dict(stage_options.get("flex") or {})
     flex_scene_config = None
     if bool(flex_cfg.get("enabled", False)):
+        flex_architecture = str(flex_cfg.get("architecture", "single_level") or "single_level")
+        default_flex_compression = (
+            "per_image" if flex_architecture in {"multi_level", "ml_flex", "ml-flex"} else "global"
+        )
         flex_scene_config = FlexSceneConfig(
             enabled=True,
+            architecture=flex_architecture,
             tokens_per_image=int(flex_cfg.get("tokens_per_image", 32) or 32),
             expected_images_per_sample=int(flex_cfg.get("expected_images_per_sample", 16) or 16),
             input_hidden_size=int(flex_cfg.get("input_hidden_size", 2048) or 2048),
@@ -1286,7 +1550,11 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             mlp_ratio=float(flex_cfg.get("mlp_ratio", 4.0) or 4.0),
             dropout=float(flex_cfg.get("dropout", 0.0) or 0.0),
             use_camera_time_embeddings=bool(flex_cfg.get("use_camera_time_embeddings", False)),
+            use_local_slot_embeddings=bool(flex_cfg.get("use_local_slot_embeddings", True)),
             max_camera_types=int(flex_cfg.get("max_camera_types", 16) or 16),
+            compression_mode=str(flex_cfg.get("compression_mode", default_flex_compression) or default_flex_compression),
+            selection_strategy=str(flex_cfg.get("selection_strategy", "first") or "first"),
+            num_deepstack_levels=int(flex_cfg.get("num_deepstack_levels", 3) or 3),
         )
     traj_body_prefix_tokens = (
         int(curriculum_cfg.get("traj_body_prefix_tokens"))
@@ -1315,6 +1583,10 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     )
     scheduled_sampling_config, scheduled_sampling_summary = scheduled_sampling_config_from_yaml(
         stage_options.get("scheduled_sampling"),
+        tokenizer,
+    )
+    on_policy_gkd_config, on_policy_gkd_summary = on_policy_gkd_config_from_yaml(
+        stage_options.get("on_policy_gkd"),
         tokenizer,
     )
     traj_decode_config, traj_decode_summary = load_traj_decode_config(
@@ -1553,6 +1825,8 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "optimization": optimization_cfg,
             "flex": flex_cfg,
             "curriculum": curriculum_cfg,
+            "scheduled_sampling": scheduled_sampling_summary,
+            "on_policy_gkd": on_policy_gkd_summary,
             "traj_body_prefix_tokens": traj_body_prefix_tokens,
             "interface_loss_weights": export_loss_weights(interface_loss_weights) if interface_loss_weights is not None else None,
             "traj_token_reweighting": traj_token_reweight_summary,
@@ -1702,15 +1976,283 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     if getattr(model, "traj_aux_num_buckets", 1) != traj_aux_num_buckets:
         model.configure_traj_aux_head(traj_aux_num_buckets)
     optimization_summary = apply_optimization_policy(model, optimization_cfg)
-    for parameter in model.parameters():
-        if parameter.requires_grad and parameter.dtype != torch.float32:
-            parameter.data = parameter.data.float()
+    if bool(stage_options.get("force_trainable_fp32", True)):
+        for parameter in model.parameters():
+            if parameter.requires_grad and parameter.dtype != torch.float32:
+                parameter.data = parameter.data.float()
     if hasattr(model.backbone, "enable_input_require_grads"):
         try:
             model.backbone.enable_input_require_grads()
         except Exception:  # noqa: BLE001
             pass
     model = model.to(device)
+
+    # ── QAT: ModelOpt INT4 AWQ fake-quantization (optional) ─────────
+    qat_quantization = str(getattr(args, "qat_quantization", "") or "").strip().lower()
+    if qat_quantization:
+        import modelopt.torch.quantization as mtq
+        qat_quantization_requested = qat_quantization
+        quantize_visual = qat_quantization in {"fp8_vit", "fp8_pcpt_vit"}
+        if qat_quantization == "fp8_vit":
+            qat_quantization = "fp8"
+        elif qat_quantization == "fp8_pcpt_vit":
+            qat_quantization = "fp8_pcpt"
+
+        # INT4 FFN-only: start from INT4_AWQ_CFG and disable attention projections.
+        # Target deployment spec:
+        #   QK, PV, softmax, RMSNorm → FP16
+        #   gate_proj, up_proj, down_proj → INT4
+        import copy as _copy
+        _INT4_FFN_ONLY_CFG = _copy.deepcopy(mtq.INT4_AWQ_CFG)
+        _INT4_FFN_ONLY_CFG["quant_cfg"]["*q_proj*"] = {"enable": False}
+        _INT4_FFN_ONLY_CFG["quant_cfg"]["*k_proj*"] = {"enable": False}
+        _INT4_FFN_ONLY_CFG["quant_cfg"]["*v_proj*"] = {"enable": False}
+        _INT4_FFN_ONLY_CFG["quant_cfg"]["*o_proj*"] = {"enable": False}
+        _INT4_FFN_ONLY_CFG["quant_cfg"]["*q_norm*"] = {"enable": False}
+        _INT4_FFN_ONLY_CFG["quant_cfg"]["*k_norm*"] = {"enable": False}
+        _FP8_PCPT_CFG = _copy.deepcopy(mtq.FP8_PER_CHANNEL_PER_TOKEN_CFG)
+        _FP8_DEFAULT_CFG = _copy.deepcopy(mtq.FP8_DEFAULT_CFG)
+
+        qat_configs = {
+            "int4_awq": mtq.INT4_AWQ_CFG,
+            "int4_blockwise": getattr(mtq, "INT4_BLOCKWISE_WEIGHT_ONLY_CFG", mtq.INT4_AWQ_CFG),
+            "int4_ffn_only": _INT4_FFN_ONLY_CFG,
+            "fp8": _FP8_DEFAULT_CFG,
+            "fp8_pcpt": _FP8_PCPT_CFG,
+        }
+        qat_cfg = _copy.deepcopy(qat_configs.get(qat_quantization))
+        if qat_cfg is None:
+            raise ValueError(f"Unknown --qat-quantization: {qat_quantization_requested!r}")
+
+        qat_calib_samples = int(getattr(args, "qat_calib_samples", 512) or 512)
+        if is_rank_zero:
+            print(
+                json.dumps(
+                    {
+                        "event": "qat_quantize_start",
+                        "quantization": qat_quantization_requested,
+                        "base_quantization": qat_quantization,
+                        "calib_samples": qat_calib_samples,
+                        "quantize_visual": quantize_visual,
+                    }
+                ),
+                flush=True,
+            )
+
+        # FIX #5: Calibration with proper success tracking. Each quantized subtree
+        # needs its own loop so visual calibration cannot reuse language counters.
+        def _make_qat_calib_forward_loop(calib_target: str):
+            def _qat_calib_forward_loop(_target_model):
+                _target_model.eval()
+                raw_m = model.module if hasattr(model, "module") else model
+                raw_m.eval()
+                _qat_calib_success = 0
+                _qat_calib_fail = 0
+                _qat_calib_first_error = None
+                with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16, enabled=trainer_cfg.bf16):
+                    for batch in train_dataloader:
+                        if _qat_calib_success >= qat_calib_samples:
+                            break
+                        # FLEX compression must happen before model forward.
+                        batch = prepare_flex_batch_for_model(batch, raw_m)
+                        batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+                        try:
+                            raw_m(
+                                input_ids=batch["input_ids"],
+                                attention_mask=batch.get("attention_mask"),
+                                pixel_values=batch.get("pixel_values"),
+                                image_grid_thw=batch.get("image_grid_thw"),
+                                return_hidden_states=False,
+                                compute_meta_action=False,
+                                compute_traj_aux=False,
+                            )
+                            _qat_calib_success += int(batch["input_ids"].shape[0])
+                        except Exception as _calib_exc:
+                            _qat_calib_fail += 1
+                            if _qat_calib_first_error is None:
+                                _qat_calib_first_error = repr(_calib_exc)
+                if is_rank_zero:
+                    print(json.dumps({
+                        "event": "qat_calib_done",
+                        "target": calib_target,
+                        "success": _qat_calib_success,
+                        "failed": _qat_calib_fail,
+                        "first_error": _qat_calib_first_error,
+                    }), flush=True)
+                if _qat_calib_success == 0:
+                    raise RuntimeError(
+                        f"QAT calibration target={calib_target!r} produced 0 successful forwards "
+                        f"out of {_qat_calib_fail} attempts. First error: {_qat_calib_first_error}"
+                    )
+
+            return _qat_calib_forward_loop
+
+        # FIX #3: Quantize the language model by default. The *_vit variants also
+        # quantize the visual tower, while keeping visual boundary/projection paths
+        # BF16 so the multimodal projector can learn the feature shift.
+        # Qwen3-VL structure:
+        #   model.backbone (PeftModel)
+        #     .base_model.model (Qwen3VLForConditionalGeneration)
+        #       .model.visual (407M) ← quantize only for *_vit modes
+        #       .model.language_model (1720M) ← quantize by default
+        #       .lm_head (311M) ← keep BF16 for trainable/new token rows
+        raw_model = model.module if hasattr(model, "module") else model
+        _backbone = raw_model.backbone
+
+        # Navigate to the actual Qwen3VL model inside PeftModel
+        _unwrapped = _backbone
+        if hasattr(_unwrapped, "base_model"):
+            _unwrapped = _unwrapped.base_model
+        if hasattr(_unwrapped, "model"):
+            _unwrapped = _unwrapped.model
+        # _unwrapped is now Qwen3VLForConditionalGeneration
+        _qwen_model = getattr(_unwrapped, "model", _unwrapped)
+        # _qwen_model is now Qwen3VLModel with .visual and .language_model
+        _language_model = getattr(_qwen_model, "language_model", None)
+        if _language_model is None:
+            raise RuntimeError(
+                "Could not find language_model submodule for QAT. "
+                f"Available: {[n for n, _ in _qwen_model.named_children()]}"
+            )
+        _visual_model = getattr(_qwen_model, "visual", None)
+        if quantize_visual and _visual_model is None:
+            raise RuntimeError("Requested visual FP8 quantization, but the Qwen3-VL visual module was not found.")
+
+        language_qat_cfg = _copy.deepcopy(qat_cfg)
+        layer_modules = getattr(_language_model, "layers", None)
+        if layer_modules is not None and hasattr(layer_modules, "__len__"):
+            last_layer_idx = max(int(len(layer_modules)) - 1, 0)
+            for excluded_idx in sorted({0, last_layer_idx}):
+                language_qat_cfg.setdefault("quant_cfg", {})[f"*layers.{excluded_idx}.*"] = {"enable": False}
+        language_qat_cfg.setdefault("quant_cfg", {})["*embed_tokens*"] = {"enable": False}
+        language_qat_cfg.setdefault("quant_cfg", {})["*lm_head*"] = {"enable": False}
+
+        visual_qat_cfg = _copy.deepcopy(qat_cfg)
+        if quantize_visual:
+            visual_excludes = {
+                "*patch_embed*": {"enable": False},
+                "*embed*": {"enable": False},
+                "*pos_embed*": {"enable": False},
+                "*rotary*": {"enable": False},
+                "*merger*": {"enable": False},
+                "*norm*": {"enable": False},
+                "*ln*": {"enable": False},
+            }
+            visual_qat_cfg.setdefault("quant_cfg", {}).update(visual_excludes)
+
+        if is_rank_zero:
+            _lang_params = sum(p.numel() for p in _language_model.parameters())
+            _vis_params = sum(p.numel() for p in (_visual_model or torch.nn.Module()).parameters())
+            print(json.dumps({
+                "event": "qat_scope",
+                "quantize_target": "language_visual" if quantize_visual else "language_model",
+                "quantization": qat_quantization_requested,
+                "base_quantization": qat_quantization,
+                "language_params_M": round(_lang_params / 1e6, 1),
+                "visual_params_M": round(_vis_params / 1e6, 1),
+                "visual_excluded": not quantize_visual,
+                "excluded_language_layers": [0, max(int(len(layer_modules)) - 1, 0)] if layer_modules is not None and hasattr(layer_modules, "__len__") else [],
+                "visual_exclude_patterns": sorted(visual_qat_cfg.get("quant_cfg", {}).keys()) if quantize_visual else [],
+            }), flush=True)
+
+        # Save VisionAttention's original attention functions BEFORE quantize.
+        # ModelOpt patches ALL_ATTENTION_FUNCTIONS at the class level, which can
+        # bleed into VisionAttention if it shares the same dict via inheritance.
+        _vision_attn_originals: list[tuple[Any, dict]] = []
+        if _visual_model is not None:
+            for _vm_name, _vm_mod in _visual_model.named_modules():
+                _aaf = getattr(_vm_mod, "ALL_ATTENTION_FUNCTIONS", None)
+                if isinstance(_aaf, dict) and _aaf:
+                    _vision_attn_originals.append((_vm_mod, dict(_aaf)))
+
+        # Apply quantization to language_model first. If requested, quantize the
+        # visual tower second against the already-quantized language path.
+        _quantized_lang = mtq.quantize(
+            _language_model,
+            language_qat_cfg,
+            forward_loop=_make_qat_calib_forward_loop("language_model"),
+        )
+        _qwen_model.language_model = _quantized_lang
+        if quantize_visual and _visual_model is not None:
+            _quantized_visual = mtq.quantize(
+                _visual_model,
+                visual_qat_cfg,
+                forward_loop=_make_qat_calib_forward_loop("visual"),
+            )
+            _qwen_model.visual = _quantized_visual
+
+        # Restore VisionAttention's original attention functions
+        for _vm_mod, _orig_aaf in _vision_attn_originals:
+            if hasattr(_vm_mod, "ALL_ATTENTION_FUNCTIONS"):
+                _vm_mod.ALL_ATTENTION_FUNCTIONS.update(_orig_aaf)
+
+        # Disable quantizers on LoRA adapter weights (keep FP16 trainable)
+        _lora_q_disabled = 0
+        for _name, _mod in _backbone.named_modules():
+            if "lora_" in _name:
+                for _attr in ("weight_quantizer", "input_quantizer", "output_quantizer"):
+                    _q = getattr(_mod, _attr, None)
+                    if _q is not None and hasattr(_q, "disable"):
+                        _q.disable()
+                        _lora_q_disabled += 1
+
+        # FIX #4: Count quantizers by module family for verification
+        if is_rank_zero:
+            _counts = {"language": 0, "visual": 0, "lm_head": 0, "lora": 0, "flex": 0, "other": 0}
+            for _name, _mod in _backbone.named_modules():
+                if not hasattr(_mod, "weight_quantizer"):
+                    continue
+                _wq = getattr(_mod, "weight_quantizer", None)
+                _enabled = _wq is not None and hasattr(_wq, "is_enabled") and _wq.is_enabled
+                if not _enabled:
+                    continue
+                if "lora_" in _name:
+                    _counts["lora"] += 1
+                elif "visual" in _name:
+                    _counts["visual"] += 1
+                elif "lm_head" in _name:
+                    _counts["lm_head"] += 1
+                elif "language_model" in _name or "layers." in _name:
+                    _counts["language"] += 1
+                else:
+                    _counts["other"] += 1
+
+            _flex_ok = not any(
+                hasattr(m, "weight_quantizer")
+                and getattr(m.weight_quantizer, "is_enabled", False)
+                for m in (getattr(raw_model, "flex_scene_encoder", None) or torch.nn.Module()).modules()
+            )
+            print(json.dumps({
+                "event": "qat_quantize_done",
+                "quantizers_by_family": _counts,
+                "lora_quantizers_disabled": _lora_q_disabled,
+                "flex_clean": _flex_ok,
+                "visual_quantized": quantize_visual,
+                "visual_clean": (not quantize_visual and _counts["visual"] == 0),
+            }), flush=True)
+            if not quantize_visual and _counts["visual"] > 0:
+                raise RuntimeError(f"QAT quantized {_counts['visual']} visual modules — this should not happen.")
+            if quantize_visual and _counts["visual"] == 0:
+                raise RuntimeError("QAT visual quantization requested, but no enabled visual quantizers were found.")
+            if _counts["lora"] > 0:
+                raise RuntimeError(f"QAT left {_counts['lora']} LoRA quantizers enabled — disable failed.")
+
+    on_policy_teacher_model = None
+    on_policy_teacher_summary: dict[str, object] = {"enabled": False}
+    if on_policy_gkd_config is not None and not args.eval_only:
+        if world_size > 1:
+            raise RuntimeError("on_policy_gkd currently supports single-GPU training only.")
+        on_policy_teacher_model, on_policy_teacher_summary = load_on_policy_gkd_teacher(
+            stage_options.get("on_policy_gkd"),
+            tokenizer=tokenizer,
+            device=device,
+            is_rank_zero=is_rank_zero,
+        )
+        on_policy_gkd_config.teacher_token_id_map = {
+            int(student_id): int(teacher_id)
+            for student_id, teacher_id in dict(on_policy_teacher_summary.get("token_id_map") or {}).items()
+        }
+
     if world_size > 1:
         model = DDP(model, device_ids=[rank], output_device=rank, static_graph=True)
     if args.eval_only:
@@ -1792,6 +2334,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                 f"teacher_pair_target={teacher_pair_target} "
                 f"teacher_traj_hidden_size={teacher_traj_hidden_size} "
                 f"scheduled_sampling={scheduled_sampling_summary} "
+                f"on_policy_gkd={on_policy_gkd_summary} "
                 f"flex={flex_cfg} "
                 f"traj_aux_num_buckets={traj_aux_num_buckets} "
                 f"freeze_aux_only={bool(optimization_cfg.get('freeze_all_but_traj_aux_head', False))} "
@@ -1803,6 +2346,8 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         if init_checkpoint_dir is not None:
             print(f"[resume] loading_checkpoint={init_checkpoint_dir}", flush=True)
 
+    if is_rank_zero:
+        args.output_dir.mkdir(parents=True, exist_ok=True)
     metrics_path = args.output_dir / "metrics.jsonl"
     global_step = 0
     epoch_index = 0
@@ -1877,6 +2422,10 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "interface_loss_weights": export_loss_weights(interface_loss_weights) if interface_loss_weights is not None else None,
         },
         "scheduled_sampling": scheduled_sampling_summary,
+        "on_policy_gkd": {
+            **on_policy_gkd_summary,
+            "teacher": on_policy_teacher_summary,
+        },
         "flex": flex_cfg,
         "traj_token_reweighting": traj_token_reweight_summary,
         "traj_decode": traj_decode_summary,
@@ -1902,6 +2451,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             for batch in train_dataloader:
                 if resolved_max_steps is not None and global_step >= resolved_max_steps:
                     break
+                batch = prepare_flex_batch_for_model(batch, model)
                 batch = move_batch_to_device(batch, device)
                 model.train()
                 optimizer.zero_grad(set_to_none=True)
@@ -1929,6 +2479,8 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                         traj_body_prefix_tokens=traj_body_prefix_tokens,
                         traj_hidden_bridge_config=traj_hidden_bridge_cfg,
                         scheduled_sampling_config=scheduled_sampling_config,
+                        on_policy_teacher_model=on_policy_teacher_model,
+                        on_policy_gkd_config=on_policy_gkd_config,
                         global_step=next_step,
                     )
                 loss.backward()
@@ -1967,6 +2519,11 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                         ss_replaced = float(logs.get("scheduled_sampling_replaced") or 0.0)
                         ss_candidates = float(logs.get("scheduled_sampling_candidates") or 0.0)
                         ss_probability = float(logs.get("scheduled_sampling_probability") or 0.0)
+                        gkd_active = float(logs.get("on_policy_gkd_active") or 0.0)
+                        gkd_rows = float(logs.get("on_policy_gkd_rows") or 0.0)
+                        gkd_tokens = float(logs.get("on_policy_gkd_tokens") or 0.0)
+                        gkd_loss = float(logs.get("on_policy_gkd_loss") or 0.0)
+                        gkd_prob = float(logs.get("on_policy_gkd_probability") or 0.0)
                         gt_cot_weighted = float(active_loss_weights.hard_cot_ce) * gt_cot_raw
                         teacher_text_kd_weighted = float(active_loss_weights.teacher_logit_kd) * teacher_text_kd_raw
                         gt_traj_weighted = float(active_loss_weights.traj_ce) * gt_traj_raw
@@ -1995,6 +2552,8 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                                 f"{_format_metric(logs.get('gt_cot_token_acc'))}/"
                                 f"{_format_metric(logs.get('traj_token_acc'))} "
                                 f"ss={ss_replaced:.0f}/{ss_candidates:.0f}@{ss_rate:.3f}/p{ss_probability:.3f} "
+                                f"gkd={gkd_active:.0f}:{gkd_rows:.0f}r/{gkd_tokens:.0f}t/"
+                                f"p{gkd_prob:.3f}/loss{gkd_loss:.4f} "
                                 f"traj_kd_scale={teacher_traj_kd_scale:.3f} "
                                 f"grad={_format_metric(grad_norm_value)}"
                             ),
@@ -2203,6 +2762,10 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         "early_stop_reason": early_stop_reason,
         "eval_history": eval_history,
         "saved_checkpoints": saved_checkpoints,
+        "on_policy_gkd": {
+            **on_policy_gkd_summary,
+            "teacher": on_policy_teacher_summary,
+        },
         "versions": active_versions(),
         "elapsed_sec": round(time.time() - started_at, 3),
         "metrics_path": str(metrics_path),

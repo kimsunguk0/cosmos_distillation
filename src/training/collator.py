@@ -116,6 +116,29 @@ def load_sample_images(sample: dict[str, Any], project_root: Path) -> list[Image
     return images
 
 
+def apply_image_ablation(images: list[Image.Image], mode: str, *, sample_id: str) -> list[Image.Image]:
+    """Apply deterministic visual perturbations used by FLEX sensitivity checks."""
+    mode = str(mode or "normal").strip().lower()
+    if mode == "normal":
+        return images
+    if mode in {"black", "gray"}:
+        color = (0, 0, 0) if mode == "black" else (127, 127, 127)
+        return [Image.new("RGB", image.size, color) for image in images]
+    if mode == "noise":
+        seed = abs(hash(str(sample_id))) % (2**32)
+        out: list[Image.Image] = []
+        for image_index, image in enumerate(images):
+            local = np.random.default_rng(seed + image_index * 1009)
+            arr = local.integers(0, 256, size=(image.size[1], image.size[0], 3), dtype=np.uint8)
+            out.append(Image.fromarray(arr, mode="RGB"))
+        return out
+    if mode == "camera_shuffle":
+        frame_count = 4 if len(images) % 4 == 0 else 1
+        groups = [images[index : index + frame_count] for index in range(0, len(images), frame_count)]
+        return [image for group in reversed(groups) for image in group]
+    raise ValueError(f"Unsupported image_ablation={mode!r}")
+
+
 def load_ego_history_xyz(sample: dict[str, Any], project_root: Path) -> np.ndarray:
     """Load ego history coordinates from the v3.2 or legacy sample layout."""
     sample_input = sample.get("input") or {}
@@ -1172,6 +1195,7 @@ class DistillationCollator:
     image_prompt_style: str = "compact"
     prompt_text_style: str = "numeric_history_question"
     fuse_history_tokens: bool = False
+    image_ablation: str = "normal"
 
     def __post_init__(self) -> None:
         style = str(self.image_prompt_style or "compact").strip().lower()
@@ -1197,6 +1221,10 @@ class DistillationCollator:
         if prompt_style not in {"numeric_history_question", "official_alpamayo"}:
             raise ValueError(f"Unsupported prompt_text_style={self.prompt_text_style!r}")
         self.prompt_text_style = prompt_style
+        ablation = str(self.image_ablation or "normal").strip().lower()
+        if ablation not in {"normal", "black", "gray", "noise", "camera_shuffle"}:
+            raise ValueError(f"Unsupported image_ablation={self.image_ablation!r}")
+        self.image_ablation = ablation
 
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, Any]:
         prompt_messages: list[list[dict[str, Any]]] = []
@@ -1299,7 +1327,12 @@ class DistillationCollator:
                     prompt_text_style=self.prompt_text_style,
                 )
             ego_future_xyz = load_ego_future_xyz(sample, self.project_root)
-            images = load_sample_images(sample, self.project_root)
+            image_ablation = str(sample.get("_image_ablation") or self.image_ablation or "normal").strip().lower()
+            images = apply_image_ablation(
+                load_sample_images(sample, self.project_root),
+                image_ablation,
+                sample_id=str(sample.get("sample_id")),
+            )
             camera_indices = resolve_camera_indices(sample, self.project_root, image_count=len(images))
             num_frames_per_camera = max(len(images) // max(len(camera_indices), 1), 1)
             relative_timestamps = resolve_image_relative_timestamps(

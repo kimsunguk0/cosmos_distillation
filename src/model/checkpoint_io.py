@@ -80,12 +80,19 @@ def _flex_scene_encoder_path(checkpoint_dir: Path) -> Path:
     return checkpoint_dir / "flex_scene_encoder.pt"
 
 
+def _flex_deepstack_projector_path(checkpoint_dir: Path) -> Path:
+    return checkpoint_dir / "flex_deepstack_projector.pt"
+
+
 def _flex_scene_config_from_manifest(manifest: dict[str, Any]) -> FlexSceneConfig | None:
     raw = manifest.get("flex_scene_config")
     if not isinstance(raw, dict) or not bool(raw.get("enabled", False)):
         return None
+    architecture = str(raw.get("architecture", "single_level") or "single_level")
+    default_compression_mode = "per_image" if architecture in {"multi_level", "ml_flex", "ml-flex"} else "global"
     return FlexSceneConfig(
         enabled=True,
+        architecture=architecture,
         tokens_per_image=int(raw.get("tokens_per_image", 32) or 32),
         expected_images_per_sample=int(raw.get("expected_images_per_sample", 16) or 16),
         input_hidden_size=int(raw.get("input_hidden_size", 2048) or 2048),
@@ -95,7 +102,24 @@ def _flex_scene_config_from_manifest(manifest: dict[str, Any]) -> FlexSceneConfi
         mlp_ratio=float(raw.get("mlp_ratio", 4.0) or 4.0),
         dropout=float(raw.get("dropout", 0.0) or 0.0),
         use_camera_time_embeddings=bool(raw.get("use_camera_time_embeddings", False)),
+        use_local_slot_embeddings=bool(raw.get("use_local_slot_embeddings", True)),
         max_camera_types=int(raw.get("max_camera_types", 16) or 16),
+        compression_mode=str(raw.get("compression_mode", default_compression_mode) or default_compression_mode),
+        selection_strategy=str(raw.get("selection_strategy", "first") or "first"),
+        num_deepstack_levels=int(raw.get("num_deepstack_levels", 3) or 3),
+    )
+
+
+def _configure_flex_deepstack_projector_from_manifest(manifest: dict[str, Any], model) -> None:
+    raw = manifest.get("flex_deepstack_projector_config")
+    if not isinstance(raw, dict) or not bool(raw.get("enabled", False)):
+        return
+    if not hasattr(model, "configure_flex_deepstack_projector"):
+        raise ValueError("Checkpoint contains flex_deepstack_projector_config but model cannot configure it.")
+    model.configure_flex_deepstack_projector(
+        num_layers=int(raw.get("num_layers", 0) or 0),
+        rank=int(raw.get("rank", 64) or 64),
+        dropout=float(raw.get("dropout", 0.0) or 0.0),
     )
 
 
@@ -168,6 +192,7 @@ def save_student_checkpoint(
             if flex_cfg is not None:
                 payload["flex_scene_config"] = {
                     "enabled": bool(getattr(flex_cfg, "enabled", False)),
+                    "architecture": str(getattr(flex_cfg, "architecture", "single_level") or "single_level"),
                     "tokens_per_image": int(getattr(flex_cfg, "tokens_per_image", 0) or 0),
                     "expected_images_per_sample": int(getattr(flex_cfg, "expected_images_per_sample", 0) or 0),
                     "input_hidden_size": int(getattr(flex_cfg, "input_hidden_size", 0) or 0),
@@ -179,8 +204,25 @@ def save_student_checkpoint(
                     "use_camera_time_embeddings": bool(
                         getattr(flex_cfg, "use_camera_time_embeddings", False)
                     ),
+                    "use_local_slot_embeddings": bool(
+                        getattr(flex_cfg, "use_local_slot_embeddings", True)
+                    ),
                     "max_camera_types": int(getattr(flex_cfg, "max_camera_types", 0) or 0),
+                    "compression_mode": str(getattr(flex_cfg, "compression_mode", "global") or "global"),
+                    "selection_strategy": str(getattr(flex_cfg, "selection_strategy", "first") or "first"),
+                    "num_deepstack_levels": int(getattr(flex_cfg, "num_deepstack_levels", 0) or 0),
                 }
+        if getattr(model, "flex_deepstack_projector", None) is not None:
+            torch.save(_cpu_state_dict(model.flex_deepstack_projector), _flex_deepstack_projector_path(checkpoint_dir))
+            payload["flex_deepstack_projector"] = _flex_deepstack_projector_path(checkpoint_dir).name
+            projector_cfg = getattr(model, "flex_deepstack_projector_config", None) or {}
+            payload["flex_deepstack_projector_config"] = {
+                "enabled": True,
+                "hidden_size": int(projector_cfg.get("hidden_size", 0) or 0),
+                "num_layers": int(projector_cfg.get("num_layers", 0) or 0),
+                "rank": int(projector_cfg.get("rank", 0) or 0),
+                "dropout": float(projector_cfg.get("dropout", 0.0) or 0.0),
+            }
         lm_head_adapter = get_lm_head_token_adapter(model.backbone)
         if lm_head_adapter is not None:
             torch.save(_cpu_state_dict(lm_head_adapter), _lm_head_token_adapter_path(checkpoint_dir))
@@ -208,12 +250,38 @@ def save_student_checkpoint(
         if getattr(model, "flex_scene_encoder", None) is not None:
             payload["flex_scene_config"] = {
                 "enabled": True,
+                "architecture": str(getattr(model.flex_scene_config, "architecture", "single_level") or "single_level"),
                 "tokens_per_image": int(getattr(model.flex_scene_config, "tokens_per_image", 0) or 0),
                 "expected_images_per_sample": int(getattr(model.flex_scene_config, "expected_images_per_sample", 0) or 0),
+                "input_hidden_size": int(getattr(model.flex_scene_config, "input_hidden_size", 0) or 0),
+                "hidden_size": int(getattr(model.flex_scene_config, "hidden_size", 0) or 0),
+                "num_layers": int(getattr(model.flex_scene_config, "num_layers", 0) or 0),
+                "num_heads": int(getattr(model.flex_scene_config, "num_heads", 0) or 0),
+                "mlp_ratio": float(getattr(model.flex_scene_config, "mlp_ratio", 0.0) or 0.0),
+                "dropout": float(getattr(model.flex_scene_config, "dropout", 0.0) or 0.0),
                 "use_camera_time_embeddings": bool(
                     getattr(model.flex_scene_config, "use_camera_time_embeddings", False)
                 ),
+                "use_local_slot_embeddings": bool(
+                    getattr(model.flex_scene_config, "use_local_slot_embeddings", True)
+                ),
                 "max_camera_types": int(getattr(model.flex_scene_config, "max_camera_types", 0) or 0),
+                "compression_mode": str(
+                    getattr(model.flex_scene_config, "compression_mode", "global") or "global"
+                ),
+                "selection_strategy": str(
+                    getattr(model.flex_scene_config, "selection_strategy", "first") or "first"
+                ),
+                "num_deepstack_levels": int(getattr(model.flex_scene_config, "num_deepstack_levels", 0) or 0),
+            }
+        if getattr(model, "flex_deepstack_projector", None) is not None:
+            projector_cfg = getattr(model, "flex_deepstack_projector_config", None) or {}
+            payload["flex_deepstack_projector_config"] = {
+                "enabled": True,
+                "hidden_size": int(projector_cfg.get("hidden_size", 0) or 0),
+                "num_layers": int(projector_cfg.get("num_layers", 0) or 0),
+                "rank": int(projector_cfg.get("rank", 0) or 0),
+                "dropout": float(projector_cfg.get("dropout", 0.0) or 0.0),
             }
         lm_head_adapter = get_lm_head_token_adapter(model.backbone)
         if lm_head_adapter is not None:
@@ -242,6 +310,7 @@ def load_student_checkpoint(
         flex_scene_config = _flex_scene_config_from_manifest(manifest)
         if flex_scene_config is not None and hasattr(model, "configure_flex_scene"):
             model.configure_flex_scene(flex_scene_config)
+        _configure_flex_deepstack_projector_from_manifest(manifest, model)
         traj_aux_num_buckets = manifest.get("traj_aux_num_buckets")
         if traj_aux_num_buckets not in (None, 0):
             model.configure_traj_aux_head(int(traj_aux_num_buckets))
@@ -335,6 +404,17 @@ def load_student_checkpoint(
             if getattr(model, "flex_scene_encoder", None) is None:
                 raise ValueError("Checkpoint contains flex_scene_encoder but the model is not configured for FLEX.")
             model.flex_scene_encoder.load_state_dict(flex_state, strict=True)
+        flex_deepstack_projector_path = _flex_deepstack_projector_path(checkpoint_dir)
+        if flex_deepstack_projector_path.exists():
+            try:
+                projector_state = torch.load(flex_deepstack_projector_path, map_location="cpu", weights_only=True)
+            except TypeError:
+                projector_state = torch.load(flex_deepstack_projector_path, map_location="cpu")
+            if getattr(model, "flex_deepstack_projector", None) is None:
+                raise ValueError(
+                    "Checkpoint contains flex_deepstack_projector but the model is not configured for it."
+                )
+            model.flex_deepstack_projector.load_state_dict(projector_state, strict=True)
         lm_head_adapter_path = _lm_head_token_adapter_path(checkpoint_dir)
         if lm_head_adapter_path.exists():
             try:
@@ -378,6 +458,7 @@ def load_student_checkpoint(
         flex_scene_config = _flex_scene_config_from_manifest(manifest)
         if flex_scene_config is not None and hasattr(model, "configure_flex_scene"):
             model.configure_flex_scene(flex_scene_config)
+        _configure_flex_deepstack_projector_from_manifest(manifest, model)
         traj_aux_num_buckets = manifest.get("traj_aux_num_buckets")
         if traj_aux_num_buckets not in (None, 0):
             model.configure_traj_aux_head(int(traj_aux_num_buckets))
