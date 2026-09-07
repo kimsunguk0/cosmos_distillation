@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.utils.traj_tokens import DEFAULT_TRAJ_VOCAB_SIZE, discrete_traj_tokens
+from src.utils.traj_tokens import DEFAULT_TRAJ_VOCAB_SIZE, discrete_traj_token, discrete_traj_tokens
 
 
 REQUIRED_SPECIAL_TOKENS = [
@@ -94,3 +94,31 @@ def distill_trainable_token_ids(
         token_ids.extend(range(int(traj_start), int(traj_end) + 1))
 
     return sorted(set(token_ids))
+
+
+def assert_traj_token_offsets(
+    tokenizer: Any,
+    *,
+    traj_vocab_size: int = DEFAULT_TRAJ_VOCAB_SIZE,
+) -> None:
+    """Validate that discrete trajectory token ids are contiguous and aligned."""
+    start = tokenizer.convert_tokens_to_ids(discrete_traj_token(0))
+    end = tokenizer.convert_tokens_to_ids(discrete_traj_token(int(traj_vocab_size) - 1))
+    if not isinstance(start, int) or not isinstance(end, int) or start < 0 or end < 0:
+        raise ValueError("Tokenizer is missing discrete trajectory tokens <i0> or final trajectory token.")
+    expected_end = int(start) + int(traj_vocab_size) - 1
+    if int(end) != expected_end:
+        raise ValueError(
+            f"Trajectory token ids are not contiguous: <i0>={start}, "
+            f"<i{int(traj_vocab_size) - 1}>={end}, expected_end={expected_end}."
+        )
+    for probe in (1, 2999, 3000, int(traj_vocab_size) - 1):
+        if probe < 0 or probe >= int(traj_vocab_size):
+            continue
+        token = discrete_traj_token(probe)
+        token_id = tokenizer.convert_tokens_to_ids(token)
+        expected = int(start) + int(probe)
+        if int(token_id) != expected:
+            raise ValueError(f"Trajectory token offset mismatch for {token}: id={token_id}, expected={expected}.")
+    tokenizer.traj_token_start_idx = int(start)
+    tokenizer.traj_token_end_idx = int(end)

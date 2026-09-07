@@ -85,6 +85,7 @@ decode_eval:
   split: val
   num_samples: 64
   max_new_tokens: 256
+  do_sample: false
   prompt_mode: joint
   target_mode: joint
   image_prompt_style: camera_labeled

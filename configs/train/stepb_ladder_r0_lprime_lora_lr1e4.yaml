@@ -1,0 +1,91 @@
+stage_name: stage_a
+epochs: 3.0
+batch_size: 8
+max_length: 4096
+bf16: true
+gradient_checkpointing: true
+gradient_checkpointing_use_reentrant: false
+learning_rate: 1.0e-4
+attn_implementation: flash_attention_2
+force_trainable_fp32: false
+
+# R0-L': LoRA high-LR control for the same official-contract minimal objective.
+
+lora:
+  rank: 64
+  alpha: 128
+  dropout: 0.05
+  train_lm_head_token_rows: true
+  target_modules_regex: '.*language_model.*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$'
+
+data_view:
+  prompt_mode: joint
+  target_mode: joint
+  image_prompt_style: camera_labeled
+  prompt_text_style: official_alpamayo
+  fuse_history_tokens: true
+  teacher_pair_target: false
+  hard_view_uses_teacher_cot: true
+  enable_teacher_view: false
+  enable_action_aux: false
+
+loss_weights:
+  gt_cot_loss: 0.1
+  teacher_cot_loss: 0.0
+  teacher_topk_kd_loss: 0.0
+  traj_loss: 1.0
+  teacher_traj_loss: 0.0
+  teacher_traj_topk_kd_loss: 0.0
+  teacher_traj_hidden_align_loss: 0.0
+  teacher_text_boundary_hidden_align_loss: 0.0
+  output_format_loss: 0.0
+  meta_action_loss: 0.0
+  feature_align_loss: 0.0
+  traj_aux_loss: 0.0
+  traj_aux_xyz_loss: 0.0
+  traj_aux_final_loss: 0.0
+  traj_xyz_loss: 0.0
+  traj_delta_loss: 0.0
+  traj_final_loss: 0.0
+  traj_control_loss: 0.0
+  traj_control_delta_loss: 0.0
+
+teacher_traj_topk_kd:
+  temperature: 1.0
+  tail_bucket: false
+  tail_chunk_size: 256
+
+optimization:
+  freeze_visual_tower: true
+  freeze_traj_aux_head: true
+  freeze_meta_action_head: true
+  freeze_boundary_action_head: true
+  unfreeze_multimodal_projector: true
+  multimodal_projector_lr_scale: 0.15
+
+lr_scheduler:
+  name: cosine_with_warmup
+  warmup_ratio: 0.03
+  min_lr_ratio: 0.0
+
+traj_token_reweighting:
+  enabled: false
+
+decode_eval:
+  enabled: true
+  split: val
+  num_samples: 256
+  max_new_tokens: 320
+  do_sample: false
+  temperature: 1.0
+  top_p: 1.0
+  reference_id: teacher_greedy_ref_v1
+  reference_jsonl: outputs/references/backbone_eval_v1/decode_val256_teacher_greedy_ref_v1/rows.jsonl
+  reference_token_field: selected_traj_tokens
+  reference_xyz_field: selected_xyz
+  prompt_mode: joint
+  target_mode: joint
+  image_prompt_style: camera_labeled
+  prompt_text_style: official_alpamayo
+  fuse_history_tokens: true
+  metric_name: free_run_geometry_score

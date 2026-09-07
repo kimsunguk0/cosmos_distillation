@@ -442,6 +442,15 @@ def parse_args() -> argparse.Namespace:
         help="Run gc.collect()/torch.cuda.empty_cache() every N eval path chunks. 0 disables eval cleanup.",
     )
     parser.add_argument(
+        "--reserve-vram-gib",
+        type=float,
+        default=0.0,
+        help=(
+            "If > 0, pre-claim CUDA reserved memory up to this total GiB target "
+            "after model and optimizer setup. 0 disables."
+        ),
+    )
+    parser.add_argument(
         "--eval-only",
         action="store_true",
         help="Load/build the bundle, run val/train eval once, write logs, and exit without training.",
@@ -1837,6 +1846,64 @@ def maybe_cuda_cleanup(every: int, index: int) -> None:
         torch.cuda.empty_cache()
 
 
+def reserve_vram_cache(target_gib: float, device: torch.device) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    target_gib = float(target_gib)
+    if target_gib <= 0.0:
+        return None, []
+    warnings: list[dict[str, Any]] = []
+    if device.type != "cuda":
+        warnings.append({
+            "event": "vram_reserve_warning",
+            "reason": "reserve-vram requires a CUDA device",
+            "device": str(device),
+            "target_gib": target_gib,
+        })
+        return None, warnings
+
+    gib = 1024 ** 3
+    target_bytes = int(target_gib * gib)
+    reserved_before = int(torch.cuda.memory_reserved(device))
+    deficit = target_bytes - reserved_before
+    chunks: list[torch.Tensor] = []
+    oom_message: str | None = None
+    failed_chunk_bytes = 0
+    if deficit > 0:
+        remaining = deficit
+        chunk_bytes = 512 * 1024 ** 2
+        while remaining > 0:
+            alloc_bytes = min(chunk_bytes, remaining)
+            try:
+                chunks.append(torch.empty((alloc_bytes,), dtype=torch.uint8, device=device))
+            except torch.cuda.OutOfMemoryError as exc:
+                failed_chunk_bytes = int(alloc_bytes)
+                oom_message = str(exc)
+                break
+            remaining -= alloc_bytes
+    del chunks
+
+    reserved_after = int(torch.cuda.memory_reserved(device))
+    allocated_now = int(torch.cuda.memory_allocated(device))
+    event = {
+        "event": "vram_reserved",
+        "target_gib": target_gib,
+        "reserved_before_gib": reserved_before / gib,
+        "reserved_after_gib": reserved_after / gib,
+        "allocated_now_gib": allocated_now / gib,
+    }
+    if oom_message is not None:
+        warnings.append({
+            "event": "vram_reserve_warning",
+            "reason": "out_of_memory",
+            "target_gib": target_gib,
+            "reserved_before_gib": reserved_before / gib,
+            "reserved_after_gib": reserved_after / gib,
+            "allocated_now_gib": allocated_now / gib,
+            "failed_chunk_gib": failed_chunk_bytes / gib,
+            "message": oom_message,
+        })
+    return event, warnings
+
+
 def sample_fm_timesteps(
     *,
     batch_size: int,
@@ -2520,12 +2587,38 @@ def main() -> None:
         if start_step < 0:
             raise ValueError(f"--start-step must be >= 0, got {start_step}")
         summary["start_step"] = int(start_step)
+        if scheduler is not None and start_step > 0:
+            scheduler.last_epoch = int(start_step)
+            scheduler._step_count = int(start_step) + 1
+            for group, lr_lambda in zip(optimizer.param_groups, scheduler.lr_lambdas):
+                group["lr"] = group["initial_lr"] * lr_lambda(int(start_step))
+            scheduler._last_lr = [group["lr"] for group in optimizer.param_groups]
+        if float(args.reserve_vram_gib) > 0.0:
+            reserve_warnings: list[dict[str, Any]] = []
+            if int(args.cleanup_every) > 0 or int(args.eval_cleanup_every) > 0:
+                reserve_warnings.append({
+                    "event": "vram_reserve_warning",
+                    "reason": "empty_cache will release the reservation",
+                    "target_gib": float(args.reserve_vram_gib),
+                    "cleanup_every": int(args.cleanup_every),
+                    "eval_cleanup_every": int(args.eval_cleanup_every),
+                })
+            reserve_event, reserve_call_warnings = reserve_vram_cache(float(args.reserve_vram_gib), device)
+            reserve_warnings.extend(reserve_call_warnings)
+            for reserve_warning in reserve_warnings:
+                print(json.dumps(reserve_warning), flush=True)
+            if reserve_warnings:
+                summary["vram_reserve_warnings"] = reserve_warnings
+            if reserve_event is not None:
+                print(json.dumps(reserve_event), flush=True)
+                summary["vram_reserved"] = reserve_event
         print(
             json.dumps(
                 {
                     "event": "train_loop_start",
                     "start_step": int(start_step),
                     "end_step": int(args.steps),
+                    "resume_lr": [float(g["lr"]) for g in optimizer.param_groups],
                     "resume_optimizer_state": False,
                 }
             ),

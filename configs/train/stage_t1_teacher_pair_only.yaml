@@ -37,6 +37,7 @@ decode_eval:
   split: val
   num_samples: 8
   max_new_tokens: 220
+  do_sample: false
   prompt_mode: joint
   target_mode: joint
   metric_name: anti_collapse_score

@@ -35,6 +35,7 @@ decode_eval:
   split: val
   num_samples: 8
   max_new_tokens: 140
+  do_sample: false
   prompt_mode: traj_only
   target_mode: traj_only
   metric_name: anti_collapse_score

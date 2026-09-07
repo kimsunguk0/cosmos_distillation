@@ -29,8 +29,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.inference.checkpoint_eval import (  # noqa: E402
+    DecodeEvalConfig,
     TrajectoryTokenDecoder,
+    _has_usable_reference,
     _infer_visual_float_dtype,
+    _load_decode_reference_map,
     _manual_flex_generate,
     load_ego_history_rot,
     resolve_traj_tokenizer_config_path,
@@ -106,9 +109,33 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--geometry-reference",
-        choices=("gt", "teacher"),
+        choices=("gt", "teacher", "teacher_greedy"),
         default="gt",
-        help="Reference trajectory for ADE/FDE; `teacher` decodes cached teacher trajectory tokens.",
+        help=(
+            "Reference trajectory for ADE/FDE/minADE6; `teacher` decodes cached teacher trajectory tokens, "
+            "`teacher_greedy` uses --reference-jsonl."
+        ),
+    )
+    parser.add_argument(
+        "--reference-id",
+        default="legacy_hard_target",
+        help="Identifier for external reference output metadata (default: legacy_hard_target).",
+    )
+    parser.add_argument(
+        "--reference-jsonl",
+        type=Path,
+        default=None,
+        help="External decode reference rows.jsonl keyed by sample_id (default: None).",
+    )
+    parser.add_argument(
+        "--reference-token-field",
+        default="selected_traj_tokens",
+        help="Token field used when decoding an external reference fallback (default: selected_traj_tokens).",
+    )
+    parser.add_argument(
+        "--reference-xyz-field",
+        default="selected_xyz",
+        help="XYZ field used for an external reference trajectory (default: selected_xyz).",
     )
     parser.add_argument(
         "--oracle-cot-prefix",
@@ -116,6 +143,15 @@ def parse_args() -> argparse.Namespace:
         help=(
             "For target-mode=traj_only, prepend the cached teacher CoT through "
             "`<|traj_future_start|>` so only the 128 trajectory body tokens are free-run."
+        ),
+    )
+    parser.add_argument(
+        "--cot-prefix-json",
+        type=Path,
+        default=None,
+        help=(
+            "Optional JSON mapping sample_id to CoT text. Matching rows prefill "
+            "`<|cot_start|>{cot}<|cot_end|><|traj_future_start|>` and decode only trajectory tokens."
         ),
     )
     parser.add_argument(
@@ -135,6 +171,12 @@ def parse_args() -> argparse.Namespace:
         help="Number of samples per free-run generate() call. Use 1 for the old sample-by-sample path.",
     )
     parser.add_argument("--samples-per-row", type=int, default=1, help="Number of generated trajectories per sample.")
+    parser.add_argument(
+        "--num-beams",
+        type=int,
+        default=1,
+        help="Opt-in beam count for deterministic trajectory-block beam search. Default 1 preserves greedy/sampling.",
+    )
     parser.add_argument("--seed", type=int, default=97, help="Random seed used when samples_per_row > 1.")
     parser.add_argument("--temperature", type=float, default=1.0, help="Sampling temperature when multiple trajectories are requested.")
     parser.add_argument("--top-p", type=float, default=1.0, help="Top-p sampling when multiple trajectories are requested.")
@@ -241,6 +283,17 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _load_cot_prefix_json(path: Path | None) -> dict[str, str]:
+    if path is None:
+        return {}
+    if not path.exists():
+        raise SystemExit(f"cot-prefix-json not found: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise SystemExit("--cot-prefix-json must be a JSON object mapping sample_id to CoT string")
+    return {str(sample_id): "" if cot is None else str(cot) for sample_id, cot in payload.items()}
+
+
 def _select_rows(rows: list[dict[str, Any]], split: str, num_samples: int) -> list[dict[str, Any]]:
     selected = [row for row in rows if row.get("split") == split]
     if num_samples > 0:
@@ -340,6 +393,45 @@ def _batched(items: list[dict[str, Any]], batch_size: int) -> list[list[dict[str
     return [items[index : index + width] for index in range(0, len(items), width)]
 
 
+def _generation_target_mode_for_sample(
+    sample: dict[str, Any],
+    *,
+    target_mode: str,
+    cot_prefix_by_id: dict[str, str],
+) -> str:
+    sample_id = str(sample.get("sample_id") or "")
+    return "traj_only" if sample_id in cot_prefix_by_id else str(target_mode)
+
+
+def _batched_for_generation_mode(
+    items: list[dict[str, Any]],
+    batch_size: int,
+    *,
+    target_mode: str,
+    cot_prefix_by_id: dict[str, str],
+) -> list[list[dict[str, Any]]]:
+    if not cot_prefix_by_id:
+        return _batched(items, batch_size)
+    width = max(int(batch_size), 1)
+    batches: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    current_mode: str | None = None
+    for item in items:
+        item_mode = _generation_target_mode_for_sample(
+            item,
+            target_mode=target_mode,
+            cot_prefix_by_id=cot_prefix_by_id,
+        )
+        if current and (len(current) >= width or item_mode != current_mode):
+            batches.append(current)
+            current = []
+        current.append(item)
+        current_mode = item_mode
+    if current:
+        batches.append(current)
+    return batches
+
+
 def _make_qat_calib_batch_factory(
     *,
     selected: list[dict[str, Any]],
@@ -391,6 +483,29 @@ def _extract_student_cot(text: str) -> str:
         end = len(text)
     cot = re.sub(r"<\|[^|]+\|>", "", text[start:end])
     return " ".join(cot.split())
+
+
+def _normalize_cot_prefix_text(cot_text: str) -> str:
+    text = str(cot_text or "").strip()
+    text = re.sub(r"^\s*(?:<\|cot_start\|>\s*)+", "", text)
+    for marker in ("<|traj_future_start|>", "<|traj_future_end|>"):
+        marker_index = text.find(marker)
+        if marker_index >= 0:
+            text = text[:marker_index]
+    cot_end_index = text.find("<|cot_end|>")
+    if cot_end_index >= 0:
+        text = text[:cot_end_index]
+    for marker in ("<|cot_start|>", "<|cot_end|>", "<|traj_future_start|>", "<|traj_future_end|>"):
+        text = text.replace(marker, "")
+    text = text.strip()
+    if re.search(r"<i\d+>", text):
+        raise ValueError("CoT prefix text contains trajectory token text")
+    return text
+
+
+def _build_cot_prefix(cot_text: str) -> str:
+    cot = _normalize_cot_prefix_text(cot_text)
+    return f"<|cot_start|>{cot}<|cot_end|><|traj_future_start|>"
 
 
 def _apply_image_ablation(images: list[Any], mode: str, *, sample_id: str) -> list[Any]:
@@ -463,6 +578,38 @@ def _load_teacher_manifest_map(path: Path) -> dict[str, dict[str, Any]]:
         if sample_id:
             out[str(sample_id)] = payload
     return out
+
+
+def _load_teacher_greedy_reference_map(args: argparse.Namespace) -> dict[str, dict[str, Any]]:
+    if args.reference_jsonl is None:
+        raise SystemExit("--reference-jsonl is required when --geometry-reference teacher_greedy")
+    config = DecodeEvalConfig(
+        reference_id=str(args.reference_id),
+        reference_jsonl=str(args.reference_jsonl),
+        reference_token_field=str(args.reference_token_field),
+        reference_xyz_field=str(args.reference_xyz_field),
+    )
+    return _load_decode_reference_map(config=config, project_root=PROJECT_ROOT)
+
+
+def _teacher_greedy_reference_xyz(
+    reference_entry: dict[str, Any] | None,
+    *,
+    decoder: TrajectoryTokenDecoder,
+    history_xyz: np.ndarray,
+    history_rot: np.ndarray,
+) -> np.ndarray | None:
+    if reference_entry is None:
+        return None
+    reference_future_xyz = reference_entry.get("xyz") if reference_entry.get("xyz") is not None else None
+    reference_tokens = (
+        [int(value) for value in reference_entry.get("tokens", [])]
+        if reference_entry.get("tokens")
+        else []
+    )
+    if reference_future_xyz is None and reference_tokens:
+        reference_future_xyz = decoder.decode(history_xyz, history_rot, reference_tokens)
+    return reference_future_xyz
 
 
 def _load_model_and_processors(args: argparse.Namespace):
@@ -813,6 +960,15 @@ def _write_overlay_svg(
 
 def main() -> int:
     args = parse_args()
+    num_beams = int(args.num_beams)
+    if num_beams < 1:
+        raise SystemExit("--num-beams must be >= 1")
+    if num_beams > 1 and (float(args.temperature) != 1.0 or float(args.top_p) != 1.0):
+        raise SystemExit(
+            "--num-beams uses deterministic beam search; do not combine it with non-neutral "
+            "--temperature or --top-p sampling settings."
+        )
+    cot_prefix_by_id = _load_cot_prefix_json(args.cot_prefix_json)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     args.summary_json.parent.mkdir(parents=True, exist_ok=True)
 
@@ -849,6 +1005,9 @@ def main() -> int:
     decoder = TrajectoryTokenDecoder(config_path=decoder_path)
     teacher_text = _load_teacher_text_cache(args.teacher_text_index)
     teacher_manifest = _load_teacher_manifest_map(args.teacher_traj_manifest_dir)
+    teacher_greedy_reference_by_id = (
+        _load_teacher_greedy_reference_map(args) if args.geometry_reference == "teacher_greedy" else {}
+    )
 
     per_sample: list[dict[str, Any]] = []
     all_tokens: Counter[int] = Counter()
@@ -859,8 +1018,17 @@ def main() -> int:
     max_run_values: list[int] = []
     token_match_values: list[float] = []
     invalid_counts: list[int] = []
+    missing_geometry_reference_count = 0
+    excluded_geometry_reference_count = 0
+    cot_prefix_applied_count = 0
+    cot_prefix_missing_count = 0
 
-    for sample_batch in _batched(selected, args.batch_size):
+    for sample_batch in _batched_for_generation_mode(
+        selected,
+        args.batch_size,
+        target_mode=args.target_mode,
+        cot_prefix_by_id=cot_prefix_by_id,
+    ):
         prepared: list[dict[str, Any]] = []
         texts: list[str] = []
         image_batches: list[list[Any]] = []
@@ -894,18 +1062,31 @@ def main() -> int:
                     prompt_text_style=args.prompt_text_style,
                 )
             )
-            if args.target_mode == "traj_only":
-                if args.oracle_cot_prefix:
-                    cot_text = str(
-                        (sample.get("teacher_target") or {}).get("cot_text")
-                        or (sample.get("hard_target") or {}).get("cot_text")
-                        or ""
-                    ).strip()
-                    assistant_prefix = f"<|cot_start|>{cot_text}<|cot_end|><|traj_future_start|>"
+            generation_target_mode = str(args.target_mode)
+            cot_prefix_applied = False
+            cot_prefix_text: str | None = None
+            if args.cot_prefix_json is not None:
+                if sample_id in cot_prefix_by_id:
+                    cot_prefix_applied = True
+                    cot_prefix_applied_count += 1
+                    cot_prefix_text = _normalize_cot_prefix_text(cot_prefix_by_id[sample_id])
+                    assistant_prefix = _build_cot_prefix(cot_prefix_text)
+                    generation_target_mode = "traj_only"
                 else:
-                    assistant_prefix = "<|traj_future_start|>"
-            else:
-                assistant_prefix = "<|cot_start|>"
+                    cot_prefix_missing_count += 1
+            if not cot_prefix_applied:
+                if args.target_mode == "traj_only":
+                    if args.oracle_cot_prefix:
+                        cot_text = str(
+                            (sample.get("teacher_target") or {}).get("cot_text")
+                            or (sample.get("hard_target") or {}).get("cot_text")
+                            or ""
+                        ).strip()
+                        assistant_prefix = f"<|cot_start|>{cot_text}<|cot_end|><|traj_future_start|>"
+                    else:
+                        assistant_prefix = "<|traj_future_start|>"
+                else:
+                    assistant_prefix = "<|cot_start|>"
             images = _apply_image_ablation(
                 load_sample_images(sample, PROJECT_ROOT),
                 args.image_ablation,
@@ -938,6 +1119,9 @@ def main() -> int:
                     "target_tokens": target_tokens,
                     "camera_indices": camera_indices,
                     "frames_per_camera": frames_per_camera,
+                    "generation_target_mode": generation_target_mode,
+                    "cot_prefix_applied": cot_prefix_applied,
+                    "cot_prefix_text": cot_prefix_text,
                 }
             )
             texts.append(text)
@@ -1023,8 +1207,12 @@ def main() -> int:
         # `generate` appends new tokens after the padded input length.  The
         # tokenizer for this model right-pads, so using per-row attention-mask
         # lengths would make pad tokens look like generated tokens.
-        prompt_lengths = [int(batch["input_ids"].shape[1])] * len(prepared)
-        if args.target_mode == "traj_only":
+        prompt_lengths = [int(batch["input_ids"].shape[1])]
+        generation_target_modes = {str(item["generation_target_mode"]) for item in prepared}
+        if len(generation_target_modes) != 1:
+            raise RuntimeError(f"Mixed decoding target modes in one generate batch: {sorted(generation_target_modes)}")
+        generation_target_mode = next(iter(generation_target_modes))
+        if generation_target_mode == "traj_only":
             contract = TrajOnlyDecodingContract.from_tokenizer(
                 tokenizer,
                 prompt_lengths=prompt_lengths,
@@ -1042,6 +1230,9 @@ def main() -> int:
             stopping_criteria = StoppingCriteriaList([StopOnTrajEndCriteria(contract)])
 
         samples_per_row = max(int(args.samples_per_row), 1)
+        sequence_count_per_row = min(samples_per_row, num_beams) if num_beams > 1 else samples_per_row
+        if flex_enabled and num_beams > 1:
+            raise NotImplementedError("--num-beams > 1 is not implemented for FLEX manual generation.")
         if args.seed is not None:
             seed_value = int(args.seed) + len(per_sample)
             torch.manual_seed(seed_value)
@@ -1062,17 +1253,30 @@ def main() -> int:
                     top_p=float(args.top_p),
                 )
             else:
-                generated = model.backbone.generate(
-                    **batch,
-                    max_new_tokens=args.max_new_tokens,
-                    do_sample=samples_per_row > 1,
-                    num_return_sequences=samples_per_row,
-                    use_cache=True,
-                    temperature=float(args.temperature),
-                    top_p=float(args.top_p),
-                    logits_processor=logits_processor,
-                    stopping_criteria=stopping_criteria,
-                )
+                if num_beams > 1:
+                    generated = model.backbone.generate(
+                        **batch,
+                        max_new_tokens=args.max_new_tokens,
+                        num_beams=num_beams,
+                        do_sample=False,
+                        num_return_sequences=sequence_count_per_row,
+                        length_penalty=0.0,
+                        use_cache=True,
+                        logits_processor=logits_processor,
+                        stopping_criteria=stopping_criteria,
+                    )
+                else:
+                    generated = model.backbone.generate(
+                        **batch,
+                        max_new_tokens=args.max_new_tokens,
+                        do_sample=samples_per_row > 1,
+                        num_return_sequences=samples_per_row,
+                        use_cache=True,
+                        temperature=float(args.temperature),
+                        top_p=float(args.top_p),
+                        logits_processor=logits_processor,
+                        stopping_criteria=stopping_criteria,
+                    )
 
         for row_index, item in enumerate(prepared):
             idx = int(item["idx"])
@@ -1087,13 +1291,32 @@ def main() -> int:
                 if len(target_tokens) == decoder.n_waypoints * 2
                 else np.zeros((0, 3), dtype=np.float32)
             )
-            reference_xyz = teacher_xyz if args.geometry_reference == "teacher" else gt_future
-            if args.geometry_reference != "teacher" and reference_xyz.size == 0:
-                reference_xyz = teacher_xyz
+            geometry_reference_source: str | None = None
+            if args.geometry_reference == "teacher_greedy":
+                reference_entry = teacher_greedy_reference_by_id.get(sample_id)
+                usable_reference = _has_usable_reference(reference_entry)
+                if not usable_reference:
+                    missing_geometry_reference_count += 1
+                external_reference_xyz = _teacher_greedy_reference_xyz(
+                    reference_entry,
+                    decoder=decoder,
+                    history_xyz=history_xyz,
+                    history_rot=history_rot,
+                )
+                if external_reference_xyz is None:
+                    excluded_geometry_reference_count += 1
+                    reference_xyz = np.zeros((0, 3), dtype=np.float32)
+                else:
+                    reference_xyz = external_reference_xyz
+                geometry_reference_source = "reference_jsonl" if usable_reference else "missing_reference"
+            else:
+                reference_xyz = teacher_xyz if args.geometry_reference == "teacher" else gt_future
+                if args.geometry_reference != "teacher" and reference_xyz.size == 0:
+                    reference_xyz = teacher_xyz
 
             row_candidates: list[dict[str, Any]] = []
-            row_start = row_index * samples_per_row
-            row_end = min(row_start + samples_per_row, generated.shape[0])
+            row_start = row_index * sequence_count_per_row
+            row_end = min(row_start + sequence_count_per_row, generated.shape[0])
             for candidate_index, sample_row in enumerate(range(row_start, row_end), start=1):
                 generated_text = _extract_generated_text(
                     tokenizer,
@@ -1195,7 +1418,11 @@ def main() -> int:
             text_entry = teacher_text.get(sample_id) or {}
             human_coc = text_entry.get("human_coc") or str((sample.get("hard_target") or {}).get("cot_text") or "")
             teacher_cot = text_entry.get("teacher_long_cot") or str((sample.get("teacher_target") or {}).get("cot_text") or "")
-            student_cot = _extract_student_cot(best_generated_text or generated_text)
+            student_cot = (
+                str(item.get("cot_prefix_text") or "")
+                if bool(item.get("cot_prefix_applied"))
+                else _extract_student_cot(best_generated_text or generated_text)
+            )
 
             svg_path = None
             if not args.skip_overlays:
@@ -1242,6 +1469,17 @@ def main() -> int:
                 "human_coc": human_coc,
                 "svg": str(svg_path) if svg_path is not None else None,
             }
+            if args.geometry_reference == "teacher_greedy":
+                row.update(
+                    {
+                        "geometry_reference": args.geometry_reference,
+                        "geometry_reference_id": str(args.reference_id),
+                        "geometry_reference_source": geometry_reference_source,
+                        "geometry_reference_jsonl": str(args.reference_jsonl) if args.reference_jsonl else None,
+                        "geometry_reference_token_field": str(args.reference_token_field),
+                        "geometry_reference_xyz_field": str(args.reference_xyz_field),
+                    }
+                )
             per_sample.append(row)
             print(
                 json.dumps(
@@ -1264,12 +1502,21 @@ def main() -> int:
         clean = [float(value) for value in values if math.isfinite(float(value))]
         return float(np.mean(clean)) if clean else None
 
+    summary_sequence_count_per_row = (
+        min(int(max(int(args.samples_per_row), 1)), num_beams)
+        if num_beams > 1
+        else int(max(int(args.samples_per_row), 1))
+    )
     summary = {
         "checkpoint_dir": str(args.checkpoint_dir),
         "split": args.split,
         "num_samples": len(per_sample),
         "batch_size": int(args.batch_size),
         "samples_per_row": int(max(int(args.samples_per_row), 1)),
+        "num_beams": int(num_beams),
+        "cot_prefix_json": str(args.cot_prefix_json) if args.cot_prefix_json is not None else None,
+        "cot_prefix_applied": int(cot_prefix_applied_count),
+        "cot_prefix_missing": int(cot_prefix_missing_count),
         "temperature": float(args.temperature),
         "top_p": float(args.top_p),
         "prompt_mode": args.prompt_mode,
@@ -1289,8 +1536,8 @@ def main() -> int:
         "geometry_reference": args.geometry_reference,
         "avg_ade_m": mean(ade_values),
         "avg_fde_m": mean(fde_values),
-        "ade@6.4s_m": mean(ade_values) if int(max(int(args.samples_per_row), 1)) == 1 else None,
-        "minADE6@6.4s_m": mean(ade_values) if int(max(int(args.samples_per_row), 1)) == 6 else None,
+        "ade@6.4s_m": mean(ade_values) if summary_sequence_count_per_row == 1 else None,
+        "minADE6@6.4s_m": mean(ade_values) if summary_sequence_count_per_row == 6 else None,
         "avg_unique_traj_ids": mean(unique_values),
         "avg_max_same_token_run": mean(max_run_values),
         "avg_token_match_rate": mean(token_match_values),
@@ -1305,6 +1552,17 @@ def main() -> int:
         "traj_tokenizer_config": str(decoder_path),
         "samples": per_sample,
     }
+    if args.geometry_reference == "teacher_greedy":
+        summary.update(
+            {
+                "geometry_reference_id": str(args.reference_id),
+                "geometry_reference_jsonl": str(args.reference_jsonl) if args.reference_jsonl else None,
+                "geometry_reference_token_field": str(args.reference_token_field),
+                "geometry_reference_xyz_field": str(args.reference_xyz_field),
+                "missing_geometry_reference_count": int(missing_geometry_reference_count),
+                "excluded_geometry_reference_count": int(excluded_geometry_reference_count),
+            }
+        )
     args.summary_json.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps({key: value for key, value in summary.items() if key != "samples"}, indent=2))
     return 0

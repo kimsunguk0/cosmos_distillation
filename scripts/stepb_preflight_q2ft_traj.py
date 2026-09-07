@@ -19,7 +19,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.model.student_wrapper import StudentWrapperConfig, load_student_processor, load_student_tokenizer
-from src.model.tokenizer_ext import missing_special_tokens
+from src.model.tokenizer_ext import assert_traj_token_offsets, missing_special_tokens
 from src.training.collator import DistillationCollator, load_traj_future_token_ids
 from src.training.losses import export_loss_weights
 from src.utils.runtime_paths import remap_external_path, resolve_student_model_path
@@ -43,13 +43,17 @@ def _path_exists(raw_path: str | Path | None) -> bool:
     return resolved is not None and Path(resolved).exists()
 
 
-def _first_topk_summary(records: list[dict[str, Any]], *, limit: int) -> dict[str, Any]:
+def _first_topk_summary(records: list[dict[str, Any]], *, limit: int, future_bins: int) -> dict[str, Any]:
     shapes: list[list[int]] = []
     topk_values: list[int] = []
     raw_min = None
     raw_max = None
     checked = 0
     missing = 0
+    raw_oob_future_count = 0
+    raw_oob_future_rows = 0
+    raw_oob_future_positions = 0
+    raw_oob_future_max = None
     for record in records[: max(int(limit), 0)]:
         checked += 1
         target = record.get("teacher_traj_target") or {}
@@ -73,6 +77,19 @@ def _first_topk_summary(records: list[dict[str, Any]], *, limit: int) -> dict[st
             current_max = int(arr.max())
             raw_min = current_min if raw_min is None else min(raw_min, current_min)
             raw_max = current_max if raw_max is None else max(raw_max, current_max)
+            oob_future = (arr < 0) | (arr >= int(future_bins))
+            if bool(oob_future.any()):
+                raw_oob_future_count += int(oob_future.sum())
+                raw_oob_future_rows += 1
+                raw_oob_future_max = (
+                    int(arr[oob_future].max())
+                    if raw_oob_future_max is None
+                    else max(raw_oob_future_max, int(arr[oob_future].max()))
+                )
+                if arr.ndim >= 2:
+                    raw_oob_future_positions += int(oob_future.any(axis=-1).sum())
+                else:
+                    raw_oob_future_positions += 1
     return {
         "checked": checked,
         "missing": missing,
@@ -80,6 +97,10 @@ def _first_topk_summary(records: list[dict[str, Any]], *, limit: int) -> dict[st
         "example_shapes": shapes[:5],
         "raw_index_min": raw_min,
         "raw_index_max": raw_max,
+        "raw_index_oob_future_count": raw_oob_future_count,
+        "raw_index_oob_future_rows": raw_oob_future_rows,
+        "raw_index_oob_future_positions": raw_oob_future_positions,
+        "raw_index_oob_future_max": raw_oob_future_max,
     }
 
 
@@ -112,6 +133,14 @@ def _shape(value: Any) -> list[int] | None:
     return None
 
 
+def _tensor_scalar(value: Any) -> float | None:
+    if isinstance(value, torch.Tensor):
+        return float(value.detach().float().sum().cpu()) if value.numel() else 0.0
+    if value is None:
+        return None
+    return float(value)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -132,7 +161,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-train-samples", type=int, default=16)
     parser.add_argument("--max-val-samples", type=int, default=8)
     parser.add_argument("--topk-check-samples", type=int, default=64)
-    parser.add_argument("--expected-topk", type=int, default=64)
+    parser.add_argument("--expected-topk", type=int, default=32)
     parser.add_argument("--future-bins", type=int, default=3000)
     parser.add_argument("--skip-asset-check", action="store_true")
     parser.add_argument("--output-json", type=Path, default=PROJECT_ROOT / "outputs" / "reports" / "stepb_preflight_q2ft_traj.json")
@@ -176,6 +205,7 @@ def main() -> None:
         attn_implementation=stage_options.get("attn_implementation"),
     )
     tokenizer = load_student_tokenizer(wrapper_cfg)
+    assert_traj_token_offsets(tokenizer)
     processor = load_student_processor(wrapper_cfg, tokenizer=tokenizer)
     traj_token_start = int(tokenizer.convert_tokens_to_ids("<i0>"))
     traj_token_end_future = int(tokenizer.convert_tokens_to_ids("<i2999>"))
@@ -210,23 +240,46 @@ def main() -> None:
     sample_target = sample.get("hard_target") or {}
     token_ids = load_traj_future_token_ids(sample_target, PROJECT_ROOT)
     image_names = list(sample_input.get("image_names") or [])
-    topk_summary = _first_topk_summary(train_records, limit=args.topk_check_samples)
+    topk_summary = _first_topk_summary(
+        train_records,
+        limit=args.topk_check_samples,
+        future_bins=int(args.future_bins),
+    )
     batch_topk = batch.get("teacher_traj_topk_indices")
+    batch_topk_mask = batch.get("teacher_traj_topk_mask")
+    batch_topk_values = batch_topk
+    if (
+        isinstance(batch_topk, torch.Tensor)
+        and isinstance(batch_topk_mask, torch.Tensor)
+        and batch_topk.numel()
+        and batch_topk_mask.numel()
+    ):
+        expanded_mask = batch_topk_mask.unsqueeze(-1).expand_as(batch_topk)
+        batch_topk_values = batch_topk[expanded_mask]
     warnings: list[str] = []
     observed_topk = topk_summary.get("unique_topk") or []
     if observed_topk and observed_topk != [int(args.expected_topk)]:
         warnings.append(f"teacher trajectory top-k cache is {observed_topk}, expected top-k{args.expected_topk}")
+    raw_oob_future_count = int(topk_summary.get("raw_index_oob_future_count") or 0)
+    if raw_oob_future_count:
+        warnings.append(
+            f"teacher trajectory top-k cache includes {raw_oob_future_count} candidates outside future bins "
+            f"[0,{int(args.future_bins) - 1}]; collator drops them before KD"
+        )
     if int(args.future_bins) > int(args.expected_topk):
         warnings.append(f"future bin count {args.future_bins} > top-k {args.expected_topk}; this is sparse KL, not full KL")
     if not bool((stage_options.get("flex") or {}).get("enabled", False)):
         warnings.append("relative_timestamps are batched, but standard non-FLEX Qwen forward ignores them as tensor conditioning")
 
     masks = _mask_counts(batch)
+    target_mode = str(data_view.get("target_mode", "joint") or "joint").strip().lower()
     for row, counts in enumerate(masks):
         if counts["traj_token_mask"] != 128:
             warnings.append(f"row {row} has traj_token_mask={counts['traj_token_mask']}, expected 128")
-        if counts["cot_span_mask"] != 0 or counts["cot_content_mask"] != 0:
+        if target_mode == "traj_only" and (counts["cot_span_mask"] != 0 or counts["cot_content_mask"] != 0):
             warnings.append(f"row {row} has nonzero CoT mask in traj-only mode")
+        if target_mode == "joint" and counts["cot_content_mask"] == 0:
+            warnings.append(f"row {row} has zero CoT content mask in joint mode")
 
     summary = {
         "mode": "stepb_q2ft_traj_preflight",
@@ -295,8 +348,16 @@ def main() -> None:
                 "teacher_traj_topk_mask": _shape(batch.get("teacher_traj_topk_mask")),
             },
             "mask_counts": masks,
-            "teacher_traj_topk_token_id_min": int(batch_topk.min().item()) if isinstance(batch_topk, torch.Tensor) and batch_topk.numel() else None,
-            "teacher_traj_topk_token_id_max": int(batch_topk.max().item()) if isinstance(batch_topk, torch.Tensor) and batch_topk.numel() else None,
+            "teacher_traj_topk_token_id_min": int(batch_topk_values.min().item())
+            if isinstance(batch_topk_values, torch.Tensor) and batch_topk_values.numel()
+            else None,
+            "teacher_traj_topk_token_id_max": int(batch_topk_values.max().item())
+            if isinstance(batch_topk_values, torch.Tensor) and batch_topk_values.numel()
+            else None,
+            "teacher_traj_topk_oob_count": _tensor_scalar(batch.get("teacher_traj_topk_oob_count")),
+            "teacher_traj_topk_oob_mass": _tensor_scalar(batch.get("teacher_traj_topk_oob_mass")),
+            "teacher_traj_topk_oob_token_count": _tensor_scalar(batch.get("teacher_traj_topk_oob_token_count")),
+            "teacher_traj_topk_zero_valid_tokens": _tensor_scalar(batch.get("teacher_traj_topk_zero_valid_tokens")),
         },
         "warnings": warnings,
     }

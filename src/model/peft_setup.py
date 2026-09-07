@@ -13,7 +13,7 @@ class LoraConfigSpec:
     dropout: float = 0.05
     bias: str = "none"
     trainable_token_indices: tuple[int, ...] | None = None
-    target_modules: tuple[str, ...] = (
+    target_modules: tuple[str, ...] | str = (
         "q_proj",
         "k_proj",
         "v_proj",
@@ -38,7 +38,7 @@ def maybe_apply_lora(model: Any, spec: LoraConfigSpec, enabled: bool = False) ->
         lora_alpha=spec.alpha,
         lora_dropout=spec.dropout,
         bias=spec.bias,
-        target_modules=list(spec.target_modules),
+        target_modules=spec.target_modules if isinstance(spec.target_modules, str) else list(spec.target_modules),
         trainable_token_indices=(
             list(spec.trainable_token_indices) if spec.trainable_token_indices is not None else None
         ),

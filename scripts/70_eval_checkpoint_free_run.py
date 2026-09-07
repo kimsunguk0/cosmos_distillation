@@ -32,12 +32,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", default="val")
     parser.add_argument("--num-samples", type=int, default=64)
     parser.add_argument("--max-new-tokens", type=int, default=256)
+    parser.add_argument("--do-sample", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--temperature", type=float, default=1.0)
+    parser.add_argument("--top-p", type=float, default=1.0)
     parser.add_argument("--prompt-mode", default=None)
     parser.add_argument("--target-mode", default=None)
     parser.add_argument("--image-prompt-style", default=None)
     parser.add_argument("--prompt-text-style", default=None)
     parser.add_argument("--fuse-history-tokens", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--metric-name", default="free_run_geometry_score")
+    parser.add_argument("--reference-id", default="legacy_hard_target")
+    parser.add_argument("--reference-jsonl", type=Path, default=None)
+    parser.add_argument("--reference-token-field", default="selected_traj_tokens")
+    parser.add_argument("--reference-xyz-field", default="selected_xyz")
     parser.add_argument("--summary-json", type=Path, required=True)
     parser.add_argument("--device", default="cuda")
     return parser.parse_args()
@@ -121,6 +128,9 @@ def main() -> int:
         split=str(args.split),
         num_samples=int(args.num_samples),
         max_new_tokens=int(args.max_new_tokens),
+        do_sample=bool(args.do_sample),
+        temperature=float(args.temperature),
+        top_p=float(args.top_p),
         prompt_mode=str(args.prompt_mode or data_view.get("prompt_mode") or "joint"),
         target_mode=str(args.target_mode or data_view.get("target_mode") or "joint"),
         image_prompt_style=str(args.image_prompt_style or data_view.get("image_prompt_style") or "camera_labeled"),
@@ -131,6 +141,10 @@ def main() -> int:
             else bool(data_view.get("fuse_history_tokens", False))
         ),
         metric_name=str(args.metric_name),
+        reference_id=str(args.reference_id),
+        reference_jsonl=str(args.reference_jsonl) if args.reference_jsonl is not None else None,
+        reference_token_field=str(args.reference_token_field),
+        reference_xyz_field=str(args.reference_xyz_field),
     )
     print(
         json.dumps(
@@ -142,11 +156,16 @@ def main() -> int:
                     "split": config.split,
                     "num_samples": config.num_samples,
                     "max_new_tokens": config.max_new_tokens,
+                    "do_sample": config.do_sample,
+                    "temperature": config.temperature,
+                    "top_p": config.top_p,
                     "prompt_mode": config.prompt_mode,
                     "target_mode": config.target_mode,
                     "image_prompt_style": config.image_prompt_style,
                     "prompt_text_style": config.prompt_text_style,
                     "fuse_history_tokens": config.fuse_history_tokens,
+                    "reference_id": config.reference_id,
+                    "reference_jsonl": config.reference_jsonl,
                 },
             }
         ),

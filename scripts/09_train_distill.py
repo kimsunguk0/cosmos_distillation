@@ -9,6 +9,7 @@ import json
 import math
 import os
 import re
+import shutil
 import socket
 import sys
 import time
@@ -42,7 +43,7 @@ from src.model.student_wrapper import (
     load_student_processor,
     load_student_tokenizer,
 )
-from src.model.tokenizer_ext import distill_trainable_token_ids
+from src.model.tokenizer_ext import assert_traj_token_offsets, distill_trainable_token_ids
 from src.training.collator import DistillationCollator
 from src.training.collator import _teacher_traj15_signal_from_sample
 from src.training.losses import (
@@ -137,6 +138,12 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=1.0,
         help="Save checkpoint every N epochs worth of optimizer steps.",
+    )
+    parser.add_argument(
+        "--max-keep-checkpoints",
+        type=int,
+        default=0,
+        help="Keep at most this many step_* checkpoints in the output dir. <=0 disables pruning.",
     )
     parser.add_argument(
         "--early-stop-patience",
@@ -360,6 +367,9 @@ def stage_weights_from_yaml(path: Path) -> tuple[TrainerConfig, DistillationLoss
         "interface_loss_weights": dict(config.get("interface_loss_weights") or {}),
         "scheduled_sampling": dict(config.get("scheduled_sampling") or {}),
         "on_policy_gkd": dict(config.get("on_policy_gkd") or {}),
+        "teacher_topk_kd": dict(config.get("teacher_topk_kd") or {}),
+        "teacher_traj_topk_kd": dict(config.get("teacher_traj_topk_kd") or {}),
+        "lr_scheduler": dict(config.get("lr_scheduler") or {}),
         "flex": dict(config.get("flex") or {}),
         "force_trainable_fp32": bool(config.get("force_trainable_fp32", True)),
         "gradient_checkpointing_use_reentrant": bool(config.get("gradient_checkpointing_use_reentrant", False)),
@@ -901,6 +911,57 @@ def interval_steps_from_epochs(interval_epochs: float, steps_per_epoch: int) -> 
     return max(1, int(round(interval_epochs * steps_per_epoch)))
 
 
+def build_lr_scheduler(
+    optimizer: torch.optim.Optimizer,
+    config: dict[str, object] | None,
+    *,
+    total_steps: int | None,
+) -> tuple[torch.optim.lr_scheduler.LambdaLR | None, dict[str, object]]:
+    """Build the run-level LR scheduler.
+
+    The default is cosine decay with a short linear warmup. LambdaLR initializes
+    the optimizer at lambda(0), so the first optimizer step already uses the
+    warmup LR rather than the full base LR.
+    """
+    cfg = dict(config or {})
+    name = str(cfg.get("name", cfg.get("type", "cosine_with_warmup")) or "cosine_with_warmup").strip().lower()
+    if name in {"none", "off", "constant", "constant_lr"}:
+        return None, {"enabled": False, "name": name}
+    if total_steps is None or int(total_steps) <= 0:
+        return None, {"enabled": False, "name": name, "reason": "missing_total_steps"}
+    if name not in {"cosine_with_warmup", "cosine", "cosine_warmup"}:
+        raise ValueError(f"Unsupported lr_scheduler.name={name!r}")
+    total = max(int(total_steps), 1)
+    warmup_steps_raw = cfg.get("warmup_steps")
+    if warmup_steps_raw not in (None, ""):
+        warmup_steps = int(warmup_steps_raw)
+    else:
+        warmup_ratio = float(cfg.get("warmup_ratio", 0.03) or 0.0)
+        warmup_steps = int(round(total * warmup_ratio))
+    warmup_steps = min(max(warmup_steps, 0), max(total - 1, 0))
+    min_lr_ratio = float(cfg.get("min_lr_ratio", 0.0) or 0.0)
+
+    def lr_lambda(step_index: int) -> float:
+        step = max(int(step_index), 0)
+        if warmup_steps > 0 and step < warmup_steps:
+            return max(float(step + 1) / float(warmup_steps), min_lr_ratio)
+        decay_steps = max(total - warmup_steps, 1)
+        progress = min(max(float(step - warmup_steps) / float(decay_steps), 0.0), 1.0)
+        cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+        return float(min_lr_ratio + (1.0 - min_lr_ratio) * cosine)
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+    summary = {
+        "enabled": True,
+        "name": "cosine_with_warmup",
+        "total_steps": total,
+        "warmup_steps": warmup_steps,
+        "warmup_ratio": float(warmup_steps) / float(total),
+        "min_lr_ratio": min_lr_ratio,
+    }
+    return scheduler, summary
+
+
 def build_traj_token_weight_map(
     records: list[dict],
     tokenizer,
@@ -1135,13 +1196,20 @@ def decode_eval_config_from_yaml(config: dict[str, object] | None, *, fallback_s
         enabled=bool(cfg.get("enabled", False)),
         split=str(cfg.get("split", fallback_split)),
         num_samples=int(cfg.get("num_samples", 8)),
-        max_new_tokens=int(cfg.get("max_new_tokens", 160)),
+        max_new_tokens=int(cfg.get("max_new_tokens", 320)),
+        do_sample=bool(cfg.get("do_sample", False)),
+        temperature=float(cfg.get("temperature", 1.0)),
+        top_p=float(cfg.get("top_p", 1.0)),
         prompt_mode=str(cfg.get("prompt_mode", "joint")),
         target_mode=str(cfg.get("target_mode", "joint")),
         image_prompt_style=str(cfg.get("image_prompt_style", "compact")),
         prompt_text_style=str(cfg.get("prompt_text_style", "numeric_history_question")),
         fuse_history_tokens=bool(cfg.get("fuse_history_tokens", False)),
         metric_name=str(cfg.get("metric_name", "anti_collapse_score")),
+        reference_id=str(cfg.get("reference_id", "legacy_hard_target")),
+        reference_jsonl=str(cfg["reference_jsonl"]) if cfg.get("reference_jsonl") not in (None, "") else None,
+        reference_token_field=str(cfg.get("reference_token_field", "selected_traj_tokens")),
+        reference_xyz_field=str(cfg.get("reference_xyz_field", "selected_xyz")),
     )
 
 
@@ -1342,6 +1410,12 @@ def evaluate_model(
     traj_aux_interface_config: TrajectoryAuxInterfaceConfig | None,
     traj_body_prefix_tokens: int | None = None,
     traj_hidden_bridge_config: dict[str, float] | None = None,
+    teacher_topk_kd_temperature: float = 1.0,
+    teacher_topk_kd_tail_bucket: bool = False,
+    teacher_topk_kd_tail_chunk_size: int = 256,
+    teacher_traj_topk_kd_temperature: float = 1.0,
+    teacher_traj_topk_kd_tail_bucket: bool = False,
+    teacher_traj_topk_kd_tail_chunk_size: int = 256,
     log_every_batches: int = 0,
 ) -> dict[str, float]:
     """Run a validation pass and return mean scalar metrics."""
@@ -1368,6 +1442,12 @@ def evaluate_model(
                     traj_aux_interface_config=traj_aux_interface_config,
                     traj_body_prefix_tokens=traj_body_prefix_tokens,
                     traj_hidden_bridge_config=traj_hidden_bridge_config,
+                    teacher_topk_kd_temperature=teacher_topk_kd_temperature,
+                    teacher_topk_kd_tail_bucket=teacher_topk_kd_tail_bucket,
+                    teacher_topk_kd_tail_chunk_size=teacher_topk_kd_tail_chunk_size,
+                    teacher_traj_topk_kd_temperature=teacher_traj_topk_kd_temperature,
+                    teacher_traj_topk_kd_tail_bucket=teacher_traj_topk_kd_tail_bucket,
+                    teacher_traj_topk_kd_tail_chunk_size=teacher_traj_topk_kd_tail_chunk_size,
                 )
         local_batches += 1
         for key, value in logs.items():
@@ -1428,6 +1508,29 @@ def save_training_checkpoint(
         encoding="utf-8",
     )
     return checkpoint_payload
+
+
+def prune_step_checkpoints(output_dir: Path, *, max_keep: int) -> list[str]:
+    """Remove old periodic step_* checkpoints, preserving best_decode/final."""
+    if max_keep <= 0:
+        return []
+    step_dirs: list[tuple[int, Path]] = []
+    for candidate in output_dir.glob("step_*"):
+        if not candidate.is_dir():
+            continue
+        match = re.fullmatch(r"step_(\d+)", candidate.name)
+        if match is None:
+            continue
+        step_dirs.append((int(match.group(1)), candidate))
+    step_dirs.sort(key=lambda item: item[0])
+    prune_count = max(len(step_dirs) - max_keep, 0)
+    if prune_count <= 0:
+        return []
+    pruned: list[str] = []
+    for _, checkpoint_dir in step_dirs[:prune_count]:
+        shutil.rmtree(checkpoint_dir)
+        pruned.append(str(checkpoint_dir))
+    return pruned
 
 
 def _format_metric(value: float | None) -> str:
@@ -1523,6 +1626,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     traj_hidden_bridge_cfg = dict(stage_options.get("traj_hidden_bridge") or {})
     lora_cfg = dict(stage_options.get("lora") or {})
     train_lm_head_token_rows = bool(lora_cfg.get("train_lm_head_token_rows", True))
+    use_lora = not args.disable_lora
     traj_aux_num_buckets = max(int(traj_aux_interface_cfg.get("num_buckets", 1) or 1), 1)
     traj_hidden_bridge_size = (
         int(traj_hidden_bridge_cfg.get("shared_size"))
@@ -1532,6 +1636,9 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     optimization_cfg = dict(stage_options.get("optimization") or {})
     curriculum_cfg = dict(stage_options.get("curriculum") or {})
     flex_cfg = dict(stage_options.get("flex") or {})
+    teacher_topk_kd_cfg = dict(stage_options.get("teacher_topk_kd") or {})
+    teacher_traj_topk_kd_cfg = dict(stage_options.get("teacher_traj_topk_kd") or {})
+    lr_scheduler_cfg = dict(stage_options.get("lr_scheduler") or {})
     flex_scene_config = None
     if bool(flex_cfg.get("enabled", False)):
         flex_architecture = str(flex_cfg.get("architecture", "single_level") or "single_level")
@@ -1574,12 +1681,24 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         flex_scene=flex_scene_config,
     )
     tokenizer = load_student_tokenizer(wrapper_cfg)
+    assert_traj_token_offsets(tokenizer)
     processor = load_student_processor(wrapper_cfg, tokenizer=tokenizer)
+    raw_lora_target_modules = lora_cfg.get("target_modules")
+    lora_target_modules: tuple[str, ...] | str
+    if lora_cfg.get("target_modules_regex") not in (None, ""):
+        lora_target_modules = str(lora_cfg.get("target_modules_regex"))
+    elif isinstance(raw_lora_target_modules, (list, tuple)):
+        lora_target_modules = tuple(str(value) for value in raw_lora_target_modules)
+    elif raw_lora_target_modules not in (None, ""):
+        lora_target_modules = str(raw_lora_target_modules)
+    else:
+        lora_target_modules = LoraConfigSpec().target_modules
     lora_spec = LoraConfigSpec(
         r=int(lora_cfg.get("rank", 32) or 32),
         alpha=int(lora_cfg.get("alpha", 64) or 64),
         dropout=float(lora_cfg.get("dropout", 0.05) or 0.05),
         trainable_token_indices=tuple(distill_trainable_token_ids(tokenizer)),
+        target_modules=lora_target_modules,
     )
     scheduled_sampling_config, scheduled_sampling_summary = scheduled_sampling_config_from_yaml(
         stage_options.get("scheduled_sampling"),
@@ -1823,8 +1942,19 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "traj_aux_interface": traj_aux_interface_summary,
             "traj_hidden_bridge": traj_hidden_bridge_cfg,
             "optimization": optimization_cfg,
+            "lora": {
+                "enabled": use_lora,
+                "rank": int(lora_spec.r),
+                "alpha": int(lora_spec.alpha),
+                "dropout": float(lora_spec.dropout),
+                "train_lm_head_token_rows": train_lm_head_token_rows,
+                "target_modules": lora_spec.target_modules,
+            },
             "flex": flex_cfg,
             "curriculum": curriculum_cfg,
+            "teacher_topk_kd": teacher_topk_kd_cfg,
+            "teacher_traj_topk_kd": teacher_traj_topk_kd_cfg,
+            "lr_scheduler": lr_scheduler_cfg,
             "scheduled_sampling": scheduled_sampling_summary,
             "on_policy_gkd": on_policy_gkd_summary,
             "traj_body_prefix_tokens": traj_body_prefix_tokens,
@@ -1835,9 +1965,18 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                 "enabled": decode_eval_cfg.enabled,
                 "split": decode_eval_cfg.split,
                 "num_samples": decode_eval_cfg.num_samples,
+                "max_new_tokens": decode_eval_cfg.max_new_tokens,
+                "do_sample": decode_eval_cfg.do_sample,
+                "temperature": decode_eval_cfg.temperature,
+                "top_p": decode_eval_cfg.top_p,
                 "image_prompt_style": decode_eval_cfg.image_prompt_style,
                 "prompt_text_style": decode_eval_cfg.prompt_text_style,
                 "fuse_history_tokens": decode_eval_cfg.fuse_history_tokens,
+                "metric_name": decode_eval_cfg.metric_name,
+                "reference_id": decode_eval_cfg.reference_id,
+                "reference_jsonl": decode_eval_cfg.reference_jsonl,
+                "reference_token_field": decode_eval_cfg.reference_token_field,
+                "reference_xyz_field": decode_eval_cfg.reference_xyz_field,
             },
             "first_batch_shapes": {
                 "input_ids": list(first_batch["input_ids"].shape) if first_batch is not None else None,
@@ -1930,7 +2069,6 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     parallel_mode = "ddp" if world_size > 1 else "single"
     device_ids = list(range(world_size)) if world_size > 1 else ([rank] if torch.cuda.is_available() else [])
     model = build_student_model(wrapper_cfg, tokenizer)
-    use_lora = not args.disable_lora
     init_checkpoint_dir = Path(args.init_checkpoint_dir).expanduser() if args.init_checkpoint_dir is not None else None
     checkpoint_format = detect_checkpoint_format(init_checkpoint_dir) if init_checkpoint_dir is not None else None
     if checkpoint_format == "lora_adapter" and not use_lora:
@@ -2319,6 +2457,11 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     if not trainable_params:
         raise RuntimeError("No trainable parameters remain after applying the optimization policy.")
     optimizer = torch.optim.AdamW(optimizer_param_groups, lr=trainer_cfg.learning_rate)
+    lr_scheduler, lr_scheduler_summary = build_lr_scheduler(
+        optimizer,
+        lr_scheduler_cfg,
+        total_steps=resolved_max_steps,
+    )
     if is_rank_zero:
         print(
             (
@@ -2339,7 +2482,8 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                 f"traj_aux_num_buckets={traj_aux_num_buckets} "
                 f"freeze_aux_only={bool(optimization_cfg.get('freeze_all_but_traj_aux_head', False))} "
                 f"interface_every_n={curriculum_cfg.get('interface_every_n_steps')} "
-                f"optimizer_groups={optimizer_group_summary}"
+                f"optimizer_groups={optimizer_group_summary} "
+                f"lr_scheduler={lr_scheduler_summary}"
             ),
             flush=True,
         )
@@ -2354,6 +2498,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
     started_at = time.time()
     eval_history: list[dict[str, object]] = []
     saved_checkpoints: list[dict[str, object]] = []
+    pruned_checkpoints: list[str] = []
     best_val_total_loss: float | None = None
     best_decode_score: float | None = None
     best_decode_checkpoint_dir: str | None = None
@@ -2386,6 +2531,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "pin_memory": args.pin_memory and device.type == "cuda",
             "persistent_workers": args.persistent_workers and args.num_workers > 0,
         },
+        "lr_scheduler": lr_scheduler_summary,
         "parallelism": {
             "multi_gpu_mode": parallel_mode,
             "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
@@ -2400,6 +2546,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "dropout": float(lora_spec.dropout),
             "trainable_token_rows": len(lora_spec.trainable_token_indices or ()),
             "train_lm_head_token_rows": train_lm_head_token_rows,
+            "target_modules": lora_spec.target_modules,
             "lm_head_trainable_token_rows": get_lm_head_token_row_count(model.backbone),
         },
         "loss_weights": export_loss_weights(loss_weights),
@@ -2434,21 +2581,31 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
             "split": decode_eval_cfg.split,
             "num_samples": decode_eval_cfg.num_samples,
             "max_new_tokens": decode_eval_cfg.max_new_tokens,
+            "do_sample": decode_eval_cfg.do_sample,
+            "temperature": decode_eval_cfg.temperature,
+            "top_p": decode_eval_cfg.top_p,
             "prompt_mode": decode_eval_cfg.prompt_mode,
             "target_mode": decode_eval_cfg.target_mode,
             "image_prompt_style": decode_eval_cfg.image_prompt_style,
             "prompt_text_style": decode_eval_cfg.prompt_text_style,
             "fuse_history_tokens": decode_eval_cfg.fuse_history_tokens,
             "metric_name": decode_eval_cfg.metric_name,
+            "reference_id": decode_eval_cfg.reference_id,
+            "reference_jsonl": decode_eval_cfg.reference_jsonl,
+            "reference_token_field": decode_eval_cfg.reference_token_field,
+            "reference_xyz_field": decode_eval_cfg.reference_xyz_field,
         },
         "versions": active_versions(),
     }
     metrics_handle = metrics_path.open("w", encoding="utf-8") if is_rank_zero else nullcontext()
     with metrics_handle as opened_metrics_handle:
+        previous_step_end_time = time.perf_counter()
         while resolved_max_steps is None or global_step < resolved_max_steps:
             if train_sampler is not None:
                 train_sampler.set_epoch(epoch_index)
             for batch in train_dataloader:
+                batch_ready_time = time.perf_counter()
+                data_wait_sec = max(batch_ready_time - previous_step_end_time, 0.0)
                 if resolved_max_steps is not None and global_step >= resolved_max_steps:
                     break
                 batch = prepare_flex_batch_for_model(batch, model)
@@ -2482,14 +2639,38 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                         on_policy_teacher_model=on_policy_teacher_model,
                         on_policy_gkd_config=on_policy_gkd_config,
                         global_step=next_step,
+                        teacher_topk_kd_temperature=float(teacher_topk_kd_cfg.get("temperature", 1.0) or 1.0),
+                        teacher_topk_kd_tail_bucket=bool(teacher_topk_kd_cfg.get("tail_bucket", False)),
+                        teacher_topk_kd_tail_chunk_size=int(teacher_topk_kd_cfg.get("tail_chunk_size", 256) or 256),
+                        teacher_traj_topk_kd_temperature=float(
+                            teacher_traj_topk_kd_cfg.get("temperature", 1.0) or 1.0
+                        ),
+                        teacher_traj_topk_kd_tail_bucket=bool(teacher_traj_topk_kd_cfg.get("tail_bucket", False)),
+                        teacher_traj_topk_kd_tail_chunk_size=int(
+                            teacher_traj_topk_kd_cfg.get("tail_chunk_size", 256) or 256
+                        ),
                     )
                 loss.backward()
                 grad_norm = torch.nn.utils.clip_grad_norm_(trainable_params, args.grad_clip_norm)
                 optimizer.step()
+                if lr_scheduler is not None:
+                    lr_scheduler.step()
                 global_step += 1
 
                 logs = _average_scalar_logs(logs, device)
                 grad_norm_value = _average_scalar(float(grad_norm.detach().cpu()), device)
+                current_lr = float(optimizer.param_groups[0]["lr"]) if optimizer.param_groups else 0.0
+                step_sec = max(time.perf_counter() - batch_ready_time, 0.0)
+                traj_ce_for_ratio = (
+                    float(active_loss_weights.traj_ce) * float(logs.get("traj_loss") or 0.0)
+                )
+                traj_kd_for_ratio = (
+                    float(active_loss_weights.teacher_traj_topk_kd)
+                    * float(logs.get("teacher_traj_topk_kd_loss") or 0.0)
+                )
+                logs["teacher_traj_topk_kd_to_traj_ce_ratio"] = float(
+                    traj_kd_for_ratio / max(traj_ce_for_ratio, 1e-8)
+                )
 
                 if is_rank_zero:
                     row = {
@@ -2498,7 +2679,13 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                         "train_subphase": active_phase,
                         "epoch_index": epoch_index,
                         "global_step": global_step,
-                        "logs": {**logs, "grad_norm": grad_norm_value},
+                        "logs": {
+                            **logs,
+                            "grad_norm": grad_norm_value,
+                            "learning_rate": current_lr,
+                            "data_wait_sec": data_wait_sec,
+                            "step_sec": step_sec,
+                        },
                     }
                     opened_metrics_handle.write(json.dumps(row, ensure_ascii=True) + "\n")
                     opened_metrics_handle.flush()
@@ -2533,6 +2720,9 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                         teacher_traj_kd_weighted = (
                             float(active_loss_weights.teacher_traj_topk_kd) * teacher_traj_kd_raw
                         )
+                        teacher_traj_kd_to_ce_ratio = (
+                            teacher_traj_kd_weighted / max(gt_traj_weighted, 1e-8)
+                        )
                         format_weighted = float(active_loss_weights.format_ce) * format_raw
                         print(
                             (
@@ -2548,6 +2738,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                                 f"{gt_cot_weighted:.4f}/{teacher_text_kd_weighted:.4f}/{gt_traj_weighted:.4f}/"
                                 f"{teacher_traj_ce_weighted:.4f}/{teacher_traj_kd_weighted:.4f}/"
                                 f"{format_weighted:.4f} "
+                                f"traj_kd_to_ce={teacher_traj_kd_to_ce_ratio:.4f} "
                                 f"acc(cot/traj)="
                                 f"{_format_metric(logs.get('gt_cot_token_acc'))}/"
                                 f"{_format_metric(logs.get('traj_token_acc'))} "
@@ -2555,6 +2746,9 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                                 f"gkd={gkd_active:.0f}:{gkd_rows:.0f}r/{gkd_tokens:.0f}t/"
                                 f"p{gkd_prob:.3f}/loss{gkd_loss:.4f} "
                                 f"traj_kd_scale={teacher_traj_kd_scale:.3f} "
+                                f"lr={current_lr:.3e} "
+                                f"data_wait={data_wait_sec:.3f}s "
+                                f"step={step_sec:.3f}s "
                                 f"grad={_format_metric(grad_norm_value)}"
                             ),
                             flush=True,
@@ -2580,6 +2774,16 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                             traj_aux_interface_config=traj_aux_interface_runtime_config,
                             traj_body_prefix_tokens=traj_body_prefix_tokens,
                             traj_hidden_bridge_config=traj_hidden_bridge_cfg,
+                            teacher_topk_kd_temperature=float(teacher_topk_kd_cfg.get("temperature", 1.0) or 1.0),
+                            teacher_topk_kd_tail_bucket=bool(teacher_topk_kd_cfg.get("tail_bucket", False)),
+                            teacher_topk_kd_tail_chunk_size=int(teacher_topk_kd_cfg.get("tail_chunk_size", 256) or 256),
+                            teacher_traj_topk_kd_temperature=float(
+                                teacher_traj_topk_kd_cfg.get("temperature", 1.0) or 1.0
+                            ),
+                            teacher_traj_topk_kd_tail_bucket=bool(teacher_traj_topk_kd_cfg.get("tail_bucket", False)),
+                            teacher_traj_topk_kd_tail_chunk_size=int(
+                                teacher_traj_topk_kd_cfg.get("tail_chunk_size", 256) or 256
+                            ),
                         )
                     val_total_loss = float(val_logs.get("total_loss", float("inf")))
                     if best_val_total_loss is None or val_total_loss <= best_val_total_loss:
@@ -2716,11 +2920,23 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
                             f"[checkpoint][{trainer_cfg.stage_name}] step={global_step} dir={checkpoint_dir}",
                             flush=True,
                         )
+                        pruned = prune_step_checkpoints(
+                            args.output_dir,
+                            max_keep=max(int(args.max_keep_checkpoints or 0), 0),
+                        )
+                        if pruned:
+                            pruned_checkpoints.extend(pruned)
+                            print(
+                                f"[checkpoint-prune][{trainer_cfg.stage_name}] "
+                                f"max_keep={args.max_keep_checkpoints} removed={len(pruned)}",
+                                flush=True,
+                            )
                     if world_size > 1:
                         dist.barrier()
 
                 if early_stop_triggered:
                     break
+                previous_step_end_time = time.perf_counter()
             epoch_index += 1
             if steps_per_epoch == 0 or early_stop_triggered:
                 break
@@ -2746,6 +2962,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         "save_every_steps": save_every_steps,
         "effective_batch_size": trainer_cfg.batch_size * max(world_size, 1),
         "learning_rate": trainer_cfg.learning_rate,
+        "lr_scheduler": lr_scheduler_summary,
         "use_lora": use_lora,
         "multi_gpu_mode": parallel_mode,
         "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
@@ -2762,6 +2979,7 @@ def run_training(args: argparse.Namespace, *, rank: int = 0, world_size: int = 1
         "early_stop_reason": early_stop_reason,
         "eval_history": eval_history,
         "saved_checkpoints": saved_checkpoints,
+        "pruned_checkpoints": pruned_checkpoints,
         "on_policy_gkd": {
             **on_policy_gkd_summary,
             "teacher": on_policy_teacher_summary,

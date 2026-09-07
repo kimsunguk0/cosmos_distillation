@@ -1,6 +1,8 @@
 import torch
+import torch.nn.functional as F
 
 from src.training.losses import (
+    INVALID_SPARSE_LOGPROB_CUTOFF,
     STAGE_DEFAULTS,
     DistillationLossWeights,
     TrajectoryDecodeConfig,
@@ -15,6 +17,88 @@ from src.training.losses import (
     token_hidden_alignment_loss,
     weighted_causal_ce,
 )
+
+
+def _reference_sparse_kd_loss(
+    student_logits: torch.Tensor,
+    cot_content_mask: torch.Tensor,
+    teacher_topk_indices: torch.Tensor,
+    teacher_topk_logprobs: torch.Tensor,
+    teacher_topk_mask: torch.Tensor,
+    sample_weights: torch.Tensor | None = None,
+    temperature: float = 1.0,
+    token_weights: torch.Tensor | None = None,
+    teacher_topk_positions: torch.Tensor | None = None,
+) -> torch.Tensor:
+    shift_student = student_logits[:, :-1, :].contiguous()
+    span_mask = cot_content_mask[:, 1:].to(dtype=torch.bool)
+    vocab_size = shift_student.shape[-1]
+    sample_losses = []
+    active_sample_weights = []
+    for sample_index in range(shift_student.shape[0]):
+        teacher_indices = teacher_topk_indices[sample_index][teacher_topk_mask[sample_index]]
+        teacher_values = teacher_topk_logprobs[sample_index][teacher_topk_mask[sample_index]]
+        sample_token_weights = (
+            token_weights[sample_index][teacher_topk_mask[sample_index]] if token_weights is not None else None
+        )
+        if teacher_topk_positions is not None:
+            raw_positions = teacher_topk_positions[sample_index][teacher_topk_mask[sample_index]].long()
+            valid_positions = (raw_positions > 0) & (raw_positions <= shift_student.shape[1])
+            if not bool(valid_positions.any()):
+                continue
+            student_rows = raw_positions[valid_positions] - 1
+            teacher_indices = teacher_indices[valid_positions]
+            teacher_values = teacher_values[valid_positions]
+            if sample_token_weights is not None:
+                sample_token_weights = sample_token_weights[valid_positions]
+        else:
+            student_rows = torch.nonzero(span_mask[sample_index], as_tuple=False).flatten()
+        aligned_tokens = min(student_rows.shape[0], teacher_indices.shape[0])
+        if aligned_tokens <= 0:
+            continue
+        student_rows = student_rows[:aligned_tokens]
+        teacher_indices = teacher_indices[:aligned_tokens]
+        teacher_values = teacher_values[:aligned_tokens]
+        if sample_token_weights is not None:
+            sample_token_weights = sample_token_weights[:aligned_tokens]
+        token_losses = []
+        active_token_weights = []
+        for token_index in range(aligned_tokens):
+            keep = (
+                (teacher_indices[token_index] >= 0)
+                & (teacher_indices[token_index] < vocab_size)
+                & torch.isfinite(teacher_values[token_index])
+                & (teacher_values[token_index] > INVALID_SPARSE_LOGPROB_CUTOFF)
+            )
+            if not bool(keep.any()):
+                continue
+            gathered_student = torch.gather(
+                shift_student[sample_index, student_rows[token_index]],
+                dim=-1,
+                index=teacher_indices[token_index][keep],
+            )
+            student_log_probs = F.log_softmax(gathered_student / temperature, dim=-1)
+            teacher_probs = F.softmax(teacher_values[token_index][keep] / temperature, dim=-1)
+            token_losses.append(F.kl_div(student_log_probs, teacher_probs, reduction="sum") * (temperature**2))
+            if sample_token_weights is not None:
+                active_token_weights.append(sample_token_weights[token_index])
+        if not token_losses:
+            continue
+        stacked_losses = torch.stack(token_losses)
+        if active_token_weights:
+            stacked_weights = torch.stack(active_token_weights).to(dtype=stacked_losses.dtype)
+            sample_losses.append((stacked_losses * stacked_weights).sum() / stacked_weights.sum().clamp(min=1e-6))
+        else:
+            sample_losses.append(stacked_losses.mean())
+        if sample_weights is not None:
+            active_sample_weights.append(sample_weights[sample_index].to(dtype=stacked_losses.dtype))
+    if not sample_losses:
+        return torch.tensor(0.0, dtype=student_logits.dtype)
+    losses = torch.stack(sample_losses)
+    if sample_weights is None:
+        return losses.mean()
+    weights = torch.stack(active_sample_weights).to(dtype=losses.dtype)
+    return (losses * weights).mean()
 
 
 def test_stage_defaults_include_main_stage() -> None:
@@ -54,6 +138,203 @@ def test_sparse_logit_kd_loss_returns_nonzero_when_topk_is_present() -> None:
         weights,
     )
     assert float(loss) >= 0.0
+
+
+def test_sparse_logit_kd_loss_ignores_invalid_sparse_entries() -> None:
+    student_logits = torch.tensor(
+        [[[0.0, 4.0, 1.0], [0.0, 4.0, 1.0]]],
+        dtype=torch.float32,
+    )
+    cot_content_mask = torch.tensor([[False, True]], dtype=torch.bool)
+    teacher_topk_mask = torch.tensor([[True]], dtype=torch.bool)
+    weights = torch.tensor([1.0], dtype=torch.float32)
+    valid_only = teacher_logit_kd_loss(
+        student_logits,
+        cot_content_mask,
+        torch.tensor([[[1]]], dtype=torch.long),
+        torch.tensor([[[0.0]]], dtype=torch.float32),
+        teacher_topk_mask,
+        weights,
+    )
+    with_invalid = teacher_logit_kd_loss(
+        student_logits,
+        cot_content_mask,
+        torch.tensor([[[1, 2]]], dtype=torch.long),
+        torch.tensor([[[0.0, -1.0e9]]], dtype=torch.float32),
+        teacher_topk_mask,
+        weights,
+    )
+
+    torch.testing.assert_close(with_invalid, valid_only)
+
+
+def test_sparse_logit_kd_loss_matches_reference_loop_with_weights() -> None:
+    student_logits = torch.tensor(
+        [
+            [
+                [0.2, 1.3, -0.1, 0.7, 0.0],
+                [1.1, -0.4, 0.3, 0.8, -0.2],
+                [0.0, 0.5, 1.2, -0.6, 0.1],
+                [0.4, -0.1, 0.2, 1.5, -0.3],
+            ],
+            [
+                [-0.2, 0.4, 0.9, 0.1, 0.0],
+                [0.7, 0.2, -0.5, 1.0, 0.3],
+                [0.1, 1.4, 0.2, -0.3, 0.8],
+                [0.3, -0.7, 0.6, 0.2, 1.1],
+            ],
+        ],
+        dtype=torch.float32,
+    )
+    cot_content_mask = torch.tensor(
+        [
+            [False, True, False, True],
+            [False, True, True, False],
+        ],
+        dtype=torch.bool,
+    )
+    teacher_topk_indices = torch.tensor(
+        [
+            [[1, 3, 99], [2, 4, 0], [4, -1, 1]],
+            [[0, 2, 3], [4, 1, 2], [2, 99, 3]],
+        ],
+        dtype=torch.long,
+    )
+    teacher_topk_logprobs = torch.log(
+        torch.tensor(
+            [
+                [[0.6, 0.3, 0.1], [0.5, 0.3, 0.2], [0.7, 0.2, 0.1]],
+                [[0.2, 0.5, 0.3], [0.4, 0.4, 0.2], [0.8, 0.1, 0.1]],
+            ],
+            dtype=torch.float32,
+        )
+    )
+    teacher_topk_logprobs[0, 2, 1] = -1.0e9
+    teacher_topk_mask = torch.tensor(
+        [
+            [True, True, False],
+            [True, False, True],
+        ],
+        dtype=torch.bool,
+    )
+    sample_weights = torch.tensor([0.5, 1.5], dtype=torch.float32)
+    token_weights = torch.tensor(
+        [
+            [1.0, 2.0, 3.0],
+            [1.5, 0.5, 2.5],
+        ],
+        dtype=torch.float32,
+    )
+
+    vectorized = teacher_logit_kd_loss(
+        student_logits,
+        cot_content_mask,
+        teacher_topk_indices,
+        teacher_topk_logprobs,
+        teacher_topk_mask,
+        sample_weights,
+        temperature=1.7,
+        token_weights=token_weights,
+    )
+    reference = _reference_sparse_kd_loss(
+        student_logits,
+        cot_content_mask,
+        teacher_topk_indices,
+        teacher_topk_logprobs,
+        teacher_topk_mask,
+        sample_weights,
+        temperature=1.7,
+        token_weights=token_weights,
+    )
+
+    torch.testing.assert_close(vectorized, reference)
+
+
+def test_sparse_logit_kd_loss_matches_reference_loop_with_positions() -> None:
+    student_logits = torch.tensor(
+        [
+            [
+                [0.5, -0.2, 1.2, 0.0],
+                [0.1, 0.9, -0.4, 0.3],
+                [1.1, 0.2, 0.0, -0.5],
+                [-0.3, 0.4, 0.8, 0.2],
+            ]
+        ],
+        dtype=torch.float32,
+    )
+    cot_content_mask = torch.tensor([[False, False, False, False]], dtype=torch.bool)
+    teacher_topk_indices = torch.tensor([[[2, 1], [0, 3], [1, 2]]], dtype=torch.long)
+    teacher_topk_logprobs = torch.log(torch.tensor([[[0.7, 0.3], [0.6, 0.4], [0.5, 0.5]]], dtype=torch.float32))
+    teacher_topk_mask = torch.tensor([[True, True, True]], dtype=torch.bool)
+    teacher_topk_positions = torch.tensor([[1, 99, 3]], dtype=torch.long)
+    token_weights = torch.tensor([[1.0, 4.0, 2.0]], dtype=torch.float32)
+
+    vectorized = teacher_logit_kd_loss(
+        student_logits,
+        cot_content_mask,
+        teacher_topk_indices,
+        teacher_topk_logprobs,
+        teacher_topk_mask,
+        temperature=1.3,
+        token_weights=token_weights,
+        teacher_topk_positions=teacher_topk_positions,
+    )
+    reference = _reference_sparse_kd_loss(
+        student_logits,
+        cot_content_mask,
+        teacher_topk_indices,
+        teacher_topk_logprobs,
+        teacher_topk_mask,
+        temperature=1.3,
+        token_weights=token_weights,
+        teacher_topk_positions=teacher_topk_positions,
+    )
+
+    torch.testing.assert_close(vectorized, reference)
+
+
+def test_sparse_logit_kd_tail_bucket_penalizes_out_of_support_mass() -> None:
+    cot_content_mask = torch.tensor([[False, True]], dtype=torch.bool)
+    teacher_topk_indices = torch.tensor([[[0]]], dtype=torch.long)
+    teacher_topk_logprobs = torch.log(torch.tensor([[[0.9]]], dtype=torch.float32))
+    teacher_topk_mask = torch.tensor([[True]], dtype=torch.bool)
+    support_only_good = torch.log(torch.tensor([[[0.9, 0.033, 0.033, 0.034], [0.25, 0.25, 0.25, 0.25]]]))
+    support_only_bad = torch.log(torch.tensor([[[0.1, 0.3, 0.3, 0.3], [0.25, 0.25, 0.25, 0.25]]]))
+
+    support_good = teacher_logit_kd_loss(
+        support_only_good,
+        cot_content_mask,
+        teacher_topk_indices,
+        teacher_topk_logprobs,
+        teacher_topk_mask,
+    )
+    support_bad = teacher_logit_kd_loss(
+        support_only_bad,
+        cot_content_mask,
+        teacher_topk_indices,
+        teacher_topk_logprobs,
+        teacher_topk_mask,
+    )
+    tail_good = teacher_logit_kd_loss(
+        support_only_good,
+        cot_content_mask,
+        teacher_topk_indices,
+        teacher_topk_logprobs,
+        teacher_topk_mask,
+        include_tail_bucket=True,
+    )
+    tail_bad = teacher_logit_kd_loss(
+        support_only_bad,
+        cot_content_mask,
+        teacher_topk_indices,
+        teacher_topk_logprobs,
+        teacher_topk_mask,
+        include_tail_bucket=True,
+    )
+
+    torch.testing.assert_close(support_good, support_bad)
+    assert float(tail_good) < 1.0e-4
+    assert float(tail_bad) > float(tail_good) + 1.0
 
 
 def test_weighted_causal_ce_scales_with_batch1_weight() -> None:

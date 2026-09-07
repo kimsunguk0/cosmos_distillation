@@ -122,6 +122,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--eval-num-paths", type=int, default=6)
     parser.add_argument("--eval-temperature", type=float, default=0.85)
     parser.add_argument("--eval-selection-method", choices=("single", "oracle_best", "medoid", "mean_traj"), default="mean_traj")
+    parser.add_argument(
+        "--teacher-decoding-mode",
+        choices=("sampling", "greedy"),
+        default="sampling",
+        help="Generation mode for the Alpamayo 10B VLM path. Greedy requires --eval-num-paths 1.",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--teacher-max-new-tokens", type=int, default=192)
     parser.add_argument("--teacher-top-p", type=float, default=0.95)
@@ -378,6 +384,10 @@ def common_record(
                 "fde_10b_m": float(t_fde),
                 "minade6_10b_m": float(t_ades[t_best]),
                 "minfde6_10b_m": float(t_fdes[t_best]),
+                "ade_vs_teacher_m": float(t_ade),
+                "fde_vs_teacher_m": float(t_fde),
+                "minade6_vs_teacher_m": float(t_ades[t_best]),
+                "minfde6_vs_teacher_m": float(t_fdes[t_best]),
                 "best_path_idx_10b": int(t_best),
             }
         )
@@ -396,6 +406,10 @@ def summarize_model(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "fde_10b_m",
         "minade6_10b_m",
         "minfde6_10b_m",
+        "ade_vs_teacher_m",
+        "fde_vs_teacher_m",
+        "minade6_vs_teacher_m",
+        "minfde6_vs_teacher_m",
         "elapsed_ms",
     )
     return {
@@ -450,7 +464,7 @@ def run_teacher10b(args: argparse.Namespace, rows: list[dict[str, Any]]) -> dict
             processor=processor,
             samples=samples,
             device=str(args.device),
-            decoding_mode="sample",
+            decoding_mode=str(args.teacher_decoding_mode),
             top_p=float(args.teacher_top_p),
             top_k=int(args.teacher_top_k),
             temperature=float(args.eval_temperature),
@@ -751,6 +765,7 @@ def settings_dict(args: argparse.Namespace) -> dict[str, Any]:
         "eval_num_paths": int(args.eval_num_paths),
         "eval_temperature": float(args.eval_temperature),
         "eval_selection_method": str(args.eval_selection_method),
+        "teacher_decoding_mode": str(args.teacher_decoding_mode),
         "teacher_top_p": float(args.teacher_top_p),
         "teacher_top_k": int(args.teacher_top_k),
         "seed": int(args.seed),

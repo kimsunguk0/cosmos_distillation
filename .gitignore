@@ -13,6 +13,9 @@ data/teacher_cache/**
 data/corpus/**
 data/eval/**
 data/splits/**
+data/vqa_q2_stepa*/**
+data/vqa_q2_stepa_*/**
+outputs/**
 outputs/checkpoints/**
 outputs/exports/**
 outputs/reports/**
@@ -20,6 +23,7 @@ outputs/debug/**
 outputs/logs/**
 logs/**
 
+!outputs/
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/teacher_cache/text/.gitkeep
@@ -29,7 +33,11 @@ logs/**
 !data/corpus/.gitkeep
 !data/eval/.gitkeep
 !data/splits/.gitkeep
+!outputs/checkpoints/
 !outputs/checkpoints/.gitkeep
+!outputs/reports/
 !outputs/reports/.gitkeep
+!outputs/debug/
 !outputs/debug/.gitkeep
+!outputs/logs/
 !outputs/logs/.gitkeep

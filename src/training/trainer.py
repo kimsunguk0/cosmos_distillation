@@ -151,6 +151,23 @@ def _zero(device: torch.device) -> torch.Tensor:
     return torch.tensor(0.0, device=device)
 
 
+def _batch_scalar_float(batch: dict[str, Any], key: str) -> float:
+    value = batch.get(key)
+    if isinstance(value, torch.Tensor):
+        return float(value.detach().float().sum().cpu()) if value.numel() else 0.0
+    if value is None:
+        return 0.0
+    return float(value)
+
+
+def _teacher_traj_topk_diag(batch: dict[str, Any], key: str) -> float:
+    total = _batch_scalar_float(batch, key)
+    teacher_view = batch.get("teacher_view")
+    if isinstance(teacher_view, dict):
+        total += _batch_scalar_float(teacher_view, key)
+    return total
+
+
 def _restrict_traj_token_mask_to_prefix(
     traj_token_mask: torch.Tensor,
     max_body_tokens: int | None,
@@ -954,6 +971,12 @@ def run_train_step(
     on_policy_teacher_model=None,
     on_policy_gkd_config: OnPolicyGKDConfig | None = None,
     global_step: int | None = None,
+    teacher_topk_kd_temperature: float = 1.0,
+    teacher_topk_kd_tail_bucket: bool = False,
+    teacher_topk_kd_tail_chunk_size: int = 256,
+    teacher_traj_topk_kd_temperature: float = 1.0,
+    teacher_traj_topk_kd_tail_bucket: bool = False,
+    teacher_traj_topk_kd_tail_chunk_size: int = 256,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Run one train step and return total loss plus scalar logs."""
     unwrapped_model = getattr(model, "module", model)
@@ -1156,7 +1179,10 @@ def run_train_step(
             batch.get("teacher_topk_logprobs"),
             batch.get("teacher_topk_mask"),
             hard_teacher_pair_weights,
+            temperature=teacher_topk_kd_temperature,
             teacher_topk_positions=batch.get("teacher_topk_positions"),
+            include_tail_bucket=teacher_topk_kd_tail_bucket,
+            tail_chunk_size=teacher_topk_kd_tail_chunk_size,
         )
     if weights.feat_align > 0 and batch.get("teacher_pooled_hidden") is not None:
         feat_weights = hard_teacher_pair_weights
@@ -1210,7 +1236,10 @@ def run_train_step(
             batch.get("teacher_traj_topk_logprobs"),
             batch.get("teacher_traj_topk_mask"),
             teacher_traj_kd_sample_weights,
+            temperature=teacher_traj_topk_kd_temperature,
             token_weights=batch.get("teacher_traj_token_weights"),
+            include_tail_bucket=teacher_traj_topk_kd_tail_bucket,
+            tail_chunk_size=teacher_traj_topk_kd_tail_chunk_size,
         )
     if weights.teacher_traj_hidden_align > 0:
         hidden_bridge_cfg = dict(traj_hidden_bridge_config or {})
@@ -1440,7 +1469,10 @@ def run_train_step(
             teacher_view.get("teacher_topk_logprobs"),
             teacher_view.get("teacher_topk_mask"),
             teacher_logit_weights,
+            temperature=teacher_topk_kd_temperature,
             teacher_topk_positions=teacher_view.get("teacher_topk_positions"),
+            include_tail_bucket=teacher_topk_kd_tail_bucket,
+            tail_chunk_size=teacher_topk_kd_tail_chunk_size,
         )
         teacher_traj_ce, _ = weighted_causal_ce(
             teacher_outputs["logits"],
@@ -1457,6 +1489,9 @@ def run_train_step(
                 teacher_view.get("teacher_traj_topk_logprobs"),
                 teacher_view.get("teacher_traj_topk_mask"),
                 teacher_view["traj_weights"] * teacher_view["teacher_quality_multiplier"],
+                temperature=teacher_traj_topk_kd_temperature,
+                include_tail_bucket=teacher_traj_topk_kd_tail_bucket,
+                tail_chunk_size=teacher_traj_topk_kd_tail_chunk_size,
             )
         if weights.feat_align > 0 and teacher_view.get("teacher_pooled_hidden") is not None:
             feat_weights = seq_weights
@@ -1524,6 +1559,14 @@ def run_train_step(
         "teacher_traj_topk_kd": float(teacher_traj_topk_kd.detach().cpu()),
         "teacher_traj_topk_kd_effective": float(teacher_traj_topk_kd_effective.detach().cpu()),
         "teacher_traj_topk_kd_scale": float(teacher_traj_topk_kd_scale),
+        "teacher_topk_kd_temperature": float(teacher_topk_kd_temperature),
+        "teacher_topk_kd_tail_bucket": float(bool(teacher_topk_kd_tail_bucket)),
+        "teacher_traj_topk_kd_temperature": float(teacher_traj_topk_kd_temperature),
+        "teacher_traj_topk_kd_tail_bucket": float(bool(teacher_traj_topk_kd_tail_bucket)),
+        "teacher_traj_topk_oob_count": _teacher_traj_topk_diag(batch, "teacher_traj_topk_oob_count"),
+        "teacher_traj_topk_oob_mass": _teacher_traj_topk_diag(batch, "teacher_traj_topk_oob_mass"),
+        "teacher_traj_topk_oob_token_count": _teacher_traj_topk_diag(batch, "teacher_traj_topk_oob_token_count"),
+        "teacher_traj_topk_zero_valid_tokens": _teacher_traj_topk_diag(batch, "teacher_traj_topk_zero_valid_tokens"),
         "teacher_traj_hidden_align": float(teacher_traj_hidden_align.detach().cpu()),
         "teacher_boundary_hidden_align": float(teacher_boundary_hidden_align.detach().cpu()),
         "teacher_traj_hidden_relation": float(teacher_traj_hidden_relation.detach().cpu()),

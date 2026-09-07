@@ -1,9 +1,12 @@
 import pytest
+import numpy as np
 import torch
 
 from src.training.collator import (
     IGNORE_INDEX,
+    INVALID_TOPK_LOGPROB,
     _build_traj_only_target_layout,
+    _filter_future_traj_topk,
     build_messages,
     build_user_prompt,
     fuse_history_tokens_in_input_ids,
@@ -120,3 +123,37 @@ def test_official_alpamayo_prompt_and_history_token_fusion() -> None:
     assert not torch.any(fused == 777)
     assert fused.shape == input_ids.shape
     assert int(fused[0, 1].item()) == 1000 + 3000 + 500
+
+
+def test_filter_future_traj_topk_drops_history_bins() -> None:
+    raw_indices = np.asarray(
+        [
+            [1, 3000, 2, 3999],
+            [3000, 3001, 3999, 3500],
+        ],
+        dtype=np.int32,
+    )
+    raw_logprobs = np.log(
+        np.asarray(
+            [
+                [0.4, 0.3, 0.2, 0.1],
+                [0.25, 0.25, 0.25, 0.25],
+            ],
+            dtype=np.float32,
+        )
+    )
+
+    filtered_indices, filtered_logprobs, valid_mask, oob_count, oob_mass, oob_token_count, zero_valid = (
+        _filter_future_traj_topk(raw_indices, raw_logprobs, token_count=2, topk=4)
+    )
+
+    assert filtered_indices.tolist() == [[1, 2, 0, 0], [0, 0, 0, 0]]
+    assert valid_mask.tolist() == [True, False]
+    assert oob_count == 6
+    assert oob_token_count == 2
+    assert zero_valid == 1
+    assert oob_mass == pytest.approx(1.4)
+    assert filtered_logprobs[0, 0] == pytest.approx(np.log(0.4))
+    assert filtered_logprobs[0, 1] == pytest.approx(np.log(0.2))
+    assert filtered_logprobs[0, 2] == pytest.approx(INVALID_TOPK_LOGPROB)
+    assert filtered_logprobs[1, 0] == pytest.approx(INVALID_TOPK_LOGPROB)

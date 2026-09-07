@@ -547,7 +547,10 @@ class DecodeEvalConfig:
     enabled: bool = False
     split: str = "val"
     num_samples: int = 8
-    max_new_tokens: int = 160
+    max_new_tokens: int = 320
+    do_sample: bool = False
+    temperature: float = 1.0
+    top_p: float = 1.0
     prompt_mode: str = "joint"
     target_mode: str = "joint"
     image_prompt_style: str = "compact"
@@ -555,6 +558,110 @@ class DecodeEvalConfig:
     fuse_history_tokens: bool = False
     preserve_flex_positions: bool = False
     metric_name: str = "anti_collapse_score"
+    reference_id: str = "legacy_hard_target"
+    reference_jsonl: str | None = None
+    reference_token_field: str = "selected_traj_tokens"
+    reference_xyz_field: str = "selected_xyz"
+
+
+def _read_jsonl_rows(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
+    return rows
+
+
+def _resolve_reference_path(raw: str | Path | None, project_root: Path) -> Path | None:
+    if raw in (None, ""):
+        return None
+    raw_path = Path(str(raw)).expanduser()
+    candidates = [raw_path]
+    if not raw_path.is_absolute():
+        candidates.append(project_root / raw_path)
+    remapped = remap_external_path(str(raw_path))
+    if remapped is not None:
+        candidates.append(Path(remapped))
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _token_list_from_row(row: dict[str, Any], field: str, project_root: Path) -> list[int]:
+    for key in (field, "selected_traj_tokens", "generated_traj_tokens", "traj_token_ids", "target_traj_tokens"):
+        value = row.get(key)
+        if value:
+            arr = np.asarray(value, dtype=np.int64).reshape(-1)
+            return [int(v) for v in arr.tolist()]
+    hard = row.get("hard_target") or {}
+    hard_tokens = hard.get("traj_future_token_ids") or []
+    if hard_tokens:
+        return [int(v) for v in np.asarray(hard_tokens, dtype=np.int64).reshape(-1).tolist()]
+    hard_path = hard.get("traj_future_token_ids_path") or (row.get("teacher_traj_target") or {}).get("token_ids_path")
+    resolved = _resolve_reference_path(hard_path, project_root)
+    if resolved is not None:
+        return [int(v) for v in np.asarray(np.load(resolved), dtype=np.int64).reshape(-1).tolist()]
+    prediction_npz = _resolve_reference_path(row.get("prediction_npz"), project_root)
+    if prediction_npz is not None:
+        with np.load(prediction_npz, allow_pickle=False) as data:
+            if "traj_token_ids" in data:
+                return [int(v) for v in np.asarray(data["traj_token_ids"], dtype=np.int64).reshape(-1).tolist()]
+    return []
+
+
+def _xyz_from_row(row: dict[str, Any], field: str, project_root: Path) -> np.ndarray | None:
+    value = row.get(field)
+    if value is not None:
+        arr = np.asarray(value, dtype=np.float32)
+        if arr.size:
+            return np.squeeze(arr).reshape(-1, arr.shape[-1])[:, :3]
+    prediction_npz = _resolve_reference_path(row.get("prediction_npz"), project_root)
+    if prediction_npz is not None:
+        with np.load(prediction_npz, allow_pickle=False) as data:
+            for key in (field, "selected_xyz", "pred_xyz"):
+                if key in data:
+                    arr = np.asarray(data[key], dtype=np.float32)
+                    if arr.size:
+                        squeezed = np.squeeze(arr)
+                        if squeezed.ndim == 3 and squeezed.shape[0] == 1:
+                            squeezed = squeezed[0]
+                        if squeezed.ndim == 2:
+                            return squeezed[:, :3]
+    return None
+
+
+def _load_decode_reference_map(
+    *,
+    config: DecodeEvalConfig,
+    project_root: Path,
+) -> dict[str, dict[str, Any]]:
+    if not config.reference_jsonl:
+        return {}
+    path = _resolve_reference_path(config.reference_jsonl, project_root)
+    if path is None:
+        raise FileNotFoundError(f"decode_eval reference_jsonl not found: {config.reference_jsonl}")
+    refs: dict[str, dict[str, Any]] = {}
+    for row in _read_jsonl_rows(path):
+        sample_id = str(row.get("sample_id") or "")
+        if not sample_id:
+            continue
+        refs[sample_id] = {
+            "tokens": _token_list_from_row(row, config.reference_token_field, project_root),
+            "xyz": _xyz_from_row(row, config.reference_xyz_field, project_root),
+            "source_row": row,
+        }
+    return refs
+
+
+def _has_usable_reference(entry: dict[str, Any] | None) -> bool:
+    if entry is None:
+        return False
+    tokens = entry.get("tokens") or []
+    xyz = entry.get("xyz")
+    return bool(tokens) or xyz is not None
 
 
 def _select_rows(records: Sequence[dict[str, Any]], *, split: str, num_samples: int) -> list[dict[str, Any]]:
@@ -595,6 +702,7 @@ def evaluate_decode_subset(
             decoder = TrajectoryTokenDecoder(config_path=decoder_config_path)
         except Exception:  # noqa: BLE001
             decoder = None
+    reference_by_id = _load_decode_reference_map(config=config, project_root=project_root)
 
     sample_metrics: list[dict[str, Any]] = []
     motion_matches = 0
@@ -606,8 +714,18 @@ def evaluate_decode_subset(
     fde_values: list[float] = []
     token_count_matches = 0
     bad_geometry_count = 0
+    missing_reference_count = 0
+    excluded_geometry_reference_count = 0
+    truncation_count = 0
+    incomplete_traj_count = 0
 
     for sample in selected:
+        sample_id = str(sample.get("sample_id") or "")
+        reference_entry = reference_by_id.get(sample_id) if reference_by_id else None
+        reference_required = bool(reference_by_id)
+        usable_reference = _has_usable_reference(reference_entry)
+        if reference_required and not usable_reference:
+            missing_reference_count += 1
         history_xyz = load_ego_history_xyz(sample, project_root)
         prompt_text = (
             build_traj_only_prompt(sample, project_root, ego_history_xyz=history_xyz)
@@ -688,7 +806,17 @@ def evaluate_decode_subset(
             )
             for key, value in batch.items()
         }
-        target_traj = load_traj_future_token_ids(sample.get("hard_target") or {}, project_root)
+        legacy_target_traj = load_traj_future_token_ids(sample.get("hard_target") or {}, project_root)
+        reference_tokens = (
+            [int(value) for value in reference_entry.get("tokens", [])]
+            if reference_entry is not None and reference_entry.get("tokens")
+            else []
+        )
+        # Legacy hard target is still acceptable as a decoding-contract length
+        # fallback, but not as a geometry reference when reference_jsonl is set.
+        target_traj = reference_tokens if reference_tokens else legacy_target_traj
+        if not target_traj:
+            target_traj = legacy_target_traj
         # `generate` appends after the padded input length.  This tokenizer
         # right-pads, so row-wise attention lengths would include pad tokens in
         # the generated span for shorter prompts.
@@ -723,18 +851,35 @@ def evaluate_decode_subset(
                     max_new_tokens=config.max_new_tokens,
                     logits_processor=logits_processor,
                     stopping_criteria=stopping_criteria,
+                    do_sample=bool(config.do_sample),
+                    temperature=float(config.temperature),
+                    top_p=float(config.top_p),
                 )
             else:
+                generate_kwargs: dict[str, Any] = {
+                    "max_new_tokens": config.max_new_tokens,
+                    "do_sample": bool(config.do_sample),
+                    "use_cache": True,
+                    "logits_processor": logits_processor,
+                    "stopping_criteria": stopping_criteria,
+                }
+                if bool(config.do_sample):
+                    generate_kwargs["temperature"] = float(config.temperature)
+                    generate_kwargs["top_p"] = float(config.top_p)
                 generated = model.backbone.generate(
                     **batch,
-                    max_new_tokens=config.max_new_tokens,
-                    do_sample=False,
-                    use_cache=True,
-                    logits_processor=logits_processor,
-                    stopping_criteria=stopping_criteria,
+                    **generate_kwargs,
                 )
         generated_text = _decode_generated_text(tokenizer, batch["input_ids"], generated)
         generated_traj = extract_generated_traj_tokens(generated_text)
+        generated_new_tokens = max(int(generated.shape[1]) - int(batch["input_ids"].shape[1]), 0)
+        truncated_by_max_new_tokens = bool(
+            generated_new_tokens >= int(config.max_new_tokens) and len(generated_traj) < len(target_traj)
+        )
+        if len(generated_traj) < len(target_traj):
+            incomplete_traj_count += 1
+        if truncated_by_max_new_tokens:
+            truncation_count += 1
         generated_top_tokens = [
             {"token": int(token), "count": int(count), "mass": float(count / max(len(generated_traj), 1))}
             for token, count in Counter(int(value) for value in generated_traj).most_common(10)
@@ -753,11 +898,24 @@ def evaluate_decode_subset(
         if decoder is not None:
             history_rot = load_ego_history_rot(sample, project_root)
             decoded_future_xyz = decoder.decode(history_xyz, history_rot, generated_traj)
-            teacher_future_xyz = decoder.decode(history_xyz, history_rot, target_traj)
-            if teacher_future_xyz is not None:
-                teacher_motion = normalize_action_class(extract_path_semantics(teacher_future_xyz).action_class)
-            if decoded_future_xyz is not None and teacher_future_xyz is not None:
-                ade_m, fde_m = _ade_fde(decoded_future_xyz, teacher_future_xyz)
+            reference_future_xyz = None
+            if reference_required:
+                if reference_entry is not None:
+                    reference_future_xyz = (
+                        reference_entry.get("xyz")
+                        if reference_entry.get("xyz") is not None
+                        else None
+                    )
+                    if reference_future_xyz is None and reference_tokens:
+                        reference_future_xyz = decoder.decode(history_xyz, history_rot, reference_tokens)
+                if reference_future_xyz is None:
+                    excluded_geometry_reference_count += 1
+            else:
+                reference_future_xyz = decoder.decode(history_xyz, history_rot, target_traj)
+            if reference_future_xyz is not None:
+                teacher_motion = normalize_action_class(extract_path_semantics(reference_future_xyz).action_class)
+            if decoded_future_xyz is not None and reference_future_xyz is not None:
+                ade_m, fde_m = _ade_fde(decoded_future_xyz, reference_future_xyz)
                 sample_ade_m = ade_m if math.isfinite(ade_m) else None
                 sample_fde_m = fde_m if math.isfinite(fde_m) else None
                 if math.isfinite(ade_m):
@@ -779,8 +937,11 @@ def evaluate_decode_subset(
             {
                 "sample_id": sample.get("sample_id"),
                 "generated_traj_token_count": len(generated_traj),
+                "generated_new_token_count": generated_new_tokens,
+                "truncated_by_max_new_tokens": truncated_by_max_new_tokens,
                 "generated_traj_tokens": [int(value) for value in generated_traj],
                 "target_traj_tokens": [int(value) for value in target_traj],
+                "legacy_hard_target_traj_tokens": [int(value) for value in legacy_target_traj],
                 "unique_traj_ids": unique_count,
                 "max_same_token_run": max_same_run,
                 "generated_unique_token_count": unique_count,
@@ -794,8 +955,18 @@ def evaluate_decode_subset(
                 "fde_m": sample_fde_m,
                 "student_vs_teacher_discrete_ade_m": sample_ade_m,
                 "student_vs_teacher_discrete_fde_m": sample_fde_m,
+                "student_vs_geometry_reference_ade_m": sample_ade_m,
+                "student_vs_geometry_reference_fde_m": sample_fde_m,
                 "student_cot": extract_generated_cot_text(generated_text),
                 "teacher_cot": str((sample.get("teacher_target") or {}).get("cot_text") or ""),
+                "geometry_reference_id": str(config.reference_id),
+                "geometry_reference_source": (
+                    "reference_jsonl"
+                    if reference_required and usable_reference
+                    else "missing_reference"
+                    if reference_required
+                    else "legacy_hard_target"
+                ),
             }
         )
 
@@ -822,7 +993,23 @@ def evaluate_decode_subset(
         "enabled": True,
         "split": config.split,
         "num_samples": len(sample_metrics),
-        "geometry_reference": "teacher_discrete",
+        "generation_config": {
+            "do_sample": bool(config.do_sample),
+            "temperature": float(config.temperature),
+            "top_p": float(config.top_p),
+            "max_new_tokens": int(config.max_new_tokens),
+        },
+        "geometry_reference": str(config.reference_id),
+        "geometry_reference_id": str(config.reference_id),
+        "geometry_reference_jsonl": str(config.reference_jsonl) if config.reference_jsonl else None,
+        "geometry_reference_token_field": str(config.reference_token_field),
+        "geometry_reference_xyz_field": str(config.reference_xyz_field),
+        "missing_geometry_reference_count": int(missing_reference_count),
+        "excluded_geometry_reference_count": int(excluded_geometry_reference_count),
+        "truncation_count": int(truncation_count),
+        "truncation_rate": float(truncation_count / max(len(sample_metrics), 1)),
+        "incomplete_traj_count": int(incomplete_traj_count),
+        "incomplete_traj_rate": float(incomplete_traj_count / max(len(sample_metrics), 1)),
         "avg_unique_traj_ids": avg_unique,
         "avg_max_same_token_run": avg_max_run,
         "avg_target_set_jaccard": avg_jaccard,
@@ -830,6 +1017,8 @@ def evaluate_decode_subset(
         "avg_fde_m": avg_fde,
         "avg_student_vs_teacher_discrete_ade_m": avg_ade,
         "avg_student_vs_teacher_discrete_fde_m": avg_fde,
+        "avg_student_vs_geometry_reference_ade_m": avg_ade,
+        "avg_student_vs_geometry_reference_fde_m": avg_fde,
         "bad_geometry_rate": bad_geometry_rate,
         "token_count_match_rate": token_count_match_rate,
         "coarse_motion_agreement_rate": motion_agreement,

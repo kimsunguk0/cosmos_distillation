@@ -10,6 +10,7 @@ import torch.nn.functional as F
 
 
 IGNORE_INDEX = -100
+INVALID_SPARSE_LOGPROB_CUTOFF = -1.0e8
 
 
 @dataclass(slots=True)
@@ -352,6 +353,9 @@ def teacher_logit_kd_loss(
     temperature: float = 1.0,
     token_weights: torch.Tensor | None = None,
     teacher_topk_positions: torch.Tensor | None = None,
+    include_tail_bucket: bool = False,
+    tail_eps: float = 1.0e-6,
+    tail_chunk_size: int = 256,
 ) -> torch.Tensor:
     """KL distillation over sparse teacher top-k distributions on labeled token positions."""
     if (
@@ -371,8 +375,11 @@ def teacher_logit_kd_loss(
     position_values = teacher_topk_positions.to(student_logits.device) if teacher_topk_positions is not None else None
     vocab_size = shift_student.shape[-1]
 
-    per_sample_losses = []
-    per_sample_weights = []
+    token_student_rows: list[torch.Tensor] = []
+    token_sample_indices: list[torch.Tensor] = []
+    token_teacher_indices: list[torch.Tensor] = []
+    token_teacher_values: list[torch.Tensor] = []
+    token_weight_rows: list[torch.Tensor] = []
     for sample_index in range(shift_student.shape[0]):
         teacher_target_indices = gather_indices[sample_index][sparse_mask[sample_index]]
         teacher_target_values = gather_values[sample_index][sparse_mask[sample_index]]
@@ -386,60 +393,127 @@ def teacher_logit_kd_loss(
             valid_positions = (raw_positions > 0) & (raw_positions <= shift_student.shape[1])
             if not valid_positions.any():
                 continue
-            raw_positions = raw_positions[valid_positions] - 1
-            student_target_logits = shift_student[sample_index].index_select(0, raw_positions)
+            student_rows = raw_positions[valid_positions] - 1
             teacher_target_indices = teacher_target_indices[valid_positions]
             teacher_target_values = teacher_target_values[valid_positions]
             if sample_token_weights is not None:
                 sample_token_weights = sample_token_weights[valid_positions]
         else:
-            student_target_logits = shift_student[sample_index][span_mask[sample_index]]
-        aligned_tokens = min(student_target_logits.shape[0], teacher_target_indices.shape[0])
+            student_rows = torch.nonzero(span_mask[sample_index], as_tuple=False).flatten()
+        aligned_tokens = min(student_rows.shape[0], teacher_target_indices.shape[0])
         if aligned_tokens <= 0:
             continue
-        student_target_logits = student_target_logits[:aligned_tokens]
+        student_rows = student_rows[:aligned_tokens]
         teacher_target_indices = teacher_target_indices[:aligned_tokens]
         teacher_target_values = teacher_target_values[:aligned_tokens]
         if sample_token_weights is not None:
             sample_token_weights = sample_token_weights[:aligned_tokens].to(dtype=student_logits.dtype)
-        token_losses = []
-        valid_token_weights = []
-        for token_index in range(aligned_tokens):
-            token_teacher_indices = teacher_target_indices[token_index]
-            token_teacher_values = teacher_target_values[token_index]
-            keep = (token_teacher_indices >= 0) & (token_teacher_indices < vocab_size)
-            if not keep.any():
-                continue
-            token_teacher_indices = token_teacher_indices[keep]
-            token_teacher_values = token_teacher_values[keep]
-            gathered_student = torch.gather(
-                student_target_logits[token_index],
-                dim=-1,
-                index=token_teacher_indices,
-            )
-            student_log_probs = F.log_softmax(gathered_student / temperature, dim=-1)
-            teacher_probs = F.softmax(token_teacher_values / temperature, dim=-1)
-            token_losses.append(F.kl_div(student_log_probs, teacher_probs, reduction="sum") * (temperature**2))
-            if sample_token_weights is not None:
-                valid_token_weights.append(sample_token_weights[token_index])
-        if not token_losses:
-            continue
-        stacked_losses = torch.stack(token_losses)
-        if valid_token_weights:
-            stacked_weights = torch.stack(valid_token_weights).to(dtype=stacked_losses.dtype, device=stacked_losses.device)
-            per_sample_losses.append((stacked_losses * stacked_weights).sum() / stacked_weights.sum().clamp(min=1e-6))
-        else:
-            per_sample_losses.append(stacked_losses.mean())
-        if sample_weights is None:
-            per_sample_weights.append(torch.tensor(1.0, device=student_logits.device))
-        else:
-            per_sample_weights.append(sample_weights[sample_index].to(student_logits.device))
+        token_student_rows.append(student_rows)
+        token_sample_indices.append(
+            torch.full((aligned_tokens,), sample_index, dtype=torch.long, device=student_logits.device)
+        )
+        token_teacher_indices.append(teacher_target_indices)
+        token_teacher_values.append(teacher_target_values)
+        if sample_token_weights is not None:
+            token_weight_rows.append(sample_token_weights)
 
-    if not per_sample_losses:
+    if not token_student_rows:
         return _zero(student_logits.device)
 
-    losses = torch.stack(per_sample_losses)
-    weights = None if sample_weights is None else torch.stack(per_sample_weights)
+    flat_token_rows = torch.cat(token_student_rows, dim=0).long()
+    flat_sample_indices = torch.cat(token_sample_indices, dim=0)
+    flat_teacher_indices = torch.cat(token_teacher_indices, dim=0).long()
+    flat_teacher_values = torch.cat(token_teacher_values, dim=0)
+    entry_keep = (
+        (flat_teacher_indices >= 0)
+        & (flat_teacher_indices < vocab_size)
+        & torch.isfinite(flat_teacher_values)
+        & (flat_teacher_values > INVALID_SPARSE_LOGPROB_CUTOFF)
+    )
+    token_keep = entry_keep.any(dim=-1)
+    if not bool(token_keep.any()):
+        return _zero(student_logits.device)
+    flat_token_rows = flat_token_rows[token_keep]
+    flat_sample_indices = flat_sample_indices[token_keep]
+    flat_teacher_indices = flat_teacher_indices[token_keep]
+    flat_teacher_values = flat_teacher_values[token_keep]
+    entry_keep = entry_keep[token_keep]
+    flat_token_weights = torch.cat(token_weight_rows, dim=0)[token_keep] if token_weight_rows else None
+
+    flat_student = shift_student.reshape(-1, vocab_size)
+    flat_student_rows = flat_sample_indices * shift_student.shape[1] + flat_token_rows
+    safe_teacher_indices = flat_teacher_indices.clamp(min=0, max=max(int(vocab_size) - 1, 0))
+    if include_tail_bucket:
+        temp = max(float(temperature), 1.0e-6)
+        eps = max(float(tail_eps), 1.0e-12)
+        chunk_size = max(int(tail_chunk_size or 0), 1)
+        teacher_values_f = flat_teacher_values.float()
+        teacher_raw_topk = torch.where(entry_keep, torch.exp(teacher_values_f).clamp(min=0.0), torch.zeros_like(teacher_values_f))
+        teacher_tail_raw = (1.0 - teacher_raw_topk.sum(dim=-1)).clamp(min=eps)
+        teacher_topk_power = torch.where(
+            entry_keep,
+            torch.exp(teacher_values_f / temp),
+            torch.zeros_like(teacher_values_f),
+        )
+        teacher_tail_power = teacher_tail_raw.pow(1.0 / temp)
+        teacher_bucket_unnorm = torch.cat([teacher_topk_power, teacher_tail_power.unsqueeze(-1)], dim=-1)
+        teacher_bucket_probs = teacher_bucket_unnorm / teacher_bucket_unnorm.sum(dim=-1, keepdim=True).clamp(min=eps)
+
+        losses: list[torch.Tensor] = []
+        for start in range(0, int(flat_student_rows.shape[0]), chunk_size):
+            end = min(start + chunk_size, int(flat_student_rows.shape[0]))
+            chunk_rows = flat_student_rows[start:end]
+            chunk_indices = safe_teacher_indices[start:end]
+            chunk_entry_keep = entry_keep[start:end]
+            chunk_logits = flat_student.index_select(0, chunk_rows).float() / temp
+            chunk_log_norm = torch.logsumexp(chunk_logits, dim=-1, keepdim=True)
+            chunk_topk_log_probs = torch.gather(chunk_logits, dim=-1, index=chunk_indices) - chunk_log_norm
+            chunk_topk_probs = torch.where(
+                chunk_entry_keep,
+                torch.exp(chunk_topk_log_probs),
+                torch.zeros_like(chunk_topk_log_probs),
+            )
+            chunk_tail_probs = (1.0 - chunk_topk_probs.sum(dim=-1)).clamp(min=eps)
+            chunk_bucket_log_probs = torch.cat(
+                [
+                    torch.where(chunk_entry_keep, chunk_topk_log_probs, torch.zeros_like(chunk_topk_log_probs)),
+                    torch.log(chunk_tail_probs).unsqueeze(-1),
+                ],
+                dim=-1,
+            )
+            chunk_loss = F.kl_div(
+                chunk_bucket_log_probs,
+                teacher_bucket_probs[start:end],
+                reduction="none",
+            ).sum(dim=-1)
+            losses.append(chunk_loss)
+        token_losses = torch.cat(losses, dim=0) * (temp**2)
+    else:
+        gathered_student = flat_student[flat_student_rows.unsqueeze(-1), safe_teacher_indices]
+        student_fill = torch.finfo(gathered_student.dtype).min
+        teacher_fill = torch.finfo(flat_teacher_values.dtype).min
+        gathered_student = gathered_student.masked_fill(~entry_keep, student_fill)
+        flat_teacher_values = flat_teacher_values.masked_fill(~entry_keep, teacher_fill)
+        student_log_probs = F.log_softmax(gathered_student / temperature, dim=-1)
+        teacher_probs = F.softmax(flat_teacher_values / temperature, dim=-1)
+        token_losses = F.kl_div(student_log_probs, teacher_probs, reduction="none").sum(dim=-1) * (temperature**2)
+
+    sample_count = int(shift_student.shape[0])
+    per_sample_loss_sum = torch.zeros((sample_count,), dtype=token_losses.dtype, device=token_losses.device)
+    per_sample_den = torch.zeros((sample_count,), dtype=token_losses.dtype, device=token_losses.device)
+    if flat_token_weights is not None:
+        flat_token_weights = flat_token_weights.to(dtype=token_losses.dtype, device=token_losses.device)
+        per_sample_loss_sum.index_add_(0, flat_sample_indices, token_losses * flat_token_weights)
+        per_sample_den.index_add_(0, flat_sample_indices, flat_token_weights)
+    else:
+        per_sample_loss_sum.index_add_(0, flat_sample_indices, token_losses)
+        per_sample_den.index_add_(0, flat_sample_indices, torch.ones_like(token_losses))
+
+    valid_samples = per_sample_den > 0
+    if not bool(valid_samples.any()):
+        return _zero(student_logits.device)
+    losses = per_sample_loss_sum[valid_samples] / per_sample_den[valid_samples].clamp(min=1e-6)
+    weights = sample_weights.to(student_logits.device)[valid_samples] if sample_weights is not None else None
     return _apply_sample_weights(losses, weights)
 
 

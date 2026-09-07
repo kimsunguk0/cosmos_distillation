@@ -1,0 +1,7 @@
+[
+  {"label": "T0.00_n1", "eval_temperature": 0.0,  "eval_num_paths": 1, "eval_selection_method": "single"},
+  {"label": "T0.30_n6", "eval_temperature": 0.3,  "eval_num_paths": 6, "eval_selection_method": "mean_traj"},
+  {"label": "T0.50_n6", "eval_temperature": 0.5,  "eval_num_paths": 6, "eval_selection_method": "mean_traj"},
+  {"label": "T0.85_n6", "eval_temperature": 0.85, "eval_num_paths": 6, "eval_selection_method": "mean_traj"},
+  {"label": "T1.00_n6", "eval_temperature": 1.0,  "eval_num_paths": 6, "eval_selection_method": "mean_traj"}
+]

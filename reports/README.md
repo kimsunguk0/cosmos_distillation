@@ -7,6 +7,7 @@ Current open issue:
 
 - [058-current-open-trajectory-quality-after-collapse-fix.md](./058-current-open-trajectory-quality-after-collapse-fix.md)
 - [059-claude-findings-and-h200-transition.md](./059-claude-findings-and-h200-transition.md)
+- [143-backbone-eval-protocol-v1.md](./143-backbone-eval-protocol-v1.md)
 
 ## Current Verdict
 
